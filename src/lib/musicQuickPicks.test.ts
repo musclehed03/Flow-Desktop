@@ -1,3 +1,5 @@
+import { useAppSettingsStore } from "../store/useAppSettingsStore";
+import { SETTINGS } from "./settings/schema";
 import { describe, expect, it } from 'vitest';
 
 import type { WatchHistoryRecord } from '../types/db';
@@ -86,7 +88,8 @@ describe('interleaveQuickPickLanes', () => {
     ]);
   });
 
-  it('caps charts and artists and excludes alternate recordings and videos', () => {
+  it.each(['true', 'false'])('caps charts, artists and alternate recordings; video-first=%s', (enabled) => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.MUSIC_VIDEO_FIRST_ENABLED]: enabled } });
     const alternate = { ...song('alternate', 'artist-a'), title: 'same title' };
     const first = { ...song('first', 'artist-a'), title: 'same title' };
     const video = { ...song('video', 'artist-v'), musicVideoType: 'MUSIC_VIDEO_TYPE_OMV' };
@@ -102,7 +105,9 @@ describe('interleaveQuickPickLanes', () => {
     );
     expect(mixed.map((item) => item.id)).toEqual([
       'first', 'b-1', 'chart-1', 'a-2', 'b-2', 'chart-2', 'a-3',
+      ...(enabled === 'true' ? ['video'] : []),
     ]);
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.MUSIC_VIDEO_FIRST_ENABLED]: 'true' } });
   });
 });
 

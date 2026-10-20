@@ -165,3 +165,35 @@ describe("pop-out mini player handoff", () => {
     expect(usePlayerStore.getState().videoPlayerMode).toBe("watch");
   });
 });
+
+// The setting changes only automatic PiP recovery; manual view controls retain ownership.
+import { useAppSettingsStore } from "./useAppSettingsStore";
+import { SETTINGS } from "../lib/settings/schema";
+
+describe("watching view on advance", () => {
+  it.each(["true", "false"])("keeps fullscreen and theater with keep-watching=%s", (enabled) => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.KEEP_WATCHING_VIEW_ENABLED]: enabled } });
+    usePlayerStore.getState().setQueue([video("one"), video("two")]);
+    usePlayerStore.setState({ isVideoFullscreen: true, isTheaterMode: true });
+    usePlayerStore.getState().playNext();
+    expect(usePlayerStore.getState()).toMatchObject({ videoPlayerMode: "watch", isVideoFullscreen: true, isTheaterMode: true });
+  });
+  it.each(["auto", "manual"] as const)("recovers only automatic PiP (%s)", (intent) => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.KEEP_WATCHING_VIEW_ENABLED]: "true" } });
+    usePlayerStore.getState().setQueue([video("one"), video("two")]);
+    usePlayerStore.getState().enterVideoPip(intent);
+    usePlayerStore.getState().playNext();
+    expect(usePlayerStore.getState().videoPlayerMode).toBe(intent === "auto" ? "watch" : "pip");
+    expect(usePlayerStore.getState().videoPipIntent).toBe(intent === "auto" ? null : "manual");
+  });
+  it("retains stock auto-PiP behavior when disabled and respects the pop-out", () => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.KEEP_WATCHING_VIEW_ENABLED]: "false" } });
+    usePlayerStore.getState().setQueue([video("one"), video("two")]);
+    usePlayerStore.getState().enterVideoPip("auto");
+    usePlayerStore.getState().playNext();
+    expect(usePlayerStore.getState().videoPlayerMode).toBe("pip");
+    usePlayerStore.getState().enterVideoWindowPip();
+    usePlayerStore.getState().playQueueItem(0);
+    expect(usePlayerStore.getState().videoPlayerMode).toBe("window");
+  });
+});

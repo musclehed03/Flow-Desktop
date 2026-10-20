@@ -34,6 +34,8 @@ export const SETTINGS = {
   EXPRESSIVE_SLIDERS_ENABLED: "expressive_sliders_enabled",
   CUSTOM_THEMES: "custom_themes",
 
+  MUSIC_VIDEO_FIRST_ENABLED: "music_video_first_enabled",
+  KEEP_WATCHING_VIEW_ENABLED: "keep_watching_view_enabled",
   AUTOPLAY_ENABLED: "autoplay_enabled",
   VIDEO_LOOP_ENABLED: "video_loop_enabled",
   SKIP_SILENCE_ENABLED: "skip_silence_enabled",
@@ -235,6 +237,8 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, "appearance", true, "wired"),
   json(SETTINGS.CUSTOM_THEMES, "appearance", "[]", "wired"),
 
+  bool(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, "player", true, "wired"),
+  bool(SETTINGS.KEEP_WATCHING_VIEW_ENABLED, "player", true, "wired"),
   bool(SETTINGS.AUTOPLAY_ENABLED, "player", true, "wired"),
   bool(SETTINGS.VIDEO_LOOP_ENABLED, "player", false, "wired"),
   bool(SETTINGS.SKIP_SILENCE_ENABLED, "player", false, "deferred", "disabled-until-wired", "settings_note_skip_silence_requires_audio_analysis"),

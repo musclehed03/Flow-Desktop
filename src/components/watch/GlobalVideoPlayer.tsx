@@ -53,6 +53,7 @@ export function GlobalVideoPlayer() {
   const enterVideoPip = usePlayerStore((s) => s.enterVideoPip);
   const expandVideoPlayer = usePlayerStore((s) => s.expandVideoPlayer);
   const dismissVideoPlayer = usePlayerStore((s) => s.dismissVideoPlayer);
+  const keepWatching = useAppSettingsStore((s) => s.values[SETTINGS.KEEP_WATCHING_VIEW_ENABLED] !== "false");
   const autoPipEnabled = useAppSettingsStore((s) => s.values[SETTINGS.AUTO_PIP_ENABLED] !== "false");
 
   const [slotBounds, setSlotBounds] = useState<PlayerBounds | null>(null);
@@ -77,10 +78,11 @@ export function GlobalVideoPlayer() {
 
     if (!nextVideoId || previousVideoId === nextVideoId) return;
     const routeVideoId = watchVideoIdFromPath(location.pathname);
-    if (routeVideoId && routeVideoId !== nextVideoId) {
+    if ((routeVideoId && routeVideoId !== nextVideoId)
+      || (keepWatching && videoPlayerMode === "watch" && !routeVideoId)) {
       navigate(`/watch/${nextVideoId}`, { replace: true });
     }
-  }, [currentVideo?.id, location.pathname, navigate]);
+  }, [currentVideo?.id, location.pathname, navigate, keepWatching, videoPlayerMode]);
 
   // While the pop-out owns playback it also owns the OS transport controls.
   useMediaSessionMetadata(!isPoppedOut);
@@ -172,6 +174,10 @@ export function GlobalVideoPlayer() {
     const prevWatchId = watchVideoIdFromPath(previousPath);
     const nextWatchId = watchVideoIdFromPath(location.pathname);
 
+    // A queue advance replaces one Watch route with another. It must not
+    // reinterpret a manually selected PiP as a request to expand.
+    if (keepWatching && prevWatchId && nextWatchId) return;
+
     if (nextWatchId === currentVideo.id) {
       if (videoPlayerMode === "pip") expandVideoPlayer();
       return;
@@ -190,16 +196,19 @@ export function GlobalVideoPlayer() {
     videoPlayerMode,
     isPlaying,
     autoPipEnabled,
+    keepWatching,
     enterVideoPip,
     expandVideoPlayer,
     dismissVideoPlayer,
   ]);
 
   const expandFromFloating = useCallback(() => {
-    if (!currentVideo) return;
+    // A store handoff can request expansion before React has rendered its video.
+    const video = usePlayerStore.getState().currentVideo;
+    if (!video) return;
     expandVideoPlayer();
-    navigate(`/watch/${currentVideo.id}`);
-  }, [currentVideo, expandVideoPlayer, navigate]);
+    navigate(`/watch/${video.id}`);
+  }, [expandVideoPlayer, navigate]);
 
   useEffect(() => {
     window.addEventListener("flow-video-expand-request", expandFromFloating);

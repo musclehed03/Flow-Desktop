@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { usePlayerStore } from "./usePlayerStore";
+import { musicVideoFirstEnabled, shouldWatchSong, songToVideoSummary } from "../lib/musicVideoRouting";
 
 import type { MusicStreamInfo, SongItem } from "../types/music";
 import {
@@ -147,12 +149,12 @@ const resetRadioSession = (seedIds: string[] = []) => {
 
 const stationIdFor = (videoId: string): string => `RDAMVM${videoId}`;
 
-const isPlayableAudio = (s: SongItem): boolean => {
+export const isPlayableAudio = (s: SongItem): boolean => {
   const vt = s.musicVideoType;
   const isVideoSong = !!vt && vt !== "MUSIC_VIDEO_TYPE_ATV";
   const dur = s.duration ?? 0;
   const okDuration = dur === 0 || (dur >= 30 && dur <= 1200);
-  return !isVideoSong && okDuration && !!(s.videoId ?? s.id);
+  return (!isVideoSong || musicVideoFirstEnabled()) && okDuration && !!(s.videoId ?? s.id);
 };
 
 const getMusicAudioQualitySetting = (): MusicAudioQuality => {
@@ -365,6 +367,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   _loadIndex: async (index, options) => {
     const track = get().queue[index];
     if (!track) return;
+    if (shouldWatchSong(track)) {
+      const queue = get().queue.filter((item) => !!videoIdOf(item));
+      const watchIndex = queue.indexOf(track);
+      get().dismiss();
+      usePlayerStore.getState().setQueue(queue.map(songToVideoSummary), watchIndex);
+      window.dispatchEvent(new Event("flow-video-expand-request"));
+      return;
+    }
     const videoId = videoIdOf(track);
     const resumeAt = options?.resumeAt ?? 0;
 
@@ -524,7 +534,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const state = get();
     const index = upcomingIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
-    if (!upcoming) return;
+    if (!upcoming || shouldWatchSong(upcoming)) return;
 
     const upcomingId = videoIdOf(upcoming);
     // A downloaded track plays from disk; resolving it would be a wasted request.
@@ -538,7 +548,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const state = get();
     const index = upcomingIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
-    if (!upcoming) return;
+    if (!upcoming || shouldWatchSong(upcoming)) return;
     void preloadTrack(upcoming, getMusicAudioQualitySetting(), (videoId) => {
       const now = get();
       const nowTrack = now.queue[upcomingIndex(now)];

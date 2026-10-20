@@ -10,5 +10,39 @@
     "modeMusicAndVideos": "Music and videos",
     "buttonWatch": "Watch on YouTube",
     "buttonListen": "Listen on YouTube Music"
+  },
+  "videoFirst": {
+    "title": "Music videos first",
+    "description": "Open video songs in Watch. Audio tracks still use the music player."
+  },
+  "keepWatching": {
+    "title": "Keep watching view",
+    "description": "Keep the watching layout on track changes and return from automatic Picture-in-Picture. Manual Picture-in-Picture stays open."
+  },
+  "flowImport": {
+    "title": "Flow playlist files (TIDAL import)",
+    "description": "Choose Flow playlist JSON files or ZIP archives. Playlists with existing names are skipped. Each playlist keeps its original track order.",
+    "select": "Select playlist files",
+    "processing": "Importing playlists…",
+    "libraryFailed": "Could not read the existing library. No playlists were saved. Try again.",
+    "total": "Imported {{playlists}} playlists · {{tracks}} tracks",
+    "done": "Imported",
+    "columns": {
+      "file": "File",
+      "playlist": "Playlist",
+      "imported": "Tracks imported",
+      "skipped": "Bad entries skipped",
+      "result": "Result"
+    },
+    "reasons": {
+      "duplicate": "Skipped: playlist name already exists",
+      "invalidJson": "Failed: malformed JSON",
+      "invalidFormat": "Failed: expected flow-playlist version 1",
+      "invalidPlaylist": "Failed: missing playlist name or videos array",
+      "readFailed": "Failed: could not read file",
+      "invalidZip": "Failed: invalid ZIP archive",
+      "emptyZip": "Failed: ZIP contains no JSON files",
+      "saveFailed": "Failed: library could not be saved"
+    }
   }
 }

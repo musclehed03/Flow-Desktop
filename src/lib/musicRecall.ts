@@ -11,6 +11,7 @@ import {
 import { segmentArtistPage, type ArtistPageData } from './useArtistPage';
 import { useAppSettingsStore } from '../store/useAppSettingsStore';
 import { SETTINGS } from './settings/schema';
+import { musicVideoFirstEnabled } from "./musicVideoRouting";
 import type { AlbumItem, SongItem, YTItem } from '../types/music';
 
 export const MIN_SHELF_ITEMS = 4;
@@ -30,7 +31,7 @@ export function isAudioSong(song: SongItem): boolean {
   const isVideo = !!type && type !== 'MUSIC_VIDEO_TYPE_ATV';
   const duration = song.duration ?? 0;
   const plausibleLength = duration === 0 || (duration >= 30 && duration <= 1200);
-  return !isVideo && !!songIdOf(song) && plausibleLength;
+  return (!isVideo || musicVideoFirstEnabled()) && !!songIdOf(song) && plausibleLength;
 }
 
 export function audioMusicOnly(songs: SongItem[]): SongItem[] {

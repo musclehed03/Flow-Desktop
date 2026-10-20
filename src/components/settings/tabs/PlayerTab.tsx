@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { SettingsGroup } from '../SettingsGroup';
 import { SettingItem } from '../SettingItem';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
@@ -16,6 +17,9 @@ import {
 } from '../../../lib/lyrics/registry';
 
 export function PlayerTab() {
+  const { t } = useTranslation('settings');
+  const [videoFirst, setVideoFirst] = useBoolPref(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, true);
+  const [keepWatching, setKeepWatching] = useBoolPref(SETTINGS.KEEP_WATCHING_VIEW_ENABLED, true);
   const [autoplay, setAutoplay] = useBoolPref(SETTINGS.AUTOPLAY_ENABLED, true);
   const [loop, setLoop] = useBoolPref(SETTINGS.VIDEO_LOOP_ENABLED, false);
   const [skipSilence, setSkipSilence] = useBoolPref(SETTINGS.SKIP_SILENCE_ENABLED, false);
@@ -52,7 +56,7 @@ export function PlayerTab() {
   const [ambientMode, setAmbientMode] = useBoolPref(SETTINGS.AMBIENT_MODE_ENABLED, true);
   const [adaptiveSize, setAdaptiveSize] = useBoolPref(SETTINGS.ADAPTIVE_PLAYER_SIZE_ENABLED, true);
 
-  const [autoPip, setAutoPip] = useBoolPref(SETTINGS.AUTO_PIP_ENABLED, false);
+  const [autoPip, setAutoPip] = useBoolPref(SETTINGS.AUTO_PIP_ENABLED, true);
   const [pipButton, setPipButton] = useBoolPref(SETTINGS.MANUAL_PIP_BUTTON_ENABLED, true);
   const [pipSeparateWindow, setPipSeparateWindow] = useBoolPref(SETTINGS.PIP_SEPARATE_WINDOW, true);
   const [pipAlwaysOnTop, setPipAlwaysOnTop] = useBoolPref(SETTINGS.PIP_ALWAYS_ON_TOP, true);
@@ -61,6 +65,12 @@ export function PlayerTab() {
   return (
     <div className="space-y-6 pb-8">
       <SettingsGroup title={getString('settings_group_playback')}>
+        <SettingItem title={t('videoFirst.title')} description={t('videoFirst.description')}>
+          <ToggleSwitch checked={videoFirst} onChange={setVideoFirst} />
+        </SettingItem>
+        <SettingItem title={t('keepWatching.title')} description={t('keepWatching.description')}>
+          <ToggleSwitch checked={keepWatching} onChange={setKeepWatching} />
+        </SettingItem>
         <SettingItem title={getString('settings_autoplay')} description={getString('settings_autoplay_desc')}>
           <ToggleSwitch checked={autoplay} onChange={setAutoplay} />
         </SettingItem>

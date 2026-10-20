@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flow-Tube - Dollhouse Deviants Tuned (Linux)",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Flow-Tube: Dollhouse Deviants Tuned (Linux)",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "maximized": true,
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required"
+      }
+    ]
+  }
+}

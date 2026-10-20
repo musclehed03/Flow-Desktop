@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { getSettingValue } from "./useAppSettingsStore";
+import { SETTINGS } from "../lib/settings/schema";
 import type { CaptionTrack, RelatedContentItem, VideoDetails, VideoSummary } from "../types/video";
 import { prefetchStreamInfo } from "../lib/streamResolution";
 
@@ -337,6 +339,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isPlaying: true,
       currentTime: 0,
       duration: item.durationSeconds ?? 0,
+      ...(getSettingValue(SETTINGS.KEEP_WATCHING_VIEW_ENABLED) !== "false"
+        && get().videoPlayerMode === "pip" && get().videoPipIntent === "auto"
+        ? { videoPlayerMode: "watch" as const, videoPipIntent: null } : {}),
       watchPageCache: null,
       autoplayCandidates: [],
       playbackStartedVideoId: null,

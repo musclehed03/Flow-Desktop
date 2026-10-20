@@ -147,3 +147,69 @@ describe("watching for a stalled connection", () => {
     useMusicPlayerStore.getState()._setBuffering(false);
   });
 });
+
+import { usePlayerStore } from "./usePlayerStore";
+import { useAppSettingsStore } from "./useAppSettingsStore";
+import { SETTINGS } from "../lib/settings/schema";
+import { prefetchMusicStream } from "../lib/musicStreamResolution";
+import { preloadTrack } from "../lib/musicPreload";
+vi.mock("../lib/streamResolution", () => ({ prefetchStreamInfo: vi.fn() }));
+
+describe("watching and music view preservation", () => {
+  afterEach(() => {
+    useMusicPlayerStore.getState().dismiss();
+    usePlayerStore.getState().clearQueue();
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.MUSIC_VIDEO_FIRST_ENABLED]: "true" } });
+  });
+  it.each(["dock", "full", "queue", "lyrics"] as const)("preserves %s through load, next, and ended", async (viewState) => {
+    useMusicPlayerStore.setState({ viewState, radioEnabled: false });
+    await useMusicPlayerStore.getState().playQueue([song("a"), song("b"), song("c")]);
+    expect(useMusicPlayerStore.getState().viewState).toBe(viewState);
+    useMusicPlayerStore.getState().next();
+    await vi.waitFor(() => expect(useMusicPlayerStore.getState().loadingStreamId).toBeNull());
+    expect(useMusicPlayerStore.getState().viewState).toBe(viewState);
+    useMusicPlayerStore.getState().handleEnded();
+    await vi.waitFor(() => expect(useMusicPlayerStore.getState().currentTrack?.id).toBe("c"));
+    expect(useMusicPlayerStore.getState().viewState).toBe(viewState);
+  });
+  it("hands a collection video to Watch with its ordered queue and requests navigation", async () => {
+    const request = vi.fn();
+    window.addEventListener("flow-video-expand-request", request);
+    const video = { ...song("omv"), musicVideoType: "MUSIC_VIDEO_TYPE_OMV" };
+    await useMusicPlayerStore.getState().playQueue([song("before"), video, song("after")], 1, "Collection");
+    expect(usePlayerStore.getState().queue.map((v) => v.id)).toEqual(["before", "omv", "after"]);
+    expect(usePlayerStore.getState().currentVideo?.id).toBe("omv");
+    expect(usePlayerStore.getState().videoPlayerMode).toBe("watch");
+    expect(useMusicPlayerStore.getState().currentTrack).toBeNull();
+    expect(resolveMusicStream).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+    window.removeEventListener("flow-video-expand-request", request);
+  });
+  it("does not resolve or preload a video before the music queue reaches it", async () => {
+    useMusicPlayerStore.setState({ radioEnabled: false });
+    const video = { ...song("omv"), musicVideoType: "MUSIC_VIDEO_TYPE_OMV" };
+    await useMusicPlayerStore.getState().playQueue([song("audio"), video]);
+    useMusicPlayerStore.getState()._prefetchUpcoming();
+    useMusicPlayerStore.getState()._preloadUpcoming();
+    expect(prefetchMusicStream).not.toHaveBeenCalled();
+    expect(preloadTrack).not.toHaveBeenCalled();
+    useMusicPlayerStore.getState().handleEnded();
+    expect(usePlayerStore.getState().currentVideo?.id).toBe("omv");
+    expect(resolveMusicStream).toHaveBeenCalledTimes(1);
+  });
+  it("retains radio video candidates and hands them to Watch on advance", async () => {
+    getMusicWatchQueue.mockResolvedValue({ items: [{ ...song("radio-video"), musicVideoType: "MUSIC_VIDEO_TYPE_UGC" }], continuation: null, radioPlaylistId: null });
+    await useMusicPlayerStore.getState().startRadio(song("seed"));
+    await useMusicPlayerStore.getState()._ensureRadio();
+    expect(useMusicPlayerStore.getState().queue.map((t) => t.id)).toEqual(["seed", "radio-video"]);
+    useMusicPlayerStore.getState().handleEnded();
+    expect(usePlayerStore.getState().currentVideo?.id).toBe("radio-video");
+    expect(resolveMusicStream).toHaveBeenCalledTimes(1);
+  });
+  it("keeps stock audio loading when video-first is disabled", async () => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.MUSIC_VIDEO_FIRST_ENABLED]: "false" } });
+    await useMusicPlayerStore.getState().playTrack({ ...song("video-off"), musicVideoType: "MUSIC_VIDEO_TYPE_UGC" });
+    expect(resolveMusicStream).toHaveBeenCalledWith("video-off", "Auto");
+    expect(useMusicPlayerStore.getState().currentTrack?.id).toBe("video-off");
+  });
+});

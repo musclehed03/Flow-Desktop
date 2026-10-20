@@ -1,3 +1,5 @@
+import { usePreference } from "../../lib/usePreference";
+import { SETTINGS } from "../../lib/settings/schema";
 import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +16,7 @@ export default function MusicBrowsePage() {
   const { t } = useTranslation('common');
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const [videoFirst] = usePreference(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, 'true');
   const gridStyle = useGridStyle({ density: 'dense' });
   const playQueue = useMusicPlayerStore((store) => store.playQueue);
   const isHidden = useMusicHiddenFilter();
@@ -29,7 +32,7 @@ export default function MusicBrowsePage() {
     .filter((item) => item.type === 'song' ? !isHidden(item)
       : item.type === 'artist' ? !isArtistHidden(item) : true);
   const audioSongs = visible.filter((item): item is Extract<YTItem, { type: 'song' }> =>
-    item.type === 'song' && (!item.musicVideoType || item.musicVideoType === 'MUSIC_VIDEO_TYPE_ATV'));
+    item.type === 'song' && (videoFirst !== 'false' || !item.musicVideoType || item.musicVideoType === 'MUSIC_VIDEO_TYPE_ATV'));
   const play = (song: SongItem) => {
     const index = audioSongs.findIndex((item) => (item.videoId ?? item.id) === (song.videoId ?? song.id));
     void playQueue(audioSongs, Math.max(0, index), title);
@@ -39,8 +42,8 @@ export default function MusicBrowsePage() {
       case 'song':
         return item.musicVideoType && item.musicVideoType !== 'MUSIC_VIDEO_TYPE_ATV'
           ? <MusicItemCard variant="video" item={item} fill
-              onPlay={() => navigate(`/watch/${item.videoId ?? item.id}`)}
-              onOpen={() => navigate(`/watch/${item.videoId ?? item.id}`)} />
+              onPlay={() => videoFirst !== 'false' ? play(item) : navigate(`/watch/${item.videoId ?? item.id}`)}
+              onOpen={() => videoFirst !== 'false' ? play(item) : navigate(`/watch/${item.videoId ?? item.id}`)} />
           : <MusicItemCard variant="song" item={item} fill onPlay={() => play(item)} />;
       case 'album':
         return <MusicItemCard variant="album" item={item} fill

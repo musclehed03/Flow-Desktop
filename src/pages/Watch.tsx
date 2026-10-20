@@ -1,3 +1,4 @@
+import { useWatchQueue } from "../lib/useWatchQueue";
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { usePlayerStore } from "../store/usePlayerStore";
@@ -56,7 +57,6 @@ export function Watch() {
   const currentVideo = usePlayerStore((s) => s.currentVideo);
   const setQueue = usePlayerStore((s) => s.setQueue);
   const enrichCurrentVideo = usePlayerStore((s) => s.enrichCurrentVideo);
-  const playQueueItem = usePlayerStore((s) => s.playQueueItem);
   const dearrowData = usePlayerStore((s) => s.dearrowData);
   const rydData = usePlayerStore((s) => s.rydData);
   const setDearrowData = usePlayerStore((s) => s.setDearrowData);
@@ -88,30 +88,9 @@ export function Watch() {
     loadSubscriptions();
   }, [loadSubscriptions]);
 
-  useEffect(() => {
-    if (!videoId) return;
-    if (currentVideo && currentVideo.id === videoId) return;
-
-    const queuedIndex = usePlayerStore.getState().queue.findIndex((item) => item.id === videoId);
-    if (queuedIndex >= 0) {
-      playQueueItem(queuedIndex);
-      return;
-    }
-
-    if (offlineRecord) {
-      setPageError(null);
-      setQueue([downloadRecordToVideo(offlineRecord)], 0);
-      return;
-    }
-
-    // A cold open — a deep link, a reload, a notification — knows the id and
-    // nothing else. Playback needs only the id, so the player is handed a stub
-    // and starts resolving immediately; the title and channel are filled in from
-    // the details request below once it answers. The old order made every cold
-    // open pay for metadata before the first byte.
-    setPageError(null);
-    setQueue([{ id: videoId, title: "", channelName: "" }], 0);
-  }, [videoId, currentVideo, playQueueItem, setQueue, retryNonce, offlineRecord]);
+  const offlineVideo = useMemo(() => offlineRecord ? downloadRecordToVideo(offlineRecord) : null, [offlineRecord]);
+  const resetPageError = useCallback(() => setPageError(null), []);
+  useWatchQueue(videoId, offlineVideo, retryNonce, resetPageError);
 
   // Fills in the stub a cold open started with. Details are fetched once, by the
   // effect below, so this never costs a request of its own.

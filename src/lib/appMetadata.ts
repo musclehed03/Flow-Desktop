@@ -47,7 +47,7 @@ export async function getAppMetadata(): Promise<AppMetadata> {
     ]);
 
     cachedMetadata = {
-      name,
+      name: name.replace(/^Flow-Tube - Dollhouse Deviants Tuned/, "Flow-Tube: Dollhouse Deviants Tuned"),
       version,
       identifier,
       tauriVersion,

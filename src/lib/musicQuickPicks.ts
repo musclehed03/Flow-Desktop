@@ -1,3 +1,4 @@
+import { musicVideoFirstEnabled } from "./musicVideoRouting";
 import type { WatchHistoryRecord } from '../types/db';
 import type { SongItem } from '../types/music';
 
@@ -98,7 +99,7 @@ export function interleaveQuickPickLanes(
         if (!song) continue;
         const id = song.videoId ?? song.id;
         if (!id || seen.has(id)) continue;
-        if (song.musicVideoType && song.musicVideoType !== 'MUSIC_VIDEO_TYPE_ATV') continue;
+        if (!musicVideoFirstEnabled() && song.musicVideoType && song.musicVideoType !== 'MUSIC_VIDEO_TYPE_ATV') continue;
         if (laneIndex === options.chartLaneIndex && chartCount >= (options.chartLimit ?? Infinity)) continue;
         const artistKey = normalizedArtistKey(song.artists[0]?.id, song.artists[0]?.name);
         if (artistKey && (artistCounts.get(artistKey) ?? 0) >= (options.artistLimit ?? Infinity)) continue;

@@ -52,6 +52,7 @@ export default function MusicHome() {
   const { t } = useTranslation('common');
   const gridStyle = useGridStyle({ density: 'dense' });
   const navigate = useNavigate();
+  const [videoFirst] = usePreference(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, 'true');
   const playQueue = useMusicPlayerStore((s) => s.playQueue);
   const { data, loading, error, reload, loadMore, hasMore, loadingMore, loadMoreError } = useMusicHome();
   const personalization = useMusicPersonalization();
@@ -121,8 +122,8 @@ export default function MusicHome() {
       case 'song':
         return item.musicVideoType && item.musicVideoType !== 'MUSIC_VIDEO_TYPE_ATV'
           ? <MusicItemCard variant="video" item={item} fill={fill}
-              onPlay={() => navigate(`/watch/${item.videoId ?? item.id}`)}
-              onOpen={() => navigate(`/watch/${item.videoId ?? item.id}`)} />
+              onPlay={() => videoFirst !== 'false' ? playTrack(item, songContext, source) : navigate(`/watch/${item.videoId ?? item.id}`)}
+              onOpen={() => videoFirst !== 'false' ? playTrack(item, songContext, source) : navigate(`/watch/${item.videoId ?? item.id}`)} />
           : <MusicItemCard variant="song" item={item} fill={fill} onPlay={() => playTrack(item, songContext, source)} />;
       case 'album':
         return (

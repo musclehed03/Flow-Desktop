@@ -1,4 +1,31 @@
 <div align="center">
+  <img src="https://img.shields.io/badge/DOLLHOUSE_DEVIANTS-TUNED-FF1E89?style=for-the-badge&amp;labelColor=101014" alt="Dollhouse Deviants Tuned" />
+  <img src="https://img.shields.io/badge/PLAYBACK-VIDEO_FIRST-FF1E89?style=for-the-badge&amp;labelColor=101014" alt="Video first playback" />
+  <img src="https://img.shields.io/badge/BUILD_ORDER-WINDOWS_THEN_LINUX-66D9E8?style=flat-square&amp;labelColor=101014" alt="Build order: Windows then Linux" />
+
+  **The screen stays lit. The library stays local.**
+
+  Dollhouse Deviants Tuned is a watching-focused fork of **Flow Desktop by Dev AE / A-EDev (Aedev), part of Flow-Tube**.
+  The upstream project, original documentation, artwork, credits, and GPL terms remain below.
+</div>
+
+## Dollhouse Deviants Tuned upgrades
+
+Upstream: [Flow-Tube / Flow-Desktop](https://github.com/Flow-Tube/Flow-Desktop).
+
+A local cut for long nights with music videos. The video Watch player and audio music player remain separate.
+
+- **Platform display names:** Windows uses **Flow-Tube: Dollhouse Deviants Tuned (Desktop)**; Linux uses **Flow-Tube: Dollhouse Deviants Tuned (Linux)**. Tauri forbids colons in `productName`, so package/installer names use **Flow-Tube - Dollhouse Deviants Tuned (Desktop)** / **(Linux)**; window titles and About retain the colon wording. Version `0.1.0-beta2` and bundle identifier `io.github.aedev.flow.desktop` remain unchanged.
+- **Music videos first:** enabled by default in Player settings. Video songs open Watch with the queue; ATV/audio starts retain the music player. Turn it off for upstream routing and candidate filtering.
+- **Keep watching view:** enabled by default in Player settings. Queue advances retain the watching layout and recover automatic PiP; manual PiP remains under your control. The auto-PiP toggle also uses the schema's `true` default.
+- **Bulk TIDAL playlist import:** Import Data accepts multiple resolved `flow-playlist` version 1 JSON files or ZIP archives. All JSON entries are processed, track order is preserved, existing playlist names are skipped whole, and each file gets a result. The library is saved once per batch. CSV membership joins are not included.
+- **Build priority:** Windows x64 NSIS first; Linux x64 Debian/RPM and AppImage second. Build artifacts only; no deployment, release, tag, updater change, or macOS work in this fork pass.
+
+The following is the upstream README, preserved in full. Upstream download links refer to upstream builds.
+
+---
+
+<div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/banners/flow-desktop-dark.svg">
     <img alt="Flow Desktop. Privacy-first YouTube and YouTube Music for Windows, macOS and Linux." src="https://assets.flow-tube.org/v1/banners/flow-desktop-light.svg" width="100%">
