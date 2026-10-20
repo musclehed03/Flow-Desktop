@@ -9,7 +9,7 @@ use crate::music_brain::mixes::{DailyMixSeed, daily_mixes};
 use crate::music_brain::model::MusicBrain;
 use crate::music_brain::profile::{MusicTasteProfile, taste_profile};
 use crate::music_brain::rank::{
-    RankInput, day_slot, heavy_rotation, rank, rediscover, time_of_day_rotation,
+    RankInput, day_slot, heavy_rotation, rediscover, time_of_day_rotation,
 };
 use crate::music_brain::store::MusicBrainStore;
 
@@ -225,6 +225,7 @@ pub async fn get_blocked_music_artists(
 pub async fn rank_music_candidates(
     songs: Vec<SongItem>,
     surface: String,
+    target_novelty: Option<f64>,
     music_brain: State<'_, Arc<MusicBrainStore>>,
 ) -> CmdResult<Vec<SongItem>> {
     let inputs: Vec<RankInput> = songs.iter().map(song_to_input).collect();
@@ -239,7 +240,13 @@ pub async fn rank_music_candidates(
             .map(|(song, _)| song)
             .collect());
     }
-    let order = rank(&brain, &inputs, &surface, now);
+    let order = crate::music_brain::rank::rank_with_novelty_override(
+        &brain,
+        &inputs,
+        &surface,
+        now,
+        target_novelty,
+    );
     Ok(order.into_iter().map(|i| songs[i].clone()).collect())
 }
 

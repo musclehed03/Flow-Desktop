@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getSetting, setSetting as persistSetting } from "../lib/api/db";
 import { getString } from "../lib/i18n/index";
 import {
+  SETTINGS,
   SETTING_DEFINITIONS,
   type SettingDefinition,
   type SettingKey,
@@ -64,6 +65,9 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
       const entries = await Promise.all(
         SETTING_DEFINITIONS.map(async (definition) => {
           const stored = await getSetting(definition.key);
+          if (definition.key === SETTINGS.SAFE_MOTION_ENABLED && stored === null) {
+            await persistSetting(definition.key, definition.defaultValue);
+          }
           const parsed = normalizeSettingValue(definition, stored);
           if (parsed.usedFallback) {
             console.warn("Invalid persisted setting; using default", {

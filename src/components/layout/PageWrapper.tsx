@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useMusicPlayerStore } from '../../store/useMusicPlayerStore';
 import { Topbar } from './Topbar';
 import { Sidebar } from './Sidebar';
 import { Outlet, useLocation } from 'react-router-dom';
@@ -7,6 +8,7 @@ import { ScrollContainerContext } from '../../lib/useScrollContainer';
 
 export function PageWrapper() {
   const location = useLocation();
+  const musicPlaying = useMusicPlayerStore((s) => s.currentTrack !== null);
   // Per-field, not a bare `useUiStore()`: the store also carries `searchQuery`,
   // so a selectorless subscription re-rendered the whole routed page — feed and
   // every mounted card included — on each keystroke in the search box.
@@ -28,7 +30,7 @@ export function PageWrapper() {
   }, [location.pathname, location.search]);
 
   return (
-    <div className="flex h-full flex-col bg-background text-chrome-zinc-100 overflow-hidden font-sans">
+    <div data-sensory-playing={isWatchPage || (musicPlaying && !isSettingsPage) || undefined} className="flex h-full flex-col bg-background text-chrome-zinc-100 overflow-hidden font-sans">
       <Topbar />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />

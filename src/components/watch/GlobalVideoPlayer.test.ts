@@ -8,6 +8,7 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { SETTINGS } from "../../lib/settings/schema";
 
+vi.mock("../accessibility/SensoryAdvisory", () => ({ SensoryAdvisory: () => null }));
 vi.mock("./FlowPlayerCore", () => ({ FlowPlayerCore: () => null }));
 vi.mock("../../lib/useMediaSessionMetadata", () => ({ useMediaSessionMetadata: () => {} }));
 vi.mock("../../lib/streamResolution", () => ({ prefetchStreamInfo: vi.fn() }));

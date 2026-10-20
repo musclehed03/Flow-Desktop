@@ -27,7 +27,7 @@ export function MusicArtwork({
   const showImage = !!displaySrc;
 
   return (
-    <motion.div
+    <motion.div data-sensory-artwork="true"
       layoutId={layoutId}
       className={`relative overflow-hidden bg-surface-container-highest ${className ?? ""}`}
     >

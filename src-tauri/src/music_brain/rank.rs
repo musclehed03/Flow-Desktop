@@ -91,7 +91,12 @@ pub fn surface_weights(surface: &str) -> SurfaceWeights {
 /// Target fraction of the list that should be *novel* (unseen-artist) for a surface.
 /// Discovery-leaning surfaces flex with the user's learned appetite; comfort surfaces stay
 /// mostly familiar regardless.
-fn surface_target_novelty(surface: &str, appetite: f64) -> f64 {
+fn surface_target_novelty(surface: &str, appetite: f64, target_override: Option<f64>) -> f64 {
+    if surface == "radio" {
+        if let Some(value) = target_override.filter(|value| value.is_finite()) {
+            return value.clamp(0.0, 1.0);
+        }
+    }
     let base = match surface {
         "quick_picks" | "heavy_rotation" => 0.15,
         "radio" => 0.35,
@@ -354,6 +359,16 @@ const COOC_ANCHOR_ARTISTS: usize = 12;
 /// Ties preserve the original (YouTube Music recall) order, so a cold/empty brain is a
 /// no-op pass-through. A sequence rule then spreads out long same-artist runs.
 pub fn rank(brain: &MusicBrain, inputs: &[RankInput], surface: &str, now_ms: u64) -> Vec<usize> {
+    rank_with_novelty_override(brain, inputs, surface, now_ms, None)
+}
+
+pub fn rank_with_novelty_override(
+    brain: &MusicBrain,
+    inputs: &[RankInput],
+    surface: &str,
+    now_ms: u64,
+    target_override: Option<f64>,
+) -> Vec<usize> {
     if inputs.len() <= 1 {
         return (0..inputs.len()).collect();
     }
@@ -402,7 +417,7 @@ pub fn rank(brain: &MusicBrain, inputs: &[RankInput], surface: &str, now_ms: u64
         .iter()
         .map(|inp| is_taste_adjacent(brain, inp, &anchors))
         .collect();
-    let target = surface_target_novelty(surface, brain.discovery_appetite);
+    let target = surface_target_novelty(surface, brain.discovery_appetite, target_override);
     let mut composed = compose_to_ratio(primary_order, &novel, &adjacent, target);
     composed.extend(suppressed_order);
 
@@ -793,5 +808,25 @@ mod tests {
         assert_eq!(day_slot(at(13)), Some("afternoon"));
         assert_eq!(day_slot(at(20)), Some("evening"));
         assert_eq!(day_slot(at(2)), Some("night"));
+    }
+}
+
+#[cfg(test)]
+mod tuned_novelty_tests {
+    use super::*;
+    #[test]
+    fn radio_override_replaces_appetite_flex_only_for_radio() {
+        for appetite in [0.0, 0.5, 1.0] {
+            assert_eq!(surface_target_novelty("radio", appetite, Some(0.10)), 0.10);
+            assert_eq!(surface_target_novelty("radio", appetite, Some(0.65)), 0.65);
+            assert_eq!(
+                surface_target_novelty("discover", appetite, Some(0.10)),
+                surface_target_novelty("discover", appetite, None)
+            );
+        }
+        assert_eq!(
+            surface_target_novelty("radio", 0.5, Some(f64::NAN)),
+            surface_target_novelty("radio", 0.5, None)
+        );
     }
 }

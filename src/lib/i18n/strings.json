@@ -1292,5 +1292,7 @@
   "settings_blocked_pin_desc": "Ask for a PIN before a blocked video can be revealed. This is a lock against accident, not encryption — anyone with access to this computer's files can still read the block list.",
   "settings_blocked_pin_set": "Set PIN",
   "settings_blocked_pin_clear": "Clear PIN",
-  "settings_blocked_pin_placeholder": "New PIN"
+  "settings_blocked_pin_placeholder": "New PIN",
+  "radio_unavailable_title": "Station needs a new seed",
+  "radio_unavailable_message": "No unplayed tracks are available after retrying. Choose another track or station to continue."
 }

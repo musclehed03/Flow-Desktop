@@ -44,5 +44,77 @@
       "emptyZip": "Failed: ZIP contains no JSON files",
       "saveFailed": "Failed: library could not be saved"
     }
+  },
+  "radio": {
+    "discovery": "Radio discovery",
+    "less": "Less discovery",
+    "moderate": "Moderate discovery",
+    "more": "More discovery",
+    "genius": "Genius DJ",
+    "geniusDescription": "Endless playback with no automatic repeats. Enabling also turns autoplay on. Explicit replays and repeat modes remain available.",
+    "exhausted": "No unplayed tracks available. Choose another station or seed.",
+    "station": "Play station"
+  },
+  "sensory": {
+    "title": "Dollhouse Deviants Sensory Suite",
+    "controls": "Deviant Controls",
+    "close": "Close Deviant Controls",
+    "on": "On",
+    "off": "Off",
+    "focus": {
+      "title": "Focus Mode",
+      "description": "Hide navigation and non-essential panels while watching or listening."
+    },
+    "motion": {
+      "title": "Safe Motion",
+      "description": "Stop interface animations. New videos pause for photosensitivity consent. Footage itself is unchanged."
+    },
+    "font": {
+      "title": "Readable Font (ADHD/Dyslexia)",
+      "description": "Use a readable font stack, double line height, and wider letter and word spacing."
+    },
+    "contrast": {
+      "title": "High Contrast",
+      "description": "Strengthen text and control contrast in dark or light mode."
+    },
+    "colorBlind": {
+      "title": "Color Blind Support",
+      "description": "Underline links and reinforce selected states with symbols and labels."
+    },
+    "light": {
+      "title": "Light Theme",
+      "description": "Use a light background with dark text. Dark remains the default."
+    },
+    "simplified": {
+      "title": "Simplified View",
+      "description": "Hide images, thumbnails, posters, and decorative artwork. Video playback remains available."
+    },
+    "advisoryTitle": "Photosensitivity advisory",
+    "advisory": "Music videos may contain flashing lights or strobing imagery. Playback is paused. Continue only when you are comfortable watching.",
+    "motionAdvisory": "Safe Motion reduces interface movement; it cannot remove flashes from video footage. Every new video waits for your consent.",
+    "continue": "Continue playback",
+    "shortcuts": "Both players: K play/pause, J/L or arrows seek, ↑/↓ volume, N/P next/previous, F fullscreen, I mini-player/PiP. Tab and Enter operate controls. In the audio player, I toggles the dock; audio has no video PiP window.",
+    "musicFullscreen": "Music fullscreen",
+    "musicMini": "Music mini-player (audio dock)",
+    "player": {
+      "previous": "Previous track",
+      "next": "Next track",
+      "play": "Play",
+      "pause": "Pause",
+      "mute": "Mute audio",
+      "live": "Go to live",
+      "submit": "Submit SponsorBlock segment",
+      "quality": "Video quality",
+      "captions": "Captions",
+      "settings": "Player settings",
+      "pip": "Picture in picture",
+      "theater": "Theater mode",
+      "fullscreen": "Fullscreen",
+      "subtitles": "Customize subtitles",
+      "speed": "Playback speed",
+      "volume": "Volume",
+      "seek": "Playback position",
+      "chapters": "Chapters"
+    }
   }
 }

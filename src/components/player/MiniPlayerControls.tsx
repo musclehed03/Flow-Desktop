@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef } from "react";
 import { FastForward, Pause, Play, Rewind, SkipBack, SkipForward } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
@@ -32,6 +33,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
   showSkipControls,
   showNextPrevControls,
 }) => {
+  const { t: sensoryText } = useTranslation("settings");
   const playNext = usePlayerStore((s) => s.playNext);
   const playPrevious = usePlayerStore((s) => s.playPrevious);
 
@@ -47,6 +49,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
     const update = () => {
       if (!video?.isConnected) video = container.querySelector("video");
       if (!video) return;
+      trackRef.current?.setAttribute("aria-valuenow", String(Math.round(video.currentTime)));
       const dur = video.duration || duration || 0;
       const pct = dur > 0 ? clamp((video.currentTime / dur) * 100, 0, 100) : 0;
       setStyleIfChanged(fillRef.current, "width", `${pct}%`);
@@ -96,7 +99,17 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
       <div className="pointer-events-auto" onClick={(event) => event.stopPropagation()}>
         {/* Progress bar */}
         <div
-          ref={trackRef}
+          ref={trackRef} role="slider" tabIndex={0} aria-label={sensoryText('sensory.player.seek')}
+          aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={0}
+          onKeyDown={(event) => {
+            const current = usePlayerStore.getState().currentTime;
+            if (event.key === 'ArrowRight') seekTo(Math.min(duration, current + 10));
+            else if (event.key === 'ArrowLeft') seekTo(Math.max(0, current - 10));
+            else if (event.key === 'Home') seekTo(0);
+            else if (event.key === 'End') seekTo(duration);
+            else return;
+            event.preventDefault(); event.stopPropagation();
+          }}
           className="group/mpbar relative flex h-4 cursor-pointer items-center"
           onPointerDown={(event) => {
             scrubbingRef.current = true;
@@ -123,7 +136,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
         {/* Transport row */}
         <div className="mt-0.5 flex items-center justify-center gap-2">
           {showNextPrevControls && (
-            <button type="button" title="Previous" onClick={playPrevious} className={sideBtn}>
+            <button type="button" title={sensoryText("sensory.player.previous")} aria-label={sensoryText("sensory.player.previous")} onClick={playPrevious} className={sideBtn}>
               <SkipBack size={16} fill="currentColor" />
             </button>
           )}
@@ -139,7 +152,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
           )}
           <button
             type="button"
-            title={isPlaying ? "Pause" : "Play"}
+            title={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-label={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-pressed={isPlaying}
             onClick={togglePlay}
             className="grid h-11 w-11 place-items-center rounded-full bg-chrome-white/10 text-chrome-white transition-transform hover:bg-chrome-white/20 active:scale-95"
           >
@@ -160,7 +173,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
             </button>
           )}
           {showNextPrevControls && (
-            <button type="button" title="Next" onClick={() => playNext()} className={sideBtn}>
+            <button type="button" title={sensoryText("sensory.player.next")} aria-label={sensoryText("sensory.player.next")} onClick={() => playNext()} className={sideBtn}>
               <SkipForward size={16} fill="currentColor" />
             </button>
           )}

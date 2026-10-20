@@ -17,12 +17,12 @@ export function WatchLayout({ player, metadata, description, comments, sidebar }
 
           <div className="flex w-full min-w-0 flex-col gap-5 lg:col-start-2 lg:row-start-2">
             {metadata}
-            {description}
-            {comments}
+            <div data-sensory-distraction="true">{description}</div>
+            <div data-sensory-distraction="true">{comments}</div>
           </div>
 
           <div className="flex w-full min-h-0 flex-col gap-5 overscroll-contain lg:sticky lg:top-6 lg:col-start-3 lg:row-start-2 lg:max-h-[calc(100vh-6.5rem)] lg:self-start lg:overflow-y-auto lg:p-2 hide-scrollbar">
-            {sidebar}
+            <div data-sensory-distraction="true">{sidebar}</div>
           </div>
         </div>
       </div>
@@ -35,12 +35,12 @@ export function WatchLayout({ player, metadata, description, comments, sidebar }
         <div className="flex w-full min-w-0 flex-col gap-5">
           {player}
           {metadata}
-          {description}
-          {comments}
+          <div data-sensory-distraction="true">{description}</div>
+          <div data-sensory-distraction="true">{comments}</div>
         </div>
 
         <div className="flex w-full min-h-0 flex-col gap-5 overscroll-contain lg:sticky lg:top-6 lg:max-h-[calc(100vh-6.5rem)] lg:self-start lg:overflow-y-auto lg:p-2 hide-scrollbar">
-          {sidebar}
+          <div data-sensory-distraction="true">{sidebar}</div>
         </div>
       </div>
     </div>

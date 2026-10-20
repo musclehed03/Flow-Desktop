@@ -1,3 +1,4 @@
+import { GeniusControls } from "../radio/GeniusControls";
 import {
   ChevronDown,
   ChevronUp,
@@ -74,7 +75,7 @@ export function QueuePanel() {
       <div className="flex shrink-0 items-center gap-2 border-b border-chrome-neutral-800 px-4 py-3">
         <button
           type="button"
-          onClick={cycleRepeatMode}
+          aria-pressed={repeatMode !== "none"} aria-label={repeatLabels[repeatMode]} onClick={cycleRepeatMode}
           title={repeatLabels[repeatMode]}
           className={`flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition-colors duration-200 ease-out ${
             repeatMode === "none"
@@ -87,7 +88,7 @@ export function QueuePanel() {
         </button>
         <button
           type="button"
-          onClick={toggleShuffle}
+          aria-pressed={isShuffle} aria-label={getString("shuffle")} onClick={toggleShuffle}
           className={`flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition-colors duration-200 ease-out ${
             isShuffle
               ? "bg-[var(--color-primary)] text-[var(--color-on-primary)]"
@@ -107,6 +108,7 @@ export function QueuePanel() {
         </button>
       </div>
 
+      <GeniusControls surface="video" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {queue.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">

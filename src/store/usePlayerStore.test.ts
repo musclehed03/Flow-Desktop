@@ -197,3 +197,34 @@ describe("watching view on advance", () => {
     expect(usePlayerStore.getState().videoPlayerMode).toBe("window");
   });
 });
+
+vi.mock('../lib/videoAutoplay', () => ({ refillVideoCandidates: vi.fn() }));
+import { refillVideoCandidates } from '../lib/videoAutoplay';
+
+describe('Genius DJ video session', () => {
+  it('filters loopbacks from automatic candidates but permits an explicit replay', () => {
+    usePlayerStore.getState().setQueue([video('a'), video('b')]);
+    usePlayerStore.getState().playNext();
+    usePlayerStore.getState().setAutoplayCandidates([video('a'), video('new')]);
+    expect(usePlayerStore.getState().autoplayCandidates.map((v) => v.id)).toEqual(['new']);
+    expect(usePlayerStore.getState().addToQueue(video('a'))).toBe('added');
+    expect(usePlayerStore.getState().playNext()?.id).toBe('a');
+  });
+  it('refills an exhausted queue and advances once', async () => {
+    usePlayerStore.getState().setQueue([video('seed')]);
+    vi.mocked(refillVideoCandidates).mockResolvedValue({ videos: [video('seed'), video('new')], station: null });
+    await usePlayerStore.getState().refillAutoplay();
+    expect(usePlayerStore.getState().currentVideo?.id).toBe('new');
+  });
+  it('does not resume a paused or dismissed player after an in-flight refill', async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof refillVideoCandidates>>) => void;
+    vi.mocked(refillVideoCandidates).mockReturnValue(new Promise((done) => { resolve = done; }));
+    usePlayerStore.getState().setQueue([video('seed')]);
+    const pending = usePlayerStore.getState().refillAutoplay();
+    usePlayerStore.getState().setIsPlaying(false);
+    resolve({ videos: [video('new')], station: null });
+    await pending;
+    expect(usePlayerStore.getState().currentVideo?.id).toBe('seed');
+    expect(usePlayerStore.getState().isPlaying).toBe(false);
+  });
+});

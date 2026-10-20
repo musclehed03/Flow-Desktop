@@ -274,8 +274,9 @@ export type MusicRankSurface =
 export function rankMusicCandidates(
   songs: SongItem[],
   surface: MusicRankSurface,
+  targetNovelty?: number,
 ): Promise<SongItem[]> {
-  return invokeBackend<SongItem[]>("rank_music_candidates", { songs, surface });
+  return invokeBackend<SongItem[]>("rank_music_candidates", { songs, surface, targetNovelty });
 }
 
 /** Records a reversible dislike cooldown for an artist (a repeat dislike escalates to a block). */

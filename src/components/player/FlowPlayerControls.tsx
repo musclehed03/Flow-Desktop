@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   AudioLines,
@@ -173,6 +174,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
   chapters = [],
   activeQualityLabel,
 }) => {
+  const { t: sensoryText } = useTranslation("settings");
   const {
     isPlaying,
     currentVideo,
@@ -251,6 +253,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
       if (!video?.isConnected) video = container.querySelector("video");
       if (!video) return;
       const cur = video.currentTime;
+      container.querySelector("[data-progress-track]")?.setAttribute("aria-valuenow", String(Math.round(cur)));
 
       // Live: the seekbar tracks the DVR window and the time shows real broadcast elapsed.
       if (isLive) {
@@ -482,7 +485,17 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
           )}
 
           <div
-            data-progress-track
+            data-progress-track role="slider" tabIndex={0} aria-label={sensoryText('sensory.player.seek')}
+            aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(usePlayerStore.getState().currentTime)}
+            onKeyDown={(event) => {
+              const current = usePlayerStore.getState().currentTime;
+              if (event.key === 'ArrowRight') seekTo(Math.min(duration, current + 10));
+              else if (event.key === 'ArrowLeft') seekTo(Math.max(0, current - 10));
+              else if (event.key === 'Home') seekTo(0);
+              else if (event.key === 'End') seekTo(duration);
+              else return;
+              event.preventDefault(); event.stopPropagation();
+            }}
             className="group/seekbar relative flex h-6 cursor-pointer items-center"
             onMouseMove={handleProgressMove}
             onMouseLeave={() => {
@@ -602,7 +615,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <button
                 type="button"
-                title="Previous"
+                title={sensoryText("sensory.player.previous")} aria-label={sensoryText("sensory.player.previous")}
                 onClick={playPrevious}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
               >
@@ -610,7 +623,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
-                title={isPlaying ? "Pause" : "Play"}
+                title={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-label={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-pressed={isPlaying}
                 onClick={togglePlay}
                 className="grid h-10 w-10 place-items-center rounded-full bg-chrome-black/20 text-chrome-white hover:bg-chrome-white/10 transition-transform active:scale-95"
               >
@@ -622,7 +635,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
-                title="Next"
+                title={sensoryText("sensory.player.next")} aria-label={sensoryText("sensory.player.next")}
                 onClick={() => playNext()}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
               >
@@ -632,7 +645,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               <div className="group/volume hidden items-center sm:flex bg-chrome-black/20 rounded-full hover:pr-2">
                 <button
                   type="button"
-                  title="Mute"
+                  title={sensoryText("sensory.player.mute")} aria-pressed={muted} aria-label={sensoryText("sensory.player.mute")}
                   onClick={() => setMuted((value) => !value)}
                   className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
                 >
@@ -646,7 +659,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 </button>
                 <div className="w-0 overflow-hidden opacity-0 transition-all group-hover/volume:w-20 group-hover/volume:opacity-100">
                   <Slider
-                    aria-label="Volume"
+                    aria-label={sensoryText("sensory.player.volume")}
                     min={0}
                     max={1}
                     step={0.01}
@@ -674,7 +687,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 {isLive && (
                   <button
                     type="button"
-                    title="Go to live"
+                    title={sensoryText("sensory.player.live")} aria-label={sensoryText("sensory.player.live")}
                     onClick={seekToLiveEdge}
                     className="flex items-center gap-1 whitespace-nowrap rounded-full bg-chrome-black/20 px-2 py-1 text-xs font-bold uppercase tracking-wide text-chrome-white hover:bg-chrome-white/10"
                   >
@@ -685,7 +698,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </div>
 
               <button
-                ref={chapterPillRef}
+                ref={chapterPillRef} aria-label={sensoryText("sensory.player.chapters")} aria-pressed={isChaptersPanelOpen}
                 type="button"
                 onClick={() => setIsChaptersPanelOpen(!isChaptersPanelOpen)}
                 className="hidden items-center gap-1.5 text-xs font-medium text-chrome-white sm:text-sm bg-chrome-black/20 hover:bg-chrome-white/10 rounded-full px-2 py-1 transition-all select-none cursor-pointer active:scale-95 group/pill max-w-[150px] sm:max-w-[260px] truncate"
@@ -711,8 +724,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               {sbSubmitEnabled && currentVideo && (
                 <button
                   type="button"
-                  title="Submit SponsorBlock segment"
-                  aria-label="Submit SponsorBlock segment"
+                  title={sensoryText("sensory.player.submit")} aria-label={sensoryText("sensory.player.submit")}
                   onClick={() => {
                     setSubmitAtSeconds(usePlayerStore.getState().currentTime);
                     setSubmitDialogOpen(true);
@@ -724,7 +736,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               )}
               <button
                 type="button"
-                title="Quality"
+                title={sensoryText("sensory.player.quality")} aria-pressed={settingsOpen && settingsPane === "quality"} aria-label={sensoryText("sensory.player.quality")}
                 onClick={() => {
                   if (settingsOpen && settingsPane === "quality") {
                     setSettingsOpen(false);
@@ -742,7 +754,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
-                title="Captions"
+                title={sensoryText("sensory.player.captions")} aria-pressed={selectedCaptionId !== "off"} aria-label={sensoryText("sensory.player.captions")}
                 onClick={() => {
                   if (settingsOpen && settingsPane === "captions") {
                     setSettingsOpen(false);
@@ -761,7 +773,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
-                title="Settings"
+                title={sensoryText("sensory.player.settings")} aria-pressed={settingsOpen} aria-label={sensoryText("sensory.player.settings")}
                 onClick={() => {
                   setSettingsOpen((value) => !value);
                   setSettingsPane("root");
@@ -780,7 +792,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               {showPipButton && (
                 <button
                   type="button"
-                  title="Picture in picture"
+                  title={sensoryText("sensory.player.pip")} aria-pressed={isPip} aria-label={sensoryText("sensory.player.pip")}
                   onClick={togglePictureInPicture}
                   className={cx(
                     "hidden h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10 sm:grid",
@@ -793,7 +805,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               {!isFullscreen && (
                 <button
                   type="button"
-                  title="Theater mode"
+                  title={sensoryText("sensory.player.theater")} aria-pressed={isTheaterMode} aria-label={sensoryText("sensory.player.theater")}
                   onClick={() => setIsTheaterMode(!isTheaterMode)}
                   className={cx(
                     "grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10",
@@ -805,7 +817,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               )}
               <button
                 type="button"
-                title="Fullscreen"
+                title={sensoryText("sensory.player.fullscreen")} aria-pressed={isFullscreen} aria-label={sensoryText("sensory.player.fullscreen")}
                 onClick={toggleFullscreen}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
               >
@@ -853,7 +865,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
             {settingsPane === "captions" && (
               <button
                 type="button"
-                title="Customize Subtitles"
+                title={sensoryText("sensory.player.subtitles")} aria-label={sensoryText("sensory.player.subtitles")}
                 onClick={() => setSettingsPane("captions-customize")}
                 className="grid h-8 w-8 place-items-center rounded-md text-chrome-zinc-300 hover:bg-chrome-white/10 hover:text-chrome-white"
               >
@@ -915,7 +927,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                   <span className="font-mono text-primary">{playbackRate}x</span>
                 </div>
                 <input
-                  aria-label="Playback speed"
+                  aria-label={sensoryText("sensory.player.speed")}
                   type="range"
                   min={0.25}
                   max={4}

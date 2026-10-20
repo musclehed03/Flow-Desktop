@@ -21,12 +21,13 @@ const SPRING = { type: 'spring' as const, stiffness: 1400, damping: 67, mass: 1 
 const REDUCED = { duration: 0.12, ease: 'easeOut' as const };
 
 export interface ToggleSwitchProps {
+  label?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
 }
 
-export function ToggleSwitch({ checked, onChange, disabled }: ToggleSwitchProps) {
+export function ToggleSwitch({ checked, onChange, disabled, label }: ToggleSwitchProps) {
   const [pressed, setPressed] = useState(false);
   const reduceMotion = useReducedMotion();
 
@@ -34,6 +35,7 @@ export function ToggleSwitch({ checked, onChange, disabled }: ToggleSwitchProps)
     <button
       type="button"
       role="switch"
+      aria-label={label}
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}

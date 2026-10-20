@@ -37,3 +37,11 @@ describe("upcomingIndex", () => {
     expect(upcomingIndex({ ...at(0), queue: [] })).toBe(-1);
   });
 });
+
+it('avoids played shuffle IDs, exhausts without loopbacks, and lets repeat-all replay', () => {
+  const queue = ['a', 'b', 'c'].map((id) => ({ id, videoId: id })) as import('../types/music').SongItem[];
+  resetQueueOrder();
+  expect(upcomingIndex({ queue, currentIndex: 0, isShuffle: true, repeatMode: 'none', playedIds: ['a', 'b'] })).toBe(2);
+  expect(upcomingIndex({ queue, currentIndex: 2, isShuffle: true, repeatMode: 'none', playedIds: ['a', 'b', 'c'] })).toBe(-1);
+  expect(upcomingIndex({ queue, currentIndex: 2, isShuffle: true, repeatMode: 'all', playedIds: ['a', 'b', 'c'] })).toBeGreaterThanOrEqual(0);
+});

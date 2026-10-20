@@ -566,3 +566,227 @@
     var(--flow-grid-track-w, calc(100vw / var(--flow-grid-columns, 4))) * 0.5625 + 4.5rem
   );
 }
+
+/* Dollhouse Deviants sensory tokens. All component colors use these app tokens. */
+:root {
+  --dd-pink: #FF1E89;
+  --dd-near-black: #0b0b10;
+  --dd-dark-panel: #18181f;
+  --dd-light-paper: #fafafa;
+  --dd-dark-text: #15151b;
+  --dd-light-text: #fafafa;
+  --dd-focus: #FF1E89;
+}
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--dd-focus) !important;
+  outline-offset: 3px !important;
+}
+.sensory-motion *, .sensory-motion *::before, .sensory-motion *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+.sensory-font, .sensory-font :where(button, input, select, textarea, p, span, div, h1, h2, h3, a, td, th) {
+  font-family: "Open Sans", Verdana, Arial, sans-serif !important;
+  line-height: 2 !important;
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.1em !important;
+}
+.sensory-focus [data-sensory-playing] > header,
+.sensory-focus [data-sensory-playing] > nav,
+.sensory-focus [data-sensory-playing] aside,
+.sensory-focus [data-sensory-playing] [data-sensory-distraction],
+.sensory-focus [data-sensory-playing] [data-sensory-decoration] {
+  display: none !important;
+}
+.sensory-simplified img, .sensory-simplified picture,
+.sensory-simplified [data-sensory-artwork],
+.sensory-simplified [data-sensory-decoration] { display: none !important; }
+.sensory-simplified [style*="background-image"] { background-image: none !important; }
+.sensory-simplified video { object-fit: contain; }
+.sensory-colorBlind { --dd-focus: #66D9E8; }
+.sensory-colorBlind a { text-decoration: underline; text-underline-offset: 0.2em; }
+.sensory-colorBlind button[aria-pressed="true"] { border-style: double; border-width: 3px; }
+.sensory-colorBlind button[aria-pressed="true"]::after { content: " ✓"; }
+dialog::backdrop { background: color-mix(in srgb, var(--dd-near-black) 75%, transparent); }
+/* Keep volume sliders reachable by keyboard, including while the pointer is elsewhere. */
+.group\/volume:focus-within > div { width: 5rem; opacity: 1; }
+
+:root[data-theme="default"]:not([data-theme-variant="light"]) {
+  --color-primary: #FF1E89 !important;
+  --color-on-primary-val: #0b0b10 !important;
+  --color-secondary-val: #c8c8d2 !important;
+  --color-background-val: #0b0b10 !important;
+  --color-surface-val: #18181f !important;
+  --color-surface-container-low-val: #18181f !important;
+  --color-surface-container-val: #18181f !important;
+  --color-surface-container-high-val: #25252f !important;
+  --color-surface-container-highest-val: #25252f !important;
+  --color-outline-variant-val: #767680 !important;
+  --color-on-surface-val: #fafafa !important;
+  --color-on-surface-variant-val: #c8c8d2 !important;
+  --color-chrome-toast: #18181f !important;
+  --color-chrome-popover: #18181f !important;
+  --color-chrome-dropdown: #18181f !important;
+  --color-chrome-searchbar: #18181f !important;
+  --color-chrome-input-surface: #18181f !important;
+  --color-chrome-neutral-50: #fafafa !important;
+  --color-chrome-neutral-100: #fafafa !important;
+  --color-chrome-neutral-200: #fafafa !important;
+  --color-chrome-neutral-300: #fafafa !important;
+  --color-chrome-neutral-400: #c8c8d2 !important;
+  --color-chrome-neutral-500: #c8c8d2 !important;
+  --color-chrome-neutral-600: #c8c8d2 !important;
+  --color-chrome-neutral-700: #767680 !important;
+  --color-chrome-neutral-800: #767680 !important;
+  --color-chrome-neutral-900: #18181f !important;
+  --color-chrome-neutral-950: #18181f !important;
+  --color-chrome-zinc-50: #fafafa !important;
+  --color-chrome-zinc-100: #fafafa !important;
+  --color-chrome-zinc-200: #fafafa !important;
+  --color-chrome-zinc-300: #fafafa !important;
+  --color-chrome-zinc-400: #c8c8d2 !important;
+  --color-chrome-zinc-500: #c8c8d2 !important;
+  --color-chrome-zinc-600: #c8c8d2 !important;
+  --color-chrome-zinc-700: #767680 !important;
+  --color-chrome-zinc-800: #767680 !important;
+  --color-chrome-zinc-900: #18181f !important;
+  --color-chrome-zinc-950: #18181f !important;
+}
+
+:root.sensory-contrast:not([data-theme-variant="light"]) {
+  --color-primary: #FF1E89 !important;
+  --color-on-primary-val: #0b0b10 !important;
+  --color-secondary-val: #eeeeee !important;
+  --color-background-val: #050505 !important;
+  --color-surface-val: #0b0b10 !important;
+  --color-surface-container-low-val: #0b0b10 !important;
+  --color-surface-container-val: #0b0b10 !important;
+  --color-surface-container-high-val: #25252f !important;
+  --color-surface-container-highest-val: #25252f !important;
+  --color-outline-variant-val: #aaaaaa !important;
+  --color-on-surface-val: #ffffff !important;
+  --color-on-surface-variant-val: #eeeeee !important;
+  --color-chrome-toast: #0b0b10 !important;
+  --color-chrome-popover: #0b0b10 !important;
+  --color-chrome-dropdown: #0b0b10 !important;
+  --color-chrome-searchbar: #0b0b10 !important;
+  --color-chrome-input-surface: #0b0b10 !important;
+  --color-chrome-neutral-50: #ffffff !important;
+  --color-chrome-neutral-100: #ffffff !important;
+  --color-chrome-neutral-200: #ffffff !important;
+  --color-chrome-neutral-300: #ffffff !important;
+  --color-chrome-neutral-400: #eeeeee !important;
+  --color-chrome-neutral-500: #eeeeee !important;
+  --color-chrome-neutral-600: #eeeeee !important;
+  --color-chrome-neutral-700: #aaaaaa !important;
+  --color-chrome-neutral-800: #aaaaaa !important;
+  --color-chrome-neutral-900: #0b0b10 !important;
+  --color-chrome-neutral-950: #0b0b10 !important;
+  --color-chrome-zinc-50: #ffffff !important;
+  --color-chrome-zinc-100: #ffffff !important;
+  --color-chrome-zinc-200: #ffffff !important;
+  --color-chrome-zinc-300: #ffffff !important;
+  --color-chrome-zinc-400: #eeeeee !important;
+  --color-chrome-zinc-500: #eeeeee !important;
+  --color-chrome-zinc-600: #eeeeee !important;
+  --color-chrome-zinc-700: #aaaaaa !important;
+  --color-chrome-zinc-800: #aaaaaa !important;
+  --color-chrome-zinc-900: #0b0b10 !important;
+  --color-chrome-zinc-950: #0b0b10 !important;
+}
+
+:root[data-theme="default"][data-theme-variant="light"] {
+  --color-primary: #8e0040 !important;
+  --color-on-primary-val: #ffffff !important;
+  --color-secondary-val: #454550 !important;
+  --color-background-val: #fafafa !important;
+  --color-surface-val: #f0f0f5 !important;
+  --color-surface-container-low-val: #f0f0f5 !important;
+  --color-surface-container-val: #f0f0f5 !important;
+  --color-surface-container-high-val: #eeeeef !important;
+  --color-surface-container-highest-val: #eeeeef !important;
+  --color-outline-variant-val: #767680 !important;
+  --color-on-surface-val: #15151b !important;
+  --color-on-surface-variant-val: #454550 !important;
+  --color-chrome-toast: #f0f0f5 !important;
+  --color-chrome-popover: #f0f0f5 !important;
+  --color-chrome-dropdown: #f0f0f5 !important;
+  --color-chrome-searchbar: #f0f0f5 !important;
+  --color-chrome-input-surface: #f0f0f5 !important;
+  --color-chrome-neutral-50: #15151b !important;
+  --color-chrome-neutral-100: #15151b !important;
+  --color-chrome-neutral-200: #15151b !important;
+  --color-chrome-neutral-300: #15151b !important;
+  --color-chrome-neutral-400: #454550 !important;
+  --color-chrome-neutral-500: #454550 !important;
+  --color-chrome-neutral-600: #454550 !important;
+  --color-chrome-neutral-700: #767680 !important;
+  --color-chrome-neutral-800: #767680 !important;
+  --color-chrome-neutral-900: #f0f0f5 !important;
+  --color-chrome-neutral-950: #f0f0f5 !important;
+  --color-chrome-zinc-50: #15151b !important;
+  --color-chrome-zinc-100: #15151b !important;
+  --color-chrome-zinc-200: #15151b !important;
+  --color-chrome-zinc-300: #15151b !important;
+  --color-chrome-zinc-400: #454550 !important;
+  --color-chrome-zinc-500: #454550 !important;
+  --color-chrome-zinc-600: #454550 !important;
+  --color-chrome-zinc-700: #767680 !important;
+  --color-chrome-zinc-800: #767680 !important;
+  --color-chrome-zinc-900: #f0f0f5 !important;
+  --color-chrome-zinc-950: #f0f0f5 !important;
+}
+
+:root.sensory-contrast[data-theme-variant="light"] {
+  --color-primary: #8e0040 !important;
+  --color-on-primary-val: #ffffff !important;
+  --color-secondary-val: #15151b !important;
+  --color-background-val: #ffffff !important;
+  --color-surface-val: #ffffff !important;
+  --color-surface-container-low-val: #ffffff !important;
+  --color-surface-container-val: #ffffff !important;
+  --color-surface-container-high-val: #eeeeef !important;
+  --color-surface-container-highest-val: #eeeeef !important;
+  --color-outline-variant-val: #15151b !important;
+  --color-on-surface-val: #000000 !important;
+  --color-on-surface-variant-val: #15151b !important;
+  --color-chrome-toast: #ffffff !important;
+  --color-chrome-popover: #ffffff !important;
+  --color-chrome-dropdown: #ffffff !important;
+  --color-chrome-searchbar: #ffffff !important;
+  --color-chrome-input-surface: #ffffff !important;
+  --color-chrome-neutral-50: #000000 !important;
+  --color-chrome-neutral-100: #000000 !important;
+  --color-chrome-neutral-200: #000000 !important;
+  --color-chrome-neutral-300: #000000 !important;
+  --color-chrome-neutral-400: #15151b !important;
+  --color-chrome-neutral-500: #15151b !important;
+  --color-chrome-neutral-600: #15151b !important;
+  --color-chrome-neutral-700: #15151b !important;
+  --color-chrome-neutral-800: #15151b !important;
+  --color-chrome-neutral-900: #ffffff !important;
+  --color-chrome-neutral-950: #ffffff !important;
+  --color-chrome-zinc-50: #000000 !important;
+  --color-chrome-zinc-100: #000000 !important;
+  --color-chrome-zinc-200: #000000 !important;
+  --color-chrome-zinc-300: #000000 !important;
+  --color-chrome-zinc-400: #15151b !important;
+  --color-chrome-zinc-500: #15151b !important;
+  --color-chrome-zinc-600: #15151b !important;
+  --color-chrome-zinc-700: #15151b !important;
+  --color-chrome-zinc-800: #15151b !important;
+  --color-chrome-zinc-900: #ffffff !important;
+  --color-chrome-zinc-950: #ffffff !important;
+}
+
+/* The video surface is always dark so controls remain legible over footage. */
+[data-flow-player-surface="video"] {
+  --color-chrome-zinc-400: #dddddd;
+  --color-chrome-neutral-100: #ffffff;
+  --color-chrome-neutral-200: #ffffff;
+  --color-chrome-neutral-400: #dddddd;
+  --color-chrome-neutral-500: #dddddd;
+}
+.sensory-colorBlind[data-theme-variant="light"] { --dd-focus: #006778; }
+.sensory-focus [data-sensory-playing] [data-sensory-decoration] { display: none !important; }

@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { cloneElement, isValidElement, type ReactNode } from 'react';
+import { ToggleSwitch, type ToggleSwitchProps } from '../ui/ToggleSwitch';
 
 export interface SettingItemProps {
   title: string;
@@ -29,7 +30,8 @@ export function SettingItem({ title, description, disabled = false, icon, childr
           <div className="text-xs text-chrome-neutral-400 mt-0.5">{description}</div>
         )}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="shrink-0">{isValidElement<ToggleSwitchProps>(children) && children.type === ToggleSwitch
+        ? cloneElement(children, { label: children.props.label ?? title }) : children}</div>
     </div>
   );
 }

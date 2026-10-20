@@ -1,3 +1,4 @@
+import { initialSafeMotion } from "./motionDefault";
 import type { StringKey } from "../i18n/index";
 
 export type SettingValueType = "boolean" | "number" | "string" | "json";
@@ -34,6 +35,14 @@ export const SETTINGS = {
   EXPRESSIVE_SLIDERS_ENABLED: "expressive_sliders_enabled",
   CUSTOM_THEMES: "custom_themes",
 
+  SENSORY_FOCUS_ENABLED: "sensory_focus_enabled",
+  SAFE_MOTION_ENABLED: "safe_motion_enabled",
+  READABLE_FONT_ENABLED: "readable_font_enabled",
+  HIGH_CONTRAST_ENABLED: "high_contrast_enabled",
+  COLOR_BLIND_ENABLED: "color_blind_enabled",
+  SIMPLIFIED_VIEW_ENABLED: "simplified_view_enabled",
+  RADIO_DISCOVERY_LEVEL: "radio_discovery_level",
+  GENIUS_DJ_ENABLED: "genius_dj_enabled",
   MUSIC_VIDEO_FIRST_ENABLED: "music_video_first_enabled",
   KEEP_WATCHING_VIEW_ENABLED: "keep_watching_view_enabled",
   AUTOPLAY_ENABLED: "autoplay_enabled",
@@ -237,6 +246,14 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, "appearance", true, "wired"),
   json(SETTINGS.CUSTOM_THEMES, "appearance", "[]", "wired"),
 
+  bool(SETTINGS.SENSORY_FOCUS_ENABLED, "appearance", false, "wired"),
+  bool(SETTINGS.SAFE_MOTION_ENABLED, "appearance", initialSafeMotion(), "wired"),
+  bool(SETTINGS.READABLE_FONT_ENABLED, "appearance", false, "wired"),
+  bool(SETTINGS.HIGH_CONTRAST_ENABLED, "appearance", false, "wired"),
+  bool(SETTINGS.COLOR_BLIND_ENABLED, "appearance", false, "wired"),
+  bool(SETTINGS.SIMPLIFIED_VIEW_ENABLED, "appearance", false, "wired"),
+  str(SETTINGS.RADIO_DISCOVERY_LEVEL, "player", "moderate", "wired", ["less", "moderate", "more"]),
+  bool(SETTINGS.GENIUS_DJ_ENABLED, "player", true, "wired"),
   bool(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, "player", true, "wired"),
   bool(SETTINGS.KEEP_WATCHING_VIEW_ENABLED, "player", true, "wired"),
   bool(SETTINGS.AUTOPLAY_ENABLED, "player", true, "wired"),

@@ -1,3 +1,4 @@
+import { MusicPresentationControls } from "./MusicPresentationControls";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -146,7 +147,7 @@ export function MusicOverlay() {
   return (
     <AnimatePresence>
       {open && currentTrack && (
-        <motion.div
+        <motion.div data-flow-player-surface="music"
           key="music-overlay"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -154,7 +155,7 @@ export function MusicOverlay() {
           transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           className="fixed inset-x-0 bottom-0 top-[var(--app-titlebar-height)] z-[60] flex flex-col overflow-hidden bg-chrome-neutral-950"
         >
-          <AmbientBackdrop src={currentTrack.thumbnail} accent={accent} style={backgroundStyle} />
+          <div data-sensory-decoration="true"><AmbientBackdrop src={currentTrack.thumbnail} accent={accent} style={backgroundStyle} /></div>
 
           {/* TOP BAR */}
           <div className="absolute top-0 z-20 flex w-full items-center justify-between p-6">
@@ -167,6 +168,7 @@ export function MusicOverlay() {
             </HapticButton>
 
             <div className="relative flex items-center gap-1">
+              <MusicPresentationControls />
               {isLyrics && (
                 <HapticButton
                   onClick={() => lyrics.refresh()}

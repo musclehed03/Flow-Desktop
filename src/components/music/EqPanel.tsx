@@ -60,7 +60,7 @@ export function EqPanel({
               {getString("music_equalizer")}
             </span>
             <div className="flex items-center gap-2">
-              <ToggleSwitch checked={eqEnabled} onChange={setEqEnabled} />
+              <ToggleSwitch label={getString("music_equalizer")} checked={eqEnabled} onChange={setEqEnabled} />
               <button
                 type="button"
                 onClick={onClose}

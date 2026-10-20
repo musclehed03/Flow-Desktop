@@ -1,3 +1,4 @@
+import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -265,7 +266,8 @@ export function GlobalVideoPlayer() {
 
   return (
     <>
-      <div
+      <SensoryAdvisory videoId={currentVideo.id} />
+      <div data-flow-player-surface="video"
         ref={frameRef}
         className={
           isVideoFullscreen

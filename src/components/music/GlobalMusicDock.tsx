@@ -78,7 +78,7 @@ export function GlobalMusicDock() {
   return (
     <AnimatePresence>
       {currentTrack && viewState === "dock" && (
-        <motion.div
+        <motion.div data-flow-player-surface="music"
           key="music-dock"
           initial={{ y: 96, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}

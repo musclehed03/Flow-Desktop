@@ -1,3 +1,4 @@
+import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +8,7 @@ import { musicSeeAllRoute } from '../../lib/musicRoutes';
 
 export default function MusicMoodsPage() {
   const { t } = useTranslation('common');
+  const { t: stationText } = useTranslation('settings');
   const navigate = useNavigate();
   const { groups, loading, error, reload } = useMusicMoods();
 
@@ -22,11 +24,11 @@ export default function MusicMoodsPage() {
       {groups.map((group, index) => <section key={`${group.title}:${index}`}>
         {group.title && <h2 className="mb-4 text-xl font-bold text-chrome-neutral-100">{group.title}</h2>}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {group.items.map((item) => <button key={`${item.browseId}:${item.params ?? ''}`} type="button"
-        onClick={() => navigate(musicSeeAllRoute(item.browseId, item.params, item.title))}
-        className="min-h-24 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-5 text-left font-medium text-chrome-neutral-100 transition-colors duration-200 ease-out hover:bg-surface-container-high focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]">
-        {item.title}
-      </button>)}
+        {group.items.map((item) => <div key={`${item.browseId}:${item.params ?? ''}`} className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
+          <button type="button" onClick={() => navigate(musicSeeAllRoute(item.browseId, item.params, item.title))}
+            className="mb-3 block text-left font-medium text-on-surface">{item.title}</button>
+          <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio(item)}>{stationText('radio.station')}</Button>
+        </div>)}
         </div>
       </section>)}
     </div>}

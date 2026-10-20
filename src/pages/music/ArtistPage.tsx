@@ -294,7 +294,7 @@ export default function ArtistPage() {
         following={following}
         onPlay={() => startPlayback(false)}
         onShuffle={() => startPlayback(true)}
-        onRadio={() => startPlayback(true)}
+        onRadio={() => void useMusicPlayerStore.getState().startArtistRadio({ id: header.id, title: header.title, thumbnail: header.thumbnail, channelId: null })}
         onToggleFollow={() => setFollowing((value) => !value)}
       />
 

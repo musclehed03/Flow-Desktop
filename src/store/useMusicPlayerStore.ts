@@ -1,12 +1,15 @@
+import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, trackStation, type MusicStation } from "../lib/musicStation";
+import { recallArtist, audioMusicOnly } from "../lib/musicRecall";
+import { getMusicMoodGenre } from "../lib/api/music";
+import type { ArtistItem } from "../types/music";
+import { useUiStore } from "./useUiStore";
+import { getString } from "../lib/i18n/index";
 import { create } from "zustand";
 import { usePlayerStore } from "./usePlayerStore";
 import { musicVideoFirstEnabled, shouldWatchSong, songToVideoSummary } from "../lib/musicVideoRouting";
 
 import type { MusicStreamInfo, SongItem } from "../types/music";
 import {
-  getMusicQueueContinuation,
-  getMusicWatchQueue,
-  rankMusicCandidates,
   type MusicAudioQuality,
 } from "../lib/api/music";
 import { getOfflineStream } from "../lib/api/downloads";
@@ -130,8 +133,8 @@ const RADIO_LOW_WATER = 3;
 const RADIO_BATCH = 10;
 const RADIO_MAX_PAGES = 4;
 
-let radioContinuation: string | null = null;
-let radioPlaylistId: string | null = null;
+let radioGeneration = 0;
+let transportGeneration = 0;
 const radioSessionSeen = new Set<string>();
 let radioInFlight: Promise<void> | null = null;
 
@@ -140,14 +143,14 @@ let radioInFlight: Promise<void> | null = null;
 let hiddenPredicate: (track: SongItem) => boolean = () => false;
 
 const resetRadioSession = (seedIds: string[] = []) => {
-  radioContinuation = null;
-  radioPlaylistId = null;
+  radioGeneration++;
   radioInFlight = null;
   radioSessionSeen.clear();
   for (const id of seedIds) radioSessionSeen.add(id);
 };
 
-const stationIdFor = (videoId: string): string => `RDAMVM${videoId}`;
+const nextMusicIndex = (state: MusicPlayerState) => upcomingIndex({ ...state, playedIds: geniusEnabled() ? state.playedIds : undefined });
+const radioNotice = () => useUiStore.getState().showToast({ title: getString("radio_unavailable_title"), message: getString("radio_unavailable_message"), variant: "error" });
 
 export const isPlayableAudio = (s: SongItem): boolean => {
   const vt = s.musicVideoType;
@@ -192,11 +195,15 @@ interface MusicPlayerState {
   queueSource: string | null;
 
   // --- radio / autoplay ---
+  station: MusicStation | null;
+  playedIds: string[];
+  radioError: boolean;
   radioLoading: boolean;
   radioQueuedIds: string[];
 
   // --- overlay / surface ---
   viewState: MusicViewState;
+  musicFullscreen: boolean;
 
   // --- stream resolution ---
   loadingStreamId: string | null;
@@ -222,6 +229,8 @@ interface MusicPlayerState {
   toggleShuffle: () => void;
   toggleRadio: () => void;
   startRadio: (seed?: SongItem) => Promise<void>;
+  startArtistRadio: (artist: ArtistItem) => Promise<void>;
+  startGenreRadio: (genre: { browseId: string; params: string | null; title: string }) => Promise<void>;
 
   addToQueue: (track: SongItem) => void;
   playNextInQueue: (track: SongItem) => void;
@@ -245,7 +254,7 @@ interface MusicPlayerState {
 
   // --- internal: driven by the root <audio> controller (element → store) ---
   _ensureRadio: () => Promise<void>;
-  _loadIndex: (index: number, options?: { resumeAt?: number }) => Promise<void>;
+  _loadIndex: (index: number, options?: { resumeAt?: number; automatic?: boolean }) => Promise<void>;
   _prefetchUpcoming: () => void;
   _preloadUpcoming: () => void;
   _onPreloadError: () => void;
@@ -281,10 +290,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   radioEnabled: initialConfig.radioEnabled,
   radioStationActive: false,
   queueSource: null,
+  station: null,
+  playedIds: [],
+  radioError: false,
   radioLoading: false,
   radioQueuedIds: [],
 
   viewState: "dock",
+  musicFullscreen: false,
 
   loadingStreamId: null,
   streamError: null,
@@ -293,6 +306,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // --- intents ----------------------------------------------------------
 
   playTrack: async (track) => {
+    transportGeneration++;
+    set({ station: null, playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)), radioError: false });
     resetRadioSession([videoIdOf(track)]);
     set({ queue: [track], radioQueuedIds: [], radioStationActive: false, queueSource: null });
     await get()._loadIndex(0);
@@ -300,6 +315,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   playQueue: async (tracks, startIndex = 0, source = null) => {
     if (tracks.length === 0) return;
+    transportGeneration++;
+    set({ station: null, playedIds: get().playedIds.filter((id) => id !== videoIdOf(tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))]!)), radioError: false });
     resetRadioSession(tracks.map(videoIdOf));
     set({ queue: tracks, radioQueuedIds: [], radioStationActive: false, queueSource: source });
     await get()._loadIndex(Math.max(0, Math.min(startIndex, tracks.length - 1)));
@@ -308,70 +325,74 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   _ensureRadio: async () => {
     if (radioInFlight) return radioInFlight;
     const { queue, currentIndex, isShuffle } = get();
-    if (!selectRadioOn(get()) || isShuffle) return;
-    if (queue.length - 1 - currentIndex > RADIO_LOW_WATER) return;
-
+    if (!selectRadioOn(get()) || (!geniusEnabled() && isShuffle)) return;
+    const remaining = geniusEnabled() && isShuffle ? queue.filter((track) => !get().playedIds.includes(videoIdOf(track))).length : queue.length - 1 - currentIndex;
+    if (remaining > RADIO_LOW_WATER) return;
     const seed = queue[queue.length - 1] ?? get().currentTrack;
     if (!seed) return;
-
+    const generation = radioGeneration;
+    let station = get().station ?? { ...trackStation(seed), title: get().queueSource ?? undefined };
     radioInFlight = (async () => {
-      set({ radioLoading: true });
+      set({ radioLoading: true, radioError: false });
       try {
-        const seedId = videoIdOf(seed);
-        const collected: SongItem[] = [];
-
-        for (let page = 0; page < RADIO_MAX_PAGES && collected.length < RADIO_BATCH; page++) {
-          let result: Awaited<ReturnType<typeof getMusicWatchQueue>>;
-          if (radioContinuation) {
-            result = await getMusicQueueContinuation(radioContinuation);
-          } else {
-            result = await getMusicWatchQueue(seedId, radioPlaylistId ?? stationIdFor(seedId));
-          }
-          radioContinuation = result.continuation;
-          if (result.radioPlaylistId) radioPlaylistId = result.radioPlaylistId;
-
-          const seen = new Set([
-            ...get().queue.map(videoIdOf),
-            ...collected.map(videoIdOf),
-          ]);
-          for (const t of result.items) {
-            const id = videoIdOf(t);
-            if (isPlayableAudio(t) && !seen.has(id) && !radioSessionSeen.has(id) && !hiddenPredicate(t)) {
-              collected.push(t);
-              seen.add(id);
+        let collected: SongItem[] = [];
+        const collect = (songs: SongItem[]) => {
+          const seen = new Set([...get().queue.map(videoIdOf), ...collected.map(videoIdOf)]);
+          for (const track of songs) {
+            const id = videoIdOf(track);
+            if (isPlayableAudio(track) && !seen.has(id) && !radioSessionSeen.has(id)
+              && (!geniusEnabled() || !get().playedIds.includes(id)) && !hiddenPredicate(track)) {
+              collected.push(track); seen.add(id);
             }
           }
-
-          if (!radioContinuation) break;
+        };
+        for (let page = 0; page < RADIO_MAX_PAGES && collected.length < RADIO_BATCH; page++) {
+          let fetched = false;
+          for (let attempt = 0; attempt < (geniusEnabled() ? 2 : 1); attempt++) {
+            try {
+              const result = await fetchStationPage(station, seed);
+              station = result.station;
+              collect(result.songs);
+              fetched = result.songs.length > 0;
+              if (fetched) break;
+            } catch { /* Retry once before falling back to another local recall lane. */ }
+          }
+          if (!fetched || (!station.continuation && station.type !== "genre")) break;
         }
-
-        const ordered = await rankMusicCandidates(collected, "radio").catch(() => collected);
-        const batch = ordered.slice(0, RADIO_BATCH);
-        if (batch.length > 0) {
-          for (const t of batch) radioSessionSeen.add(videoIdOf(t));
-          set({
-            queue: [...get().queue, ...batch],
-            radioQueuedIds: [...get().radioQueuedIds, ...batch.map(videoIdOf)],
-          });
-        }
-      } catch (error) {
-        console.warn("Radio autoplay fetch failed", error);
+        const expanded = await expandStationCandidates(station, collected);
+        station = expanded.station;
+        collected = [];
+        collect(expanded.songs);
+        if (!collected.length && geniusEnabled()) collect(await stationFallback(seed, new Set([...get().queue.map(videoIdOf), ...get().playedIds])));
+        const batch = await rankStationBatch(collected, station, RADIO_BATCH);
+        if (generation !== radioGeneration) return;
+        if (batch.length) {
+          for (const track of batch) radioSessionSeen.add(videoIdOf(track));
+          set({ queue: [...get().queue, ...batch], station, radioQueuedIds: [...get().radioQueuedIds, ...batch.map(videoIdOf)] });
+        } else if (geniusEnabled()) { set({ radioError: true }); radioNotice(); }
+      } catch {
+        if (generation === radioGeneration && geniusEnabled()) { set({ radioError: true }); radioNotice(); }
       } finally {
-        set({ radioLoading: false });
-        radioInFlight = null;
+        if (generation === radioGeneration) { set({ radioLoading: false }); radioInFlight = null; }
       }
     })();
     return radioInFlight;
   },
 
   _loadIndex: async (index, options) => {
+    if (!options?.automatic) transportGeneration++;
     const track = get().queue[index];
     if (!track) return;
+    const playedIds = [...new Set([...get().playedIds, videoIdOf(track)])];
+    set({ playedIds });
     if (shouldWatchSong(track)) {
-      const queue = get().queue.filter((item) => !!videoIdOf(item));
-      const watchIndex = queue.indexOf(track);
+      const originalQueue = get().queue;
+      const queue = originalQueue.filter((item) => !!videoIdOf(item));
+      const watchIndex = originalQueue.slice(0, index).filter((item) => !!videoIdOf(item)).length;
+      const station = get().station ?? { ...trackStation(track), title: get().queueSource ?? undefined };
       get().dismiss();
       usePlayerStore.getState().setQueue(queue.map(songToVideoSummary), watchIndex);
+      usePlayerStore.setState({ musicStation: station, playedIds: [...new Set([...usePlayerStore.getState().playedIds, ...playedIds])] });
       window.dispatchEvent(new Event("flow-video-expand-request"));
       return;
     }
@@ -498,6 +519,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   },
 
   pause: () => {
+    transportGeneration++;
     musicAudioEngine.pause();
     set({ isPlaying: false });
   },
@@ -505,6 +527,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // Tear down the player entirely — stops audio, clears the queue, hides the
   // dock/overlay. (The controller flushes a final history record on track clear.)
   dismiss: () => {
+    transportGeneration++;
     stopStallWatch();
     musicAudioEngine.stop();
     resetRadioSession();
@@ -513,6 +536,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       currentTrack: null,
       queue: [],
       queueSource: null,
+      station: null,
+      playedIds: [],
       radioQueuedIds: [],
       radioStationActive: false,
       currentIndex: -1,
@@ -532,7 +557,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // question the transport does rather than assuming the following index.
   _prefetchUpcoming: () => {
     const state = get();
-    const index = upcomingIndex(state);
+    const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
     if (!upcoming || shouldWatchSong(upcoming)) return;
 
@@ -546,12 +571,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // current one, so the change is a swap with no load in between.
   _preloadUpcoming: () => {
     const state = get();
-    const index = upcomingIndex(state);
+    const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
     if (!upcoming || shouldWatchSong(upcoming)) return;
     void preloadTrack(upcoming, getMusicAudioQualitySetting(), (videoId) => {
       const now = get();
-      const nowTrack = now.queue[upcomingIndex(now)];
+      const nowTrack = now.queue[nextMusicIndex(now)];
       return !!nowTrack && videoIdOf(nowTrack) === videoId;
     });
   },
@@ -582,9 +607,23 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const { queue, currentIndex, isShuffle, repeatMode } = get();
     if (queue.length === 0) return;
 
+    if (geniusEnabled() && repeatMode !== "all") {
+      const next = nextMusicIndex({ ...get(), repeatMode: repeatMode === "one" ? "none" : repeatMode });
+      if (next >= 0) { void get()._loadIndex(next, { automatic: true }); return; }
+      if (!selectRadioOn(get())) { musicAudioEngine.pause(); set({ isPlaying: false }); return; }
+      const generation = transportGeneration;
+      void (async () => {
+        await get()._ensureRadio();
+        if (generation !== transportGeneration) return;
+        const index = nextMusicIndex({ ...get(), repeatMode: "none" });
+        if (index >= 0) void get()._loadIndex(index, { automatic: true });
+        else { musicAudioEngine.pause(); set({ isPlaying: false }); }
+      })();
+      return;
+    }
     let nextIndex: number;
     if (isShuffle && queue.length > 1) {
-      nextIndex = upcomingIndex(get());
+      nextIndex = nextMusicIndex(get());
     } else {
       nextIndex = currentIndex + 1;
       if (nextIndex >= queue.length) {
@@ -595,7 +634,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
             await get()._ensureRadio();
             const s = get();
             if (s.currentIndex + 1 < s.queue.length) {
-              void s._loadIndex(s.currentIndex + 1);
+              void s._loadIndex(s.currentIndex + 1, { automatic: true });
             } else {
               musicAudioEngine.pause();
               set({ isPlaying: false });
@@ -609,7 +648,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
         }
       }
     }
-    void get()._loadIndex(nextIndex);
+    void get()._loadIndex(nextIndex, { automatic: true });
   },
 
   previous: () => {
@@ -665,18 +704,49 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   startRadio: async (seed) => {
     const base = seed ?? get().currentTrack;
     if (!base) return;
+    transportGeneration++;
     resetRadioSession([videoIdOf(base)]);
-    set({ queue: [base], radioQueuedIds: [], currentIndex: 0, radioStationActive: true, queueSource: null });
+    set({ queue: [base], station: trackStation(base), playedIds: get().playedIds.filter((id) => id !== videoIdOf(base)), radioQueuedIds: [], currentIndex: 0, radioStationActive: true, queueSource: null });
     await get()._loadIndex(0);
   },
 
+  startArtistRadio: async (artist) => {
+    const page = await recallArtist(artist.id);
+    const songs = audioMusicOnly(page?.topSongs ?? []);
+    const seed = songs[0];
+    if (!seed) { radioNotice(); return; }
+    transportGeneration++;
+    resetRadioSession([videoIdOf(seed)]);
+    set({ queue: [seed], currentIndex: 0, station: { ...trackStation(seed), type: "artist", artist, catalog: songs }, playedIds: get().playedIds.filter((id) => id !== videoIdOf(seed)), radioStationActive: true, radioQueuedIds: [], queueSource: artist.title });
+    await get()._loadIndex(0);
+    if (get().currentTrack) await get()._ensureRadio();
+  },
+
+  startGenreRadio: async (genre) => {
+    try {
+      const page = await getMusicMoodGenre(genre.browseId, genre.params ?? undefined);
+      const songs = audioMusicOnly(page.items.filter((item): item is SongItem & { type: "song" } => item.type === "song"));
+      const seed = songs[0];
+      if (!seed) { radioNotice(); return; }
+      transportGeneration++;
+      resetRadioSession(songs.map(videoIdOf));
+      set({ queue: songs, currentIndex: 0, station: { ...trackStation(seed), type: "genre", ...genre, genreContinuation: page.continuation, genreTurn: true }, playedIds: get().playedIds.filter((id) => id !== videoIdOf(seed)), radioStationActive: true, radioQueuedIds: [], queueSource: genre.title });
+      await get()._loadIndex(0);
+    } catch { radioNotice(); }
+  },
+
   addToQueue: (track) => {
+    const replay = geniusEnabled() && get().playedIds.includes(videoIdOf(track));
+    radioSessionSeen.delete(videoIdOf(track));
+    set({ playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)) });
     const { queue } = get();
-    if (queue.some((t) => videoIdOf(t) === videoIdOf(track))) return;
+    if (!replay && queue.some((t) => videoIdOf(t) === videoIdOf(track))) return;
     set({ queue: [...queue, track] });
   },
 
   playNextInQueue: (track) => {
+    radioSessionSeen.delete(videoIdOf(track));
+    set({ playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)) });
     const { currentTrack, queue } = get();
     if (!currentTrack) {
       get().addToQueue(track);

@@ -1,3 +1,4 @@
+import { isInteractiveMediaTarget, musicOwnsKeyboard } from "../../lib/mediaKeyboard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as dashjs from "dashjs";
 import Hls from "hls.js";
@@ -411,6 +412,7 @@ export const Player: React.FC<PlayerProps> = ({
   usePersistedPlayerVolume();
 
 
+  const simplifiedView = useAppSettingsStore((state) => state.values[SETTINGS.SIMPLIFIED_VIEW_ENABLED] === "true");
   const autoplayEnabled = useAppSettingsStore((state) => state.values[SETTINGS.AUTOPLAY_ENABLED] !== "false");
   const videoLoopEnabled = useAppSettingsStore((state) => state.values[SETTINGS.VIDEO_LOOP_ENABLED] === "true");
   const rememberPlaybackSpeed = useAppSettingsStore((state) => state.values[SETTINGS.REMEMBER_PLAYBACK_SPEED] === "true");
@@ -584,7 +586,7 @@ export const Player: React.FC<PlayerProps> = ({
   // Never on Linux: WebKitGTK repaints large filtered layers on the CPU, and the
   // glow sat almost black there because sampling video frames is too costly.
   // Not in fullscreen either, where the video covers it.
-  const showAmbient = ambientMode && isTheaterSurface && !error && !isFullscreen && !IS_LINUX_RUNTIME;
+  const showAmbient = !simplifiedView && ambientMode && isTheaterSurface && !error && !isFullscreen && !IS_LINUX_RUNTIME;
   const effectivePoster = hasStartedPlayback || resumeTime > 0 || isSourceSwitching ? undefined : poster || undefined;
   const ambientBackdropStyle = useMemo<React.CSSProperties>(() => ({
     background: [
@@ -2135,6 +2137,7 @@ export const Player: React.FC<PlayerProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isInteractiveMediaTarget(event.target) || musicOwnsKeyboard(event.target)) return;
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -2144,6 +2147,14 @@ export const Player: React.FC<PlayerProps> = ({
         case "k":
           event.preventDefault();
           togglePlay();
+          break;
+        case "n":
+          event.preventDefault();
+          playNext();
+          break;
+        case "p":
+          event.preventDefault();
+          usePlayerStore.getState().playPrevious();
           break;
         case "j":
           seekBy(-seekIntervalSeconds);
@@ -2503,7 +2514,7 @@ export const Player: React.FC<PlayerProps> = ({
       <video
         ref={videoRef}
         src={isDashPlayback || isHlsPlayback ? undefined : src || undefined}
-        poster={effectivePoster}
+        poster={simplifiedView ? undefined : effectivePoster}
         loop={videoLoopEnabled && !isLive}
         playsInline
         preload="auto"

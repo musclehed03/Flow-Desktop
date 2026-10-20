@@ -14,6 +14,7 @@ import type { SongItem, YTItem } from '../../types/music';
 
 export default function MusicBrowsePage() {
   const { t } = useTranslation('common');
+  const { t: stationText } = useTranslation('settings');
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [videoFirst] = usePreference(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, 'true');
@@ -62,6 +63,7 @@ export default function MusicBrowsePage() {
   };
 
   return <main className="px-6 py-8 lg:px-8">
+    {browseId && <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio({ browseId, params: browseParams, title })}>{stationText('radio.station')}</Button>}
     <h1 className="mb-6 text-3xl font-bold tracking-tight text-chrome-neutral-100">{title}</h1>
     {error && <div className="mb-6 flex items-center gap-3 text-sm text-chrome-neutral-400">
       <span>{error}</span><Button variant="secondary" onClick={reload}>{t('musicRetry')}</Button>

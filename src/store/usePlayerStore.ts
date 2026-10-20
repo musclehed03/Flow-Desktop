@@ -1,3 +1,9 @@
+import { geniusEnabled, type MusicStation } from "../lib/musicStation";
+import { refillVideoCandidates } from "../lib/videoAutoplay";
+import { useUiStore } from "./useUiStore";
+import { getString } from "../lib/i18n/index";
+let videoTransportGeneration = 0;
+let videoRefill: Promise<VideoSummary | null> | null = null;
 import { create } from "zustand";
 import { getSettingValue } from "./useAppSettingsStore";
 import { SETTINGS } from "../lib/settings/schema";
@@ -75,6 +81,11 @@ const getSavedTheaterMode = (): boolean => {
 
 interface PlayerState {
   currentVideo: VideoSummary | null;
+  playedIds: string[];
+  musicStation: MusicStation | null;
+  autoplayLoading: boolean;
+  autoplayError: boolean;
+  refillAutoplay: () => Promise<VideoSummary | null>;
   isPlaying: boolean;
   volume: number;
   muted: boolean;
@@ -125,7 +136,7 @@ interface PlayerState {
   addToQueue: (video: VideoSummary) => QueueAddResult;
   removeFromQueue: (index: number) => void;
   moveQueueItem: (fromIndex: number, toIndex: number) => void;
-  playQueueItem: (index: number) => void;
+  playQueueItem: (index: number, automatic?: boolean) => void;
   playNext: (allowAutoplayFallback?: boolean) => VideoSummary | null;
   playPrevious: () => void;
   setRepeatMode: (mode: RepeatMode) => void;
@@ -172,6 +183,10 @@ interface PlayerState {
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentVideo: null,
+  playedIds: [],
+  musicStation: null,
+  autoplayLoading: false,
+  autoplayError: false,
   isPlaying: false,
   volume: 1,
   muted: false,
@@ -203,7 +218,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setCurrentVideo: (video) => {
     const isNew = get().currentVideo?.id !== video?.id;
+    if (isNew) videoTransportGeneration++;
     set({
+      ...(video ? { playedIds: [...new Set([...get().playedIds, video.id])] } : {}),
       currentVideo: video,
       isPlaying: !!video,
       isChaptersPanelOpen: false,
@@ -230,7 +247,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
   },
 
-  setIsPlaying: (isPlaying) => set({ isPlaying }),
+  setIsPlaying: (isPlaying) => {
+    if (!isPlaying) { videoTransportGeneration++; videoRefill = null; }
+    set({ isPlaying, ...(!isPlaying ? { autoplayLoading: false } : {}) });
+  },
 
   setVolume: (volume) => set({ volume: Math.min(1, Math.max(0, volume)) }),
 
@@ -243,6 +263,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setPlaybackRate: (playbackRate) => set({ playbackRate: Math.min(4, Math.max(0.25, playbackRate)) }),
 
   setQueue: (queue, startIndex = 0) => {
+    videoTransportGeneration++;
+    videoRefill = null;
     const safeIndex = queue.length > 0
       ? Math.max(0, Math.min(startIndex, queue.length - 1))
       : -1;
@@ -250,6 +272,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const isNew = get().currentVideo?.id !== nextVideo?.id;
     set({
       queue,
+      playedIds: nextVideo ? [...new Set([...get().playedIds, nextVideo.id])] : get().playedIds,
+      musicStation: null,
+      autoplayLoading: false,
+      autoplayError: false,
       currentIndex: safeIndex,
       currentVideo: nextVideo,
       isPlaying: queue.length > 0,
@@ -270,6 +296,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   addToQueue: (video) => {
+    const replay = geniusEnabled() && get().playedIds.includes(video.id);
+    set({ playedIds: get().playedIds.filter((id) => id !== video.id) });
+    if (replay) { set({ queue: [...get().queue, video] }); return "added"; }
     const { queue, currentVideo, currentIndex } = get();
     if (queue.some((item) => item.id === video.id) || currentVideo?.id === video.id) {
       return "duplicate";
@@ -330,11 +359,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ queue: nextQueue, currentIndex: nextCurrentIndex });
   },
 
-  playQueueItem: (index) => {
+  playQueueItem: (index, automatic = false) => {
+    if (!automatic) videoTransportGeneration++;
     const item = get().queue[index];
     if (!item) return;
     set({
       currentIndex: index,
+      playedIds: [...new Set([...get().playedIds, item.id])],
       currentVideo: item,
       isPlaying: true,
       currentTime: 0,
@@ -353,37 +384,78 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const { queue, currentIndex, repeatMode, autoplayCandidates } = get();
     if (queue.length === 0) return null;
 
-    const nextIndex = currentIndex + 1;
+    let nextIndex = currentIndex + 1;
+    if (geniusEnabled() && repeatMode === "none") {
+      while (nextIndex < queue.length && get().playedIds.includes(queue[nextIndex]!.id)) nextIndex++;
+    }
     if (nextIndex < queue.length) {
       const nextItem = queue[nextIndex];
       if (nextItem) {
-        get().playQueueItem(nextIndex);
+        get().playQueueItem(nextIndex, true);
         return nextItem;
       }
     } else if (repeatMode === "all") {
       const firstItem = queue[0];
       if (firstItem) {
-        get().playQueueItem(0);
+        get().playQueueItem(0, true);
         return firstItem;
       }
     }
 
     if (allowAutoplayFallback) {
       const queuedIds = new Set(queue.map((item) => item.id));
-      const nextCandidate = autoplayCandidates.find((item) => !queuedIds.has(item.id));
+      const nextCandidate = autoplayCandidates.find((item) => !queuedIds.has(item.id) && (!geniusEnabled() || !get().playedIds.includes(item.id)));
       if (nextCandidate) {
         const nextQueue = [...queue, nextCandidate];
         set({
           queue: nextQueue,
           autoplayCandidates: autoplayCandidates.filter((item) => item.id !== nextCandidate.id),
         });
-        get().playQueueItem(nextQueue.length - 1);
+        get().playQueueItem(nextQueue.length - 1, true);
         return nextCandidate;
       }
     }
 
+    if (allowAutoplayFallback && geniusEnabled() && getSettingValue(SETTINGS.AUTOPLAY_ENABLED) !== "false") {
+      void get().refillAutoplay();
+      return null;
+    }
     set({ isPlaying: false });
     return null;
+  },
+
+  refillAutoplay: async () => {
+    if (videoRefill) return videoRefill;
+    const current = get().currentVideo;
+    if (!current || !geniusEnabled() || getSettingValue(SETTINGS.AUTOPLAY_ENABLED) === "false") return null;
+    const generation = videoTransportGeneration;
+    set({ autoplayLoading: true, autoplayError: false });
+    videoRefill = (async () => {
+      try {
+        const result = await refillVideoCandidates(current.id, get().musicStation, get().playedIds);
+        if (generation !== videoTransportGeneration || get().currentVideo?.id !== current.id || getSettingValue(SETTINGS.AUTOPLAY_ENABLED) === "false" || !geniusEnabled()) return null;
+        get().setAutoplayCandidates(result.videos);
+        set({ musicStation: result.station });
+        const candidate = get().autoplayCandidates[0];
+        if (candidate) {
+          const queue = [...get().queue, candidate];
+          set({ queue });
+          get().playQueueItem(queue.length - 1, true);
+          return candidate;
+        }
+        set({ autoplayError: true, isPlaying: false });
+        useUiStore.getState().showToast({ title: getString("radio_unavailable_title"), message: getString("radio_unavailable_message"), variant: "error" });
+      } catch {
+        if (generation === videoTransportGeneration) {
+          set({ autoplayError: true, isPlaying: false });
+          useUiStore.getState().showToast({ title: getString("radio_unavailable_title"), message: getString("radio_unavailable_message"), variant: "error" });
+        }
+      } finally {
+        if (generation === videoTransportGeneration) { set({ autoplayLoading: false }); videoRefill = null; }
+      }
+      return null;
+    })();
+    return videoRefill;
   },
 
   playPrevious: () => {
@@ -403,6 +475,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         set({
           currentIndex: prevIndex,
           currentVideo: prevItem,
+          playedIds: [...new Set([...get().playedIds, prevItem.id])],
           isPlaying: true,
           currentTime: 0,
           duration: prevItem.durationSeconds ?? 0,
@@ -417,6 +490,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         set({
           currentIndex: lastIndex,
           currentVideo: lastItem,
+          playedIds: [...new Set([...get().playedIds, lastItem.id])],
           isPlaying: true,
           currentTime: 0,
           duration: lastItem.durationSeconds ?? 0,
@@ -453,7 +527,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const queueIds = new Set(get().queue.map((item) => item.id));
     const seen = new Set<string>();
     const candidates = videos.filter((video) => {
-      if (!video.id || video.id === currentId || queueIds.has(video.id) || seen.has(video.id) || video.isLive) {
+      if (!video.id || (geniusEnabled() && get().playedIds.includes(video.id)) || video.id === currentId || queueIds.has(video.id) || seen.has(video.id) || video.isLive) {
         return false;
       }
       seen.add(video.id);
@@ -472,7 +546,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setPlayMode: (playMode) => set({ playMode }),
 
-  clearQueue: () => set({
+  clearQueue: () => {
+    videoTransportGeneration++;
+    videoRefill = null;
+    set({
+    playedIds: [],
+    musicStation: null,
+    autoplayLoading: false,
+    autoplayError: false,
     queue: [],
     currentIndex: -1,
     currentVideo: null,
@@ -489,7 +570,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     playbackStartedVideoId: null,
     isChaptersPanelOpen: false,
     isQueuePanelOpen: false,
-  }),
+  });
+  },
   
   setCurrentTime: (currentTime) => set({ currentTime }),
   setDuration: (duration) => set({ duration }),
@@ -538,6 +620,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         patch.currentIndex = queue.length;
       }
       patch.currentVideo = video;
+      patch.playedIds = [...new Set([...get().playedIds, video.id])];
       patch.duration = video.durationSeconds ?? 0;
       patch.watchPageCache = null;
       patch.autoplayCandidates = [];

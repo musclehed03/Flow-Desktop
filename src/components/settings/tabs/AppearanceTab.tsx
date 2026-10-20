@@ -1,3 +1,4 @@
+import { SensorySettings } from "../../accessibility/SensorySettings";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { CustomThemeEditor } from "../../theme/CustomThemeEditor";
@@ -53,6 +54,7 @@ export function AppearanceTab() {
 
   return (
     <div className="mx-auto max-w-5xl pb-10">
+      <SensorySettings />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">{getString("settings_appearance")}</h1>

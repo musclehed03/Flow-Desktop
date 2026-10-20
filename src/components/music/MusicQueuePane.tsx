@@ -1,3 +1,4 @@
+import { GeniusControls } from "../radio/GeniusControls";
 import {
   DndContext,
   KeyboardSensor,
@@ -206,6 +207,7 @@ export function MusicQueuePane() {
         )}
       </div>
 
+      <GeniusControls surface="music" />
       {/* Autoplay footer */}
       <div className="mt-2 flex items-center gap-3 rounded-xl border border-chrome-neutral-800 bg-surface-container-low px-3 py-2.5">
         <Radio
@@ -215,7 +217,7 @@ export function MusicQueuePane() {
           <p className="text-sm font-medium text-chrome-neutral-100">{getString("music_autoplay")}</p>
           <p className="line-clamp-1 text-xs text-chrome-neutral-500">{getString("music_autoplay_desc")}</p>
         </div>
-        <ToggleSwitch checked={radioOn} onChange={() => toggleRadio()} />
+        <ToggleSwitch label={getString("music_autoplay")} checked={radioOn} onChange={() => toggleRadio()} />
       </div>
     </div>
   );

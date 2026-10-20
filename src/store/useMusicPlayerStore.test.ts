@@ -105,3 +105,31 @@ describe('queue source ("Playing from")', () => {
     expect(useMusicPlayerStore.getState().queueSource).toBeNull();
   });
 });
+
+import { useAppSettingsStore } from './useAppSettingsStore';
+import { SETTINGS } from '../lib/settings/schema';
+import { recallArtist } from '../lib/musicRecall';
+vi.mock('../lib/musicRecall', async (importOriginal) => ({ ...(await importOriginal<typeof import('../lib/musicRecall')>()), recallArtist: vi.fn() }));
+
+describe('artist stations and Genius session', () => {
+  it('starts an artist station with the top seed and applies the own-catalog quota', async () => {
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.GENIUS_DJ_ENABLED]: 'true', [SETTINGS.RADIO_DISCOVERY_LEVEL]: 'less' } });
+    const own = Array.from({ length: 12 }, (_, i) => ({ ...song(`own-${i}`), artists: [{ id: 'artist', name: 'Artist' }] }));
+    vi.mocked(recallArtist).mockResolvedValue({ topSongs: own } as Awaited<ReturnType<typeof recallArtist>>);
+    getMusicWatchQueue.mockResolvedValue({ items: Array.from({ length: 10 }, (_, i) => ({ ...song(`other-${i}`), artists: [{ id: 'other', name: 'Other' }] })), continuation: null, radioPlaylistId: null });
+    useMusicPlayerStore.setState({ currentTrack: null, playedIds: [], currentIndex: 0 });
+    await useMusicPlayerStore.getState().startArtistRadio({ id: 'artist', title: 'Artist', thumbnail: null, channelId: null });
+    await useMusicPlayerStore.getState()._ensureRadio();
+    const state = useMusicPlayerStore.getState();
+    expect(state.station?.type).toBe('artist');
+    expect(state.queue[0]?.id).toBe('own-0');
+    expect(state.queue.slice(1).filter((track) => track.artists[0]?.id === 'artist').length).toBeGreaterThanOrEqual(7);
+    useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.RADIO_DISCOVERY_LEVEL]: 'moderate' } });
+  });
+  it('lets an explicit add replay a previously played item', () => {
+    useMusicPlayerStore.setState({ queue: [song('played')], currentIndex: 0, playedIds: ['played'] });
+    useMusicPlayerStore.getState().addToQueue(song('played'));
+    expect(useMusicPlayerStore.getState().queue).toHaveLength(2);
+    expect(useMusicPlayerStore.getState().playedIds).not.toContain('played');
+  });
+});
