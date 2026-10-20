@@ -1,3 +1,4 @@
+import { rememberPlayed } from "./djSession";
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -61,7 +62,9 @@ export function usePipController() {
       listen<PipVideoChangedPayload>(PIP_EVENTS.videoChanged, ({ payload }) => {
         const store = usePlayerStore.getState();
         if (store.videoPlayerMode !== "window") return;
+        (payload.playedIds ?? []).forEach(rememberPlayed);
         store.applyPipRemoteState({ video: payload.video });
+        if (payload.musicStation !== undefined) usePlayerStore.setState({ musicStation: payload.musicStation });
       }),
       listen<PipHandbackPayload>(PIP_EVENTS.handback, async ({ payload }) => {
         // "Back to Flow" always brings playback home. A plain close only does

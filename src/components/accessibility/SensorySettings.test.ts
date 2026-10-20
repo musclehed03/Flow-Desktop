@@ -1,3 +1,5 @@
+import { RelatedSongsSidebar, RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
+import { useRelatedSnapshot } from "../../lib/relatedSnapshot";
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -10,6 +12,8 @@ import { SensorySettings } from './SensorySettings';
 import { DeviantControls } from './DeviantControls';
 import { PlayerTab } from '../settings/tabs/PlayerTab';
 import { ImportData } from '../../pages/ImportData';
+import { GeniusControls } from '../radio/GeniusControls';
+import { SavedStations } from '../radio/SavedStations';
 import { ThemeController } from '../../lib/useTheme';
 
 const original = useAppSettingsStore.getState().values;
@@ -23,21 +27,32 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
-  const showModal = vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function(this: HTMLDialogElement) {
+  const showModal = vi.fn(function(this: HTMLDialogElement) {
     this.setAttribute('open', ''); this.querySelector<HTMLButtonElement>('button')?.focus();
   });
-  const close = vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function(this: HTMLDialogElement) {
+  const close = vi.fn(function(this: HTMLDialogElement) {
     this.removeAttribute('open'); this.dispatchEvent(new Event('close'));
   });
+  const previousShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+  const previousClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: showModal });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: close });
   try {
     await act(async () => root.render(createElement(SensoryRoot, null,
-      createElement(ThemeController), createElement(DeviantControls), createElement(SensorySettings), createElement(PlayerTab), createElement(ImportData))));
+      createElement(ThemeController), createElement(DeviantControls), createElement(SensorySettings), createElement(PlayerTab), createElement(ImportData), createElement(GeniusControls, { surface: "music" }), createElement(SavedStations), createElement(RelatedSongsToggle, { surface: "music" }), createElement(RelatedSongsSidebar))));
     for (let mask = 0; mask < 128; mask++) {
       const values = { ...original, [SETTINGS.THEME_VARIANT]: mask & 64 ? 'light' : 'dark' };
       SENSORY_SETTINGS.forEach(([, key], index) => { values[key] = String(Boolean(mask & (1 << index))); });
       await act(async () => useAppSettingsStore.setState({ values }));
       for (const [name, key] of SENSORY_SETTINGS) expect(document.documentElement.classList.contains(`sensory-${name}`), `mode ${mask}, ${name}`).toBe(values[key] === 'true');
       expect(document.documentElement.dataset.themeVariant).toBe(mask & 64 ? 'light' : 'dark');
+      await act(async () => useRelatedSnapshot.setState({ open: true, rows: [{ id: 'snapshot', title: 'Snapshot', artist: 'Artist' }], added: [], loading: false, error: false }));
+      const related = host.querySelector('#related-songs-sidebar');
+      expect(related).not.toBeNull();
+      expect(related?.querySelectorAll('button')).toHaveLength(3);
+      related?.querySelectorAll('button').forEach((button) => expect(button.getAttribute('aria-label')).toBeTruthy());
+      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+      expect(useRelatedSnapshot.getState().open).toBe(false);
       const switches = host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
       expect(switches.length).toBeGreaterThan(4);
       switches.forEach((button) => expect(button.getAttribute('aria-label'), `unnamed switch in ${mask}`).toBeTruthy());
@@ -52,6 +67,8 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
       expect(document.activeElement).toBe(trigger);
     }
   } finally {
-    await act(async () => root.unmount()); host.remove(); showModal.mockRestore(); close.mockRestore();
+    await act(async () => root.unmount()); host.remove();
+    if (previousShow) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', previousShow); else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal');
+    if (previousClose) Object.defineProperty(HTMLDialogElement.prototype, 'close', previousClose); else Reflect.deleteProperty(HTMLDialogElement.prototype, 'close');
   }
-}, 30000);
+}, 120000);

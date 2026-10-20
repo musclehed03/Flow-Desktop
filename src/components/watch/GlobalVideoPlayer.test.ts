@@ -1,3 +1,4 @@
+import { useDjSession } from "../../lib/djSession";
 import { useWatchQueue } from "../../lib/useWatchQueue";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +27,7 @@ function Location() {
 const video = (id: string) => ({ id, title: id, channelName: "Artist" });
 
 beforeEach(async () => {
+  useDjSession.setState({ played: [] });
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.stubGlobal("requestAnimationFrame", () => 1);

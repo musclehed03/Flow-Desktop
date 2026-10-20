@@ -1,3 +1,4 @@
+import { useDjSession } from "../lib/djSession";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MusicStreamInfo, SongItem } from "../types/music";
@@ -59,6 +60,7 @@ const stream = (id: string) =>
   ({ videoId: id, audioUrl: `http://127.0.0.1/stream/${id}`, loudnessDb: -2 }) as MusicStreamInfo;
 
 beforeEach(() => {
+  useDjSession.setState({ played: [] });
   calls.length = 0;
   engine.play.mockImplementation(async () => {
     calls.push("play");

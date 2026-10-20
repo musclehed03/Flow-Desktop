@@ -1,3 +1,6 @@
+import { RelatedSongsSidebar } from "../radio/RelatedSongsSidebar";
+import { DeviantControls } from "../accessibility/DeviantControls";
+import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
 import { Maximize2, Pin, PinOff, X } from "lucide-react";
 
 import { IS_MACOS_RUNTIME } from "../../lib/platform";
@@ -32,7 +35,9 @@ export function PipWindowApp() {
   useMediaSessionMetadata(isPlaying);
 
   return (
-    <div className="group relative flex h-screen w-screen items-center justify-center overflow-hidden bg-chrome-black text-chrome-zinc-100">
+    <div data-flow-player-surface="video" className="group relative flex h-screen w-screen items-center justify-center overflow-hidden bg-chrome-black text-chrome-zinc-100">
+      <DeviantControls /><RelatedSongsSidebar />
+      {isPlaying && <SensoryAdvisory videoId={currentVideo.id} />}
       {isPlaying ? (
         // Widest 16:9 box that still fits the window, so the transport controls
         // stay inside the frame even mid-resize.

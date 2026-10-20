@@ -1,3 +1,4 @@
+import { isKnownMusicVideo } from "./musicVideoProvenance";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { invalidateStreamInfo, resolveStreamInfo } from "./streamResolution";
@@ -271,7 +272,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
                 watchDate: new Date().toISOString(),
                 watchDurationSeconds: 0,
                 totalDurationSeconds: currentVideo.durationSeconds ?? 0,
-                isMusic: isMusicVideo(currentVideo),
+                isMusic: isKnownMusicVideo(currentVideo.id) || isMusicVideo(currentVideo),
               }).catch((err) => console.warn("Failed to record watch history", err));
             }
             return;
@@ -352,7 +353,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
               readSavedWatchProgress(currentVideo.id, currentVideo.durationSeconds ?? 0),
             ),
             totalDurationSeconds: currentVideo.durationSeconds ?? 0,
-            isMusic: isMusicVideo(currentVideo),
+            isMusic: isKnownMusicVideo(currentVideo.id) || isMusicVideo(currentVideo),
           }).catch((err) => console.warn("Failed to record watch history", err));
         }
       } catch (err) {

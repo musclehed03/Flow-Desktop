@@ -1,3 +1,4 @@
+import { sessionPlayed, rememberPlayed, allowReplay } from "../lib/djSession";
 import { geniusEnabled, type MusicStation } from "../lib/musicStation";
 import { refillVideoCandidates } from "../lib/videoAutoplay";
 import { useUiStore } from "./useUiStore";
@@ -296,7 +297,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   addToQueue: (video) => {
-    const replay = geniusEnabled() && get().playedIds.includes(video.id);
+    const replay = geniusEnabled() && sessionPlayed().includes(video.id);
+    allowReplay(video.id);
     set({ playedIds: get().playedIds.filter((id) => id !== video.id) });
     if (replay) { set({ queue: [...get().queue, video] }); return "added"; }
     const { queue, currentVideo, currentIndex } = get();
@@ -363,6 +365,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (!automatic) videoTransportGeneration++;
     const item = get().queue[index];
     if (!item) return;
+    if (!automatic) allowReplay(item.id);
+    rememberPlayed(item.id);
     set({
       currentIndex: index,
       playedIds: [...new Set([...get().playedIds, item.id])],
@@ -386,7 +390,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     let nextIndex = currentIndex + 1;
     if (geniusEnabled() && repeatMode === "none") {
-      while (nextIndex < queue.length && get().playedIds.includes(queue[nextIndex]!.id)) nextIndex++;
+      while (nextIndex < queue.length && sessionPlayed().includes(queue[nextIndex]!.id)) nextIndex++;
     }
     if (nextIndex < queue.length) {
       const nextItem = queue[nextIndex];
@@ -404,7 +408,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     if (allowAutoplayFallback) {
       const queuedIds = new Set(queue.map((item) => item.id));
-      const nextCandidate = autoplayCandidates.find((item) => !queuedIds.has(item.id) && (!geniusEnabled() || !get().playedIds.includes(item.id)));
+      const nextCandidate = autoplayCandidates.find((item) => !queuedIds.has(item.id) && (!geniusEnabled() || !sessionPlayed().includes(item.id)));
       if (nextCandidate) {
         const nextQueue = [...queue, nextCandidate];
         set({
@@ -432,7 +436,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ autoplayLoading: true, autoplayError: false });
     videoRefill = (async () => {
       try {
-        const result = await refillVideoCandidates(current.id, get().musicStation, get().playedIds);
+        const result = await refillVideoCandidates(current.id, get().musicStation, sessionPlayed());
         if (generation !== videoTransportGeneration || get().currentVideo?.id !== current.id || getSettingValue(SETTINGS.AUTOPLAY_ENABLED) === "false" || !geniusEnabled()) return null;
         get().setAutoplayCandidates(result.videos);
         set({ musicStation: result.station });
@@ -527,7 +531,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const queueIds = new Set(get().queue.map((item) => item.id));
     const seen = new Set<string>();
     const candidates = videos.filter((video) => {
-      if (!video.id || (geniusEnabled() && get().playedIds.includes(video.id)) || video.id === currentId || queueIds.has(video.id) || seen.has(video.id) || video.isLive) {
+      if (!video.id || (geniusEnabled() && sessionPlayed().includes(video.id)) || video.id === currentId || queueIds.has(video.id) || seen.has(video.id) || video.isLive) {
         return false;
       }
       seen.add(video.id);
@@ -677,3 +681,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ subtitleStyle: style });
   },
 }));
+
+usePlayerStore.subscribe((state, previous) => {
+  if (state.currentVideo && (state.currentVideo.id !== previous.currentVideo?.id || state.currentIndex !== previous.currentIndex)) rememberPlayed(state.currentVideo.id);
+});

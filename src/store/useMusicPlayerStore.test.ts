@@ -1,3 +1,4 @@
+import { useDjSession, rememberPlayed } from "../lib/djSession";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SongItem } from "../types/music";
@@ -42,6 +43,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  useDjSession.setState({ played: [] });
   vi.clearAllMocks();
 });
 
@@ -127,6 +129,7 @@ describe('artist stations and Genius session', () => {
     useAppSettingsStore.setState({ values: { ...useAppSettingsStore.getState().values, [SETTINGS.RADIO_DISCOVERY_LEVEL]: 'moderate' } });
   });
   it('lets an explicit add replay a previously played item', () => {
+    rememberPlayed('played');
     useMusicPlayerStore.setState({ queue: [song('played')], currentIndex: 0, playedIds: ['played'] });
     useMusicPlayerStore.getState().addToQueue(song('played'));
     expect(useMusicPlayerStore.getState().queue).toHaveLength(2);

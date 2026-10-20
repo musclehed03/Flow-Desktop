@@ -1,3 +1,4 @@
+import { TrackReason } from "../radio/TrackReason";
 import { GeniusControls } from "../radio/GeniusControls";
 import {
   DndContext,
@@ -75,6 +76,7 @@ function QueueRow({ track, isRadio, onPlay, onRemove, onNavigate }: QueueRowProp
       </button>
 
       <div className="min-w-0 flex-1">
+        <TrackReason reason={track.radioReason} />
         <MusicItemCard
           variant="track-list"
           item={track}

@@ -5,7 +5,7 @@ import { getBackendErrorMessage } from './api/errors';
 import { dailyMixId, expandDailyMix } from './musicMixes';
 import type { DailyMixSeed, SongItem } from '../types/music';
 
-const MIX_LOOKUP = 8;
+const MIX_LOOKUP = 3;
 
 /**
  * Expands a local Daily Mix. The route's seeds are authoritative; an id-only link

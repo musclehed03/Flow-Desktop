@@ -1,3 +1,4 @@
+import { hydrateDjSession } from "./lib/djSession";
 import { SensoryRoot } from "./lib/useSensorySuite";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -11,6 +12,7 @@ import { PIP_WINDOW_LABEL } from "./lib/api/pip";
 import "./lib/i18n";
 
 installGlobalErrorHandlers();
+void hydrateDjSession();
 
 // Both windows load the same bundle; the window label decides which root runs.
 // The pop-out player deliberately stays outside the router — it is one surface,

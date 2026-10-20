@@ -10,6 +10,8 @@ export const PIP_WINDOW_LABEL = "pip";
  * the queue travels with the handoff and each side hydrates its own store.
  */
 export interface PipSession {
+  playedIds?: string[];
+  musicStation?: import("../musicStation").MusicStation | null;
   queue: VideoSummary[];
   currentIndex: number;
   positionSeconds: number;
@@ -38,6 +40,8 @@ export interface PipProgressPayload {
  * carried: the two windows' queues can diverge once the pop-out appends an
  * autoplay pick, so the main window places the video in its own queue. */
 export interface PipVideoChangedPayload {
+  playedIds?: string[];
+  musicStation?: import("../musicStation").MusicStation | null;
   video: VideoSummary;
 }
 

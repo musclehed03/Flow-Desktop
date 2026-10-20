@@ -1,4 +1,6 @@
-import type { ArtistItem, SongItem } from "../types/music";
+import { libraryRadioCandidates } from "./libraryRadio";
+import { expandDailyMix } from "./musicMixes";
+import type { ArtistItem, SongItem, DailyMixSeed } from "../types/music";
 import { getMusicMoodGenre, getMusicQueueContinuation, getMusicWatchQueue, getMusicRelatedTyped, rankMusicCandidates } from "./api/music";
 import { audioMusicOnly, recallArtist, relatedSongs } from "./musicRecall";
 import { getMusicHistory } from "./api/db";
@@ -8,8 +10,11 @@ import { SETTINGS } from "./settings/schema";
 
 export type DiscoveryLevel = "less" | "moderate" | "more";
 export interface MusicStation {
-  type: "track" | "artist" | "genre";
+  type: "track" | "artist" | "genre" | "mix";
   seed: SongItem;
+  mix?: DailyMixSeed;
+  seedCursor?: number;
+  discovery?: DiscoveryLevel;
   title?: string;
   artist?: ArtistItem;
   browseId?: string;
@@ -32,6 +37,12 @@ export function belongsToSeedArtist(song: SongItem, station: MusicStation): bool
 }
 
 export async function fetchStationPage(station: MusicStation, last: SongItem): Promise<{ songs: SongItem[]; station: MusicStation }> {
+  if (station.type === "mix" && station.mix?.seedTrackIds.length) {
+    const cursor = station.seedCursor ?? 0;
+    const seeds = station.mix.seedTrackIds;
+    const songs = await expandDailyMix({ ...station.mix, seedTrackIds: [seeds[cursor % seeds.length]!] });
+    return { songs, station: { ...station, seedCursor: cursor + 1 } };
+  }
   if (station.type === "genre" && station.browseId && station.genreTurn !== false) {
     const page = await getMusicMoodGenre(station.browseId, station.params ?? undefined, station.genreContinuation ?? undefined);
     return { songs: page.items.filter((item): item is SongItem & { type: "song" } => item.type === "song"),
@@ -45,7 +56,7 @@ export async function fetchStationPage(station: MusicStation, last: SongItem): P
 
 /** Artist graph expansion remains in MusicBrain's adjacency-gated ranking pipeline. */
 export async function expandStationCandidates(station: MusicStation, songs: SongItem[]): Promise<{ songs: SongItem[]; station: MusicStation }> {
-  const level = discoveryLevel();
+  const level = station.discovery ?? discoveryLevel();
   if (!geniusEnabled() || level === "moderate") return { songs, station };
   const artistId = station.artist?.id ?? station.seed.artists[0]?.id;
   const anchor = artistId ? await recallArtist(artistId) : null;
@@ -58,8 +69,13 @@ export async function expandStationCandidates(station: MusicStation, songs: Song
 }
 
 export async function rankStationBatch(songs: SongItem[], station: MusicStation, limit = 10): Promise<SongItem[]> {
-  const ordered = await rankMusicCandidates(songs, "radio", targetNovelty()).catch(() => songs);
-  if (!geniusEnabled() || discoveryLevel() !== "less") return ordered.slice(0, limit);
+  const level = station.mix?.fringe ? "more" : station.discovery ?? discoveryLevel();
+  const novelty = !geniusEnabled() || level === "moderate" ? undefined : level === "less" ? 0.10 : 0.65;
+  const originals = new Map(songs.map((song) => [songId(song), song]));
+  const ranked = await rankMusicCandidates(songs, "radio", novelty).catch(() => songs);
+  const ordered = ranked.map((song) => ({ ...song, libraryVideo: originals.get(songId(song))?.libraryVideo,
+    radioReason: originals.get(songId(song))?.radioReason ?? { kind: "station" as const, seedName: station.title ?? station.artist?.title ?? station.seed.artists[0]?.name } }));
+  if (!geniusEnabled() || level !== "less") return ordered.slice(0, limit);
   const own = ordered.filter((song) => belongsToSeedArtist(song, station));
   const other = ordered.filter((song) => !belongsToSeedArtist(song, station));
   const quota = own.slice(0, Math.min(limit, 7));
@@ -70,6 +86,8 @@ export async function stationFallback(last: SongItem, unavailable: Set<string> =
   const related = (await relatedSongs(songId(last))).filter((song) => !unavailable.has(songId(song)));
   if (related.length) return related;
   const history = await getMusicHistory(200, 0).catch(() => []);
-  return buildQuickPicks(history, last, unavailable, null).catch(() => []);
+  const picks = await buildQuickPicks(history, last, new Set(unavailable), null).catch(() => []);
+  const available = picks.filter((song) => !unavailable.has(songId(song)));
+  return available.length ? available : libraryRadioCandidates(unavailable);
 }
 export const filterStationSongs = (songs: SongItem[]) => audioMusicOnly(songs);

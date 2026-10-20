@@ -12,6 +12,9 @@ export interface Album {
 }
 
 export interface SongItem {
+  /** Client-only provenance; never inferred from an unknown musicVideoType. */
+  libraryVideo?: import("./video").VideoSummary;
+  radioReason?: { kind: "library" | "station"; seedName?: string };
   id: string;
   title: string;
   artists: Artist[];
@@ -233,6 +236,7 @@ export interface MusicTimeRotation {
 
 /** A Daily Mix cluster from the music brain: a label + seed tracks to expand. */
 export interface DailyMixSeed {
+  fringe?: boolean;
   label: string;
   seedTrackIds: string[];
 }

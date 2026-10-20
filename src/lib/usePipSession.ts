@@ -1,3 +1,4 @@
+import { rememberPlayed, sessionPlayed } from "./djSession";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -87,7 +88,9 @@ export function usePipSession() {
     // Stay silent while the main window is still playing this out loud; the
     // takeover event lifts it at the swap.
     store.setHandoffSilent(session.silentUntilTakeover);
+    (session.playedIds ?? []).forEach(rememberPlayed);
     store.setQueue(session.queue, index);
+    usePlayerStore.setState({ musicStation: session.musicStation ?? null, playedIds: sessionPlayed() });
     store.setPipHandoff(video.id, session.positionSeconds, session.playing);
     // The pop-out *is* the mini player surface, so its whole viewport uses the
     // compact transport rather than the full watch-page controls.
@@ -147,7 +150,7 @@ export function usePipSession() {
       if (!next || !previous.currentVideo || next.id === previous.currentVideo.id) return;
       // The queue advanced inside the pop-out; the main window has no other way
       // to learn what is playing now.
-      void emit(PIP_EVENTS.videoChanged, { video: next } satisfies PipVideoChangedPayload).catch(
+      void emit(PIP_EVENTS.videoChanged, { video: next, playedIds: sessionPlayed(), musicStation: usePlayerStore.getState().musicStation } satisfies PipVideoChangedPayload).catch(
         () => {},
       );
     });

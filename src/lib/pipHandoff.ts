@@ -1,3 +1,4 @@
+import { sessionPlayed } from "./djSession";
 import { emit, listen } from "@tauri-apps/api/event";
 
 import { useAppSettingsStore } from "../store/useAppSettingsStore";
@@ -88,6 +89,8 @@ export async function openPopoutPlayer(): Promise<boolean> {
 
   try {
     await openPipWindow({
+      playedIds: [...new Set([...sessionPlayed(), ...store.playedIds])],
+      musicStation: store.musicStation,
       queue,
       currentIndex,
       positionSeconds: store.currentTime,

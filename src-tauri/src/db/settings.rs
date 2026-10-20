@@ -62,7 +62,17 @@ mod tuned_tests {
             "sqlite://{}?mode=rwc",
             directory.join("test.sqlite").display()
         );
-        let keys = ["music_video_first_enabled", "keep_watching_view_enabled"];
+        let keys = [
+            "music_video_first_enabled",
+            "keep_watching_view_enabled",
+            "sensory_focus_enabled",
+            "safe_motion_enabled",
+            "readable_font_enabled",
+            "high_contrast_enabled",
+            "color_blind_enabled",
+            "simplified_view_enabled",
+            "genius_dj_enabled",
+        ];
         for value in ["false", "true"] {
             let pool = SqlitePoolOptions::new()
                 .max_connections(1)
@@ -72,6 +82,16 @@ mod tuned_tests {
             sqlx::migrate!("./migrations").run(&pool).await.unwrap();
             for key in keys {
                 set_setting(&pool, key, value).await.unwrap();
+            }
+            for (key, text) in [
+                ("radio_discovery_level", "more"),
+                ("theme_variant", "light"),
+                (
+                    "saved_radio_stations",
+                    r#"[{"id":"station","name":"Rock/Metal","discovery":"more","station":{"type":"genre","seed":{"id":"seed"},"browseId":"genre"}}]"#,
+                ),
+            ] {
+                set_setting(&pool, key, text).await.unwrap();
             }
             pool.close().await;
 
@@ -92,6 +112,28 @@ mod tuned_tests {
                     Some(value)
                 );
             }
+            assert_eq!(
+                get_setting(&reopened, "radio_discovery_level")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("more")
+            );
+            assert_eq!(
+                get_setting(&reopened, "theme_variant")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("light")
+            );
+            let stations = get_setting(&reopened, "saved_radio_stations")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&stations).unwrap()[0]["name"],
+                "Rock/Metal"
+            );
             reopened.close().await;
         }
         std::fs::remove_dir_all(directory).unwrap();

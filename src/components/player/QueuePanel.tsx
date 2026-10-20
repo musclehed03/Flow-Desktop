@@ -1,3 +1,5 @@
+import { videoTrackReason } from "../../lib/musicVideoProvenance";
+import { TrackReason } from "../radio/TrackReason";
 import { GeniusControls } from "../radio/GeniusControls";
 import {
   ChevronDown,
@@ -165,6 +167,7 @@ export function QueuePanel() {
                       {video.title}
                     </span>
                     <span className="mt-1 block truncate text-xs text-chrome-neutral-500">{video.channelName}</span>
+                    <TrackReason reason={videoTrackReason(video.id)} />
                   </button>
 
                   <div className="flex shrink-0 flex-col gap-1">

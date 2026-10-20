@@ -1,3 +1,4 @@
+import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { MusicPresentationControls } from "./MusicPresentationControls";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -169,6 +170,7 @@ export function MusicOverlay() {
 
             <div className="relative flex items-center gap-1">
               <MusicPresentationControls />
+              <RelatedSongsToggle surface="music" />
               {isLyrics && (
                 <HapticButton
                   onClick={() => lyrics.refresh()}

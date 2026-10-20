@@ -23,15 +23,15 @@ export default function MusicMixPage() {
   const { mix, songs: allSongs, loading, error, reload } = useMusicMix(id, routeMix);
   const isHidden = useMusicHiddenFilter();
   const songs = useMemo(() => allSongs.filter((song) => !isHidden(song)), [allSongs, isHidden]);
-  const playQueue = useMusicPlayerStore((store) => store.playQueue);
+  const startMixStation = useMusicPlayerStore((store) => store.startMixStation);
   const loadLibrary = useAlbumLibraryStore((store) => store.load);
   const saved = useAlbumLibraryStore((store) => !!id && store.isSaved(id));
   const saveMix = useAlbumLibraryStore((store) => store.saveMix);
   const showToast = useUiStore((store) => store.showToast);
   useEffect(() => { void loadLibrary(); }, [loadLibrary]);
   const title = mix ? `${mix.label} ${t('musicMix')}` : t('musicMix');
-  const play = (index: number) => { void playQueue(songs, index, title); };
-  const shuffle = () => { void playQueue(shuffled(songs), 0, title); };
+  const play = (index: number) => { if (mix) void startMixStation(mix, songs, index); };
+  const shuffle = () => { if (mix) void startMixStation(mix, shuffled(songs), 0); };
   const save = async () => {
     if (!id || !songs.length) return;
     try {

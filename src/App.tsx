@@ -1,3 +1,4 @@
+import { RelatedSongsSidebar } from "./components/radio/RelatedSongsSidebar";
 import { DeviantControls } from "./components/accessibility/DeviantControls";
 import { useCallback, useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
@@ -140,7 +141,7 @@ function App() {
     return (
       <div style={windowLayoutStyle} className="relative flex h-screen flex-col overflow-hidden bg-background text-chrome-zinc-100 font-sans">
         <ThemeController />
-      <DeviantControls />
+      <DeviantControls /><RelatedSongsSidebar />
         <TitleBar />
         <div className="flex flex-1 items-center justify-center">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -152,7 +153,7 @@ function App() {
   return (
     <div style={windowLayoutStyle} className="relative flex h-screen flex-col overflow-hidden bg-background text-chrome-zinc-100 font-sans">
       <ThemeController />
-      <DeviantControls />
+      <DeviantControls /><RelatedSongsSidebar />
       <TitleBar />
       <div className="relative min-h-0 flex-1">
       <Routes>

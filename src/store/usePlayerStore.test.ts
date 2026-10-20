@@ -1,3 +1,4 @@
+import { useDjSession, rememberPlayed } from "../lib/djSession";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { VideoSummary } from "../types/video";
@@ -15,6 +16,7 @@ const video = (id: string): VideoSummary => ({
 });
 
 afterEach(() => {
+  useDjSession.setState({ played: [] });
   usePlayerStore.getState().clearQueue();
   usePlayerStore.getState().setRepeatMode("none");
   usePlayerStore.getState().setAutoplayCandidates([]);
@@ -227,4 +229,14 @@ describe('Genius DJ video session', () => {
     expect(usePlayerStore.getState().currentVideo?.id).toBe('seed');
     expect(usePlayerStore.getState().isPlaying).toBe(false);
   });
+});
+
+it("does not automatically replay an ID already heard in the music transport", () => {
+  const items = [video("cross-current"), video("heard-in-music"), video("fresh-video")];
+  rememberPlayed("heard-in-music");
+  usePlayerStore.getState().setQueue(items, 0);
+  usePlayerStore.getState().playNext(true);
+  expect(usePlayerStore.getState().currentVideo?.id).toBe("fresh-video");
+  usePlayerStore.getState().playQueueItem(1);
+  expect(usePlayerStore.getState().currentVideo?.id).toBe("heard-in-music");
 });

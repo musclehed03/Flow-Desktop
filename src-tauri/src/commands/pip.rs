@@ -32,6 +32,10 @@ const SCREEN_MARGIN: f64 = 24.0;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PipSession {
+    #[serde(default)]
+    pub played_ids: Vec<String>,
+    #[serde(default)]
+    pub music_station: Option<serde_json::Value>,
     pub queue: Vec<serde_json::Value>,
     pub current_index: usize,
     pub position_seconds: f64,

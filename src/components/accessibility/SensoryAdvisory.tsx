@@ -16,7 +16,7 @@ export function SensoryAdvisory({ videoId }: { videoId: string }) {
   }, [key, visible]);
   if (!visible) return null;
   return <section role="alertdialog" aria-modal="false" aria-label={t('sensory.advisoryTitle')} aria-describedby="sensory-advisory-description"
-    data-sensory-essential="true" className="fixed inset-x-4 top-20 z-[540] mx-auto max-w-xl rounded-2xl border border-outline-variant bg-background p-5 text-on-surface">
+    data-sensory-essential="true" className="fixed inset-x-4 top-12 z-[540] mx-auto max-h-[calc(100vh-4rem)] max-w-xl overflow-y-auto rounded-2xl border border-outline-variant bg-background p-5 text-on-surface">
     <h2 className="font-semibold">{t('sensory.advisoryTitle')}</h2>
     <p id="sensory-advisory-description" className="my-3 text-sm">{t('sensory.advisory')}</p>
     {safe && <p className="mb-3 text-sm">{t('sensory.motionAdvisory')}</p>}

@@ -83,25 +83,42 @@ describe("Flow playlist conversion", () => {
 
 it("handles a synthetic 134-file batch including a 7,261-track playlist with one save", async () => {
   const inputs = Array.from({ length: 134 }, (_, playlist) => {
-    const count = playlist === 0 ? 7261 : 140;
+    const count = playlist === 0 ? 7261 : playlist < 3 ? 4985 : playlist < 99 ? 64 : 63;
     const videos = Array.from({ length: count }, (_, track) => ({
-      id: `v-${playlist}-${track}`, title: `Track ${track}`, channelName: "Artist", durationSeconds: 180,
+      id: `v-${playlist === 2 ? 1 : playlist}-${track}`, title: `Track ${track}`, channelName: "Artist", thumbnailUrl: "https://example.invalid/synthetic.jpg", durationSeconds: 180,
     }));
-    return file(`${playlist}.json`, strToU8(document(`Playlist ${playlist}`, videos)));
+    return file(`${playlist}.json`, strToU8(document(playlist === 1 ? "Favorites" : playlist === 2 ? "Favorites tracks" : `Playlist ${playlist}`, videos)));
   });
   const started = performance.now();
   const results = await importFlowPlaylistFiles(inputs);
   const durationMs = Math.round(performance.now() - started);
   expect(results.filter((r) => r.status === "imported")).toHaveLength(134);
-  expect(results.reduce((total, r) => total + r.tracksImported, 0)).toBe(25881);
+  expect(results.reduce((total, r) => total + r.tracksImported, 0)).toBe(25580);
   expect(persistStoredPlaylists).toHaveBeenCalledTimes(1);
   const saved = vi.mocked(persistStoredPlaylists).mock.calls[0]![0];
   expect(saved[0]?.tracks[7260]?.id).toBe("v-0-7260");
+  for (let index = 0; index < saved.length; index++) {
+    const expected = index === 0 ? 7261 : index < 3 ? 4985 : index < 99 ? 64 : 63;
+    expect(saved[index]?.tracks).toHaveLength(expected);
+    expect(saved[index]?.tracks.map((track) => track.id)).toEqual(Array.from({ length: expected }, (_, track) => `v-${index === 2 ? 1 : index}-${track}`));
+  }
+  vi.mocked(loadStoredPlaylists).mockResolvedValue(saved);
+  const repeated = await importFlowPlaylistFiles(inputs);
+  expect(repeated).toHaveLength(134);
+  expect(repeated.every((result) => result.reason === "duplicate")).toBe(true);
+  expect(persistStoredPlaylists).toHaveBeenCalledTimes(1);
+  vi.mocked(loadStoredPlaylists).mockResolvedValue([]);
+  vi.mocked(persistStoredPlaylists).mockClear();
+  const corrupted = await importFlowPlaylistFiles([file("corrupted.json", strToU8("{")), ...inputs]);
+  expect(corrupted.filter((result) => result.status === "imported")).toHaveLength(134);
+  expect(corrupted.filter((result) => result.status === "failed")).toHaveLength(1);
+  expect(persistStoredPlaylists).toHaveBeenCalledTimes(1);
+  console.info("SYNTHETIC_IMPORT_REPORT", JSON.stringify({ synthetic: true, results, reimport: repeated, corrupted, totalTracks: 25580, durationMs }));
   // Include serialization cost explicitly; the mocked repository does not serialize.
   const serializeStarted = performance.now();
   const bytes = new TextEncoder().encode(JSON.stringify(saved)).length;
   console.info("Synthetic importer scale (not the real TIDAL corpus)", {
-    playlists: saved.length, tracks: 25881, durationMs,
+    playlists: saved.length, tracks: 25580, durationMs,
     serializationMs: Math.round(performance.now() - serializeStarted), bytes,
   });
 });

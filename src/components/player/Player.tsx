@@ -2569,7 +2569,7 @@ export const Player: React.FC<PlayerProps> = ({
             return;
           }
           if (autoplayEnabled) {
-            playNext();
+            playNext(true);
           } else {
             setPlaybackDesired(false);
           }

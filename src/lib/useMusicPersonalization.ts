@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getMusicHistory } from './api/db';
 import {
-  getDailyMixes,
   getHeavyRotation,
   getMusicPlaylistPage,
   getMusicRelatedTyped,
@@ -11,7 +10,6 @@ import {
 import i18n from './i18n';
 import { getString } from './i18n/index';
 import { buildQuickPicks } from './musicQuickPicksBuilder';
-import { dailyMixId, dailyMixRoute, expandDailyMix } from './musicMixes';
 import { pickForSession } from './musicFeedComposer';
 import {
   MIN_SHELF_ITEMS,
@@ -368,34 +366,6 @@ async function buildHeavyRotation(used: Set<string>): Promise<PersonalSection | 
   }
 }
 
-// Daily Mixes: clusters of the user's favorite artists (grouped by co-listening in the
-// music brain), each expanded into a playlist via YT Music related songs and ranked.
-async function buildDailyMixes(used: Set<string>): Promise<PersonalSection[]> {
-  let mixes;
-  try {
-    mixes = await getDailyMixes(3);
-  } catch {
-    return [];
-  }
-  const sections: PersonalSection[] = [];
-  for (const mix of mixes) {
-    const pool = await expandDailyMix(mix);
-    const items = takeUnused(pool, 14, used).map(toYTSong);
-    if (items.length >= MIN_SHELF_ITEMS) {
-      const cover = items[0]?.type === 'song' ? items[0].thumbnail : '';
-      sections.push({
-        id: dailyMixId(mix),
-        title: `${mix.label} ${getString('music_mix')}`,
-        subtitle: i18n.t('musicDailyMix'),
-        seedArt: cover ? { url: cover } : undefined,
-        items,
-        route: dailyMixRoute(mix),
-      });
-    }
-  }
-  return sections;
-}
-
 // Trending: the song chart, or YouTube Music's home songs when there is none, discovery-ranked —
 // replaces the old hardcoded artist list.
 async function buildTrending(
@@ -519,7 +489,7 @@ export function useMusicPersonalization(): MusicPersonalization {
       if (!publish()) return;
       setLoading(false);
       setDataVersion((version) => version + 1);
-      built.mixes = await buildDailyMixes(used);
+      built.mixes = [];
       if (!publish()) return;
       built.fans = await buildArtistGraph(profile, used, usedAnchors, avoid);
       if (!publish()) return;

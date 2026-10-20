@@ -52,8 +52,22 @@
     "more": "More discovery",
     "genius": "Genius DJ",
     "geniusDescription": "Endless playback with no automatic repeats. Enabling also turns autoplay on. Explicit replays and repeat modes remain available.",
-    "exhausted": "No unplayed tracks available. Choose another station or seed.",
-    "station": "Play station"
+    "exhausted": "Station couldn’t continue — tap Retry station to try again.",
+    "station": "Play station",
+    "stationName": "Station name",
+    "save": "Save station",
+    "saved": "Station saved",
+    "saveFailed": "Could not save station. Try again.",
+    "savedStations": "Your stations",
+    "removeStation": "Remove {{name}}",
+    "retry": "Retry station",
+    "fromLibrary": "From your library",
+    "similarTo": "Similar to {{name}}",
+    "dailyStations": "Three Daily Mix stations",
+    "mixNumber": "Mix {{number}}",
+    "mixNeedsHistory": "Listen to build this station",
+    "mixFringe": "Fringe · discovery along co-listen connections",
+    "mixComfort": "Current favorites · endless station"
   },
   "sensory": {
     "title": "Dollhouse Deviants Sensory Suite",
@@ -116,5 +130,18 @@
       "seek": "Playback position",
       "chapters": "Chapters"
     }
+  },
+  "related": {
+    "title": "Related Songs",
+    "snapshot": "Snapshot for {{name}} · close and reopen to refresh",
+    "close": "Close Related Songs",
+    "loading": "Finding related tracks…",
+    "error": "Related tracks could not load. Close and reopen to retry.",
+    "empty": "No related tracks outside your library and queue.",
+    "added": "Added",
+    "next": "Play next",
+    "append": "Add to queue",
+    "nextLabel": "Play {{name}} next",
+    "appendLabel": "Add {{name}} to queue"
   }
 }

@@ -1,3 +1,4 @@
+import { rememberMusicVideo } from "./musicVideoProvenance";
 import type { SongItem } from "../types/music";
 import type { VideoSummary } from "../types/video";
 import { getSettingValue } from "../store/useAppSettingsStore";
@@ -10,9 +11,12 @@ export const isVideoSong = (song: SongItem): boolean =>
   !!song.musicVideoType && song.musicVideoType !== "MUSIC_VIDEO_TYPE_ATV";
 
 export const shouldWatchSong = (song: SongItem): boolean =>
-  musicVideoFirstEnabled() && isVideoSong(song) && !!(song.videoId ?? song.id);
+  musicVideoFirstEnabled() && (isVideoSong(song) || !!song.libraryVideo) && !!(song.videoId ?? song.id);
 
-export const songToVideoSummary = (song: SongItem): VideoSummary => ({
+export const songToVideoSummary = (song: SongItem): VideoSummary => {
+  rememberMusicVideo(song.videoId ?? song.id, song.radioReason);
+  return ({
+  ...song.libraryVideo,
   id: song.videoId ?? song.id,
   title: song.title,
   channelName: song.artists.map((artist) => artist.name).join(", "),
@@ -20,3 +24,4 @@ export const songToVideoSummary = (song: SongItem): VideoSummary => ({
   thumbnailUrl: song.thumbnail,
   durationSeconds: song.duration,
 });
+};

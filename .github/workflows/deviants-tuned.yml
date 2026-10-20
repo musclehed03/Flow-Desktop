@@ -71,6 +71,9 @@ jobs:
       # The existing local config only disables generation of updater signatures.
       # Identifier, version, signing identities and updater endpoints stay intact.
       - run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.local.conf.json
+      - name: Verify installed Windows display names
+        shell: pwsh
+        run: ./scripts/verify-windows-package.ps1
       - run: node scripts/report-bundle-sizes.mjs src-tauri/target/x86_64-pc-windows-msvc/release/bundle
       - uses: actions/upload-artifact@v7
         with:

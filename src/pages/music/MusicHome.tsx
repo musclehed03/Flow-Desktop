@@ -1,3 +1,5 @@
+import { DailyStations } from "../../components/radio/DailyStations";
+import { SavedStations } from "../../components/radio/SavedStations";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -292,6 +294,8 @@ export default function MusicHome() {
         sticky={false}
         className="mt-1 mb-8"
       />
+      <SavedStations />
+      <DailyStations />
       {renderBody()}
 
       {error && (data || personalization.quickPicks.length || personalization.sections.length
