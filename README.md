@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/DOLLHOUSE_DEVIANTS-TUNED-FF1E89?style=for-the-badge&amp;labelColor=101014" alt="Dollhouse Deviants Tuned" />
-  <img src="https://img.shields.io/badge/PLAYBACK-VIDEO_FIRST-FF1E89?style=for-the-badge&amp;labelColor=101014" alt="Video first playback" />
-  <img src="https://img.shields.io/badge/BUILD_ORDER-WINDOWS_THEN_LINUX-66D9E8?style=flat-square&amp;labelColor=101014" alt="Build order: Windows then Linux" />
+  <img src="assets/deviants/tuned.svg" alt="Dollhouse Deviants Tuned" />
+  <img src="assets/deviants/video-first.svg" alt="Video first playback" />
+  <img src="assets/deviants/build-order.svg" alt="Build order: Windows then Linux" />
 
   **The screen stays lit. The library stays local.**
 
@@ -26,7 +26,7 @@ A local cut for long nights with music videos. The video Watch player and audio 
 - **Related Songs:** open a library-filtered snapshot from either player. The list stays frozen across track changes; adding marks a row in place. Close and reopen for a fresh snapshot.
 - **Audio visualizers:** real analyser-driven spectrum, waveform, radial, particles, and MIT Butterchurn/MilkDrop presets; named presets, palettes, inline/mini/fullscreen modes, capped FPS and automatic quality reduction. Safe Motion freezes visuals; Focus and Simplified View hide them. Animated visuals require sensory acknowledgement. See [additional third-party notices](THIRD_PARTY_NOTICES.md).
 - **Musical crossfade:** off by default; choose 1–12 seconds and optionally fade explicit picks. Automatic and Next/Previous transitions use equal-power gains, per-track normalization, and an overlap-only peak limiter. Available tempo/phrase/key metadata guides alignment and clash avoidance; absent metadata uses the chosen duration. Seeks cancel overlap and suppress automatic fade triggers briefly. Watch video hand-offs remain separate.
-- **Platform scope:** Apple targets and CI entries are removed; shared cross-platform source stays. RPM packaging maps the prerelease separator to its native `~` representation while keeping the executable and all application versions at `0.1.0-beta2`.
+- **Platform scope:** Apple targets and CI entries are removed; shared cross-platform source stays. RPM builds require the `rpm` / `rpmbuild` system tools. RPM packaging maps the prerelease separator to its native `~` representation while keeping the executable and all application versions at `0.1.0-beta2`.
 - **Build priority:** Windows x64 NSIS first; Linux x64 Debian/RPM and AppImage second. Build artifacts only; no deployment, release, tag, updater change, or macOS work in this fork pass.
 
 The following is the upstream README, preserved in full. Upstream download links refer to upstream builds.
