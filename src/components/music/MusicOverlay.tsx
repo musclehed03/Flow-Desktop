@@ -1,3 +1,4 @@
+import { VisualizerArtwork, VisualizerToggle } from "../visualizer/Visualizers";
 import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { MusicPresentationControls } from "./MusicPresentationControls";
 import { useEffect, useState } from "react";
@@ -171,6 +172,7 @@ export function MusicOverlay() {
             <div className="relative flex items-center gap-1">
               <MusicPresentationControls />
               <RelatedSongsToggle surface="music" />
+              <VisualizerToggle surface="music" />
               {isLyrics && (
                 <HapticButton
                   onClick={() => lyrics.refresh()}
@@ -292,7 +294,7 @@ export function MusicOverlay() {
                 isQueue ? "w-1/2" : "w-full max-w-2xl"
               }`}
             >
-              <MusicArtwork
+              <VisualizerArtwork><MusicArtwork
                 layoutId="album-art"
                 src={currentTrack.thumbnail}
                 alt={currentTrack.title}
@@ -301,7 +303,7 @@ export function MusicOverlay() {
                 className={`aspect-square shrink-0 rounded-2xl shadow-[0_20px_50px_color-mix(in_srgb,var(--color-chrome-black)_50%,transparent)] ${
                   isQueue ? "w-[min(400px,50vh)]" : "w-[min(480px,55vh)]"
                 }`}
-              />
+              /></VisualizerArtwork>
 
               {/* CONTROL CLUSTER */}
               <div className="mt-8 flex w-full max-w-2xl flex-col gap-5">

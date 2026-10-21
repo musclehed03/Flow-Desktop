@@ -3,6 +3,7 @@ packages: []
 minimumReleaseAge: 1440
 
 allowBuilds:
+  core-js: false
   esbuild: true
 
 overrides:

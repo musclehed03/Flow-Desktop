@@ -24,6 +24,9 @@ A local cut for long nights with music videos. The video Watch player and audio 
 - **Radio extras:** name and resume artist/genre stations from Music Home; refill from owned playlists and downloads; see source-backed track reasons; keep one DJ played set across both players. Exactly three Daily Mix station slots use current listening and co-listen clusters; empty slots explain that more listening is needed.
 - **Privacy sync design:** [SYNC_DESIGN.md](SYNC_DESIGN.md) audits the existing engine and recommends owner-controlled encrypted sync bundles. Design only: no new transport, server, account or cloud integration.
 - **Related Songs:** open a library-filtered snapshot from either player. The list stays frozen across track changes; adding marks a row in place. Close and reopen for a fresh snapshot.
+- **Audio visualizers:** real analyser-driven spectrum, waveform, radial, particles, and MIT Butterchurn/MilkDrop presets; named presets, palettes, inline/mini/fullscreen modes, capped FPS and automatic quality reduction. Safe Motion freezes visuals; Focus and Simplified View hide them. Animated visuals require sensory acknowledgement. See [additional third-party notices](THIRD_PARTY_NOTICES.md).
+- **Musical crossfade:** off by default; choose 1–12 seconds and optionally fade explicit picks. Automatic and Next/Previous transitions use equal-power gains, per-track normalization, and an overlap-only peak limiter. Available tempo/phrase/key metadata guides alignment and clash avoidance; absent metadata uses the chosen duration. Seeks cancel overlap and suppress automatic fade triggers briefly. Watch video hand-offs remain separate.
+- **Platform scope:** Apple targets and CI entries are removed; shared cross-platform source stays. RPM packaging maps the prerelease separator to its native `~` representation while keeping the executable and all application versions at `0.1.0-beta2`.
 - **Build priority:** Windows x64 NSIS first; Linux x64 Debian/RPM and AppImage second. Build artifacts only; no deployment, release, tag, updater change, or macOS work in this fork pass.
 
 The following is the upstream README, preserved in full. Upstream download links refer to upstream builds.
@@ -33,7 +36,7 @@ The following is the upstream README, preserved in full. Upstream download links
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/banners/flow-desktop-dark.svg">
-    <img alt="Flow Desktop. Privacy-first YouTube and YouTube Music for Windows, macOS and Linux." src="https://assets.flow-tube.org/v1/banners/flow-desktop-light.svg" width="100%">
+    <img alt="Flow Desktop. Privacy-first YouTube and YouTube Music for Windows and Linux." src="https://assets.flow-tube.org/v1/banners/flow-desktop-light.svg" width="100%">
   </picture>
 
   **A privacy-respecting YouTube and YouTube Music client with a native, fully local recommendation engine.**
@@ -42,11 +45,10 @@ The following is the upstream README, preserved in full. Upstream download links
 
   <p>
   <a href="https://github.com/Flow-Tube/Flow-Desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/pill/get-windows-dark.svg"><img alt="Download for Windows" src="https://assets.flow-tube.org/v1/badges/pill/get-windows-light.svg" height="60"></picture></a>
-  <a href="https://github.com/Flow-Tube/Flow-Desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/pill/get-macos-dark.svg"><img alt="Download for macOS" src="https://assets.flow-tube.org/v1/badges/pill/get-macos-light.svg" height="60"></picture></a>
   <a href="https://github.com/Flow-Tube/Flow-Desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/pill/get-linux-dark.svg"><img alt="Download for Linux" src="https://assets.flow-tube.org/v1/badges/pill/get-linux-light.svg" height="60"></picture></a>
   </p>
   <p>
-  <a href="#downloads-and-supported-systems"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/split/desktop-dark.svg"><img alt="Desktop: Windows · macOS · Linux" src="https://assets.flow-tube.org/v1/badges/split/desktop-light.svg" height="32"></picture></a>
+  [Desktop: Windows · Linux](#downloads-and-supported-systems)
   <picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/split/tauri-dark.svg"><img alt="Built with Rust · Tauri 2" src="https://assets.flow-tube.org/v1/badges/split/tauri-light.svg" height="32"></picture>
   <a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/split/license-dark.svg"><img alt="License: GPL-3.0" src="https://assets.flow-tube.org/v1/badges/split/license-light.svg" height="32"></picture></a>
   </p>
@@ -92,6 +94,8 @@ Flow still contacts YouTube and optional services such as SponsorBlock, DeArrow,
 
 ## Downloads and supported systems
 
+Apple builds are upstream-only — this fork ships Windows and Linux.
+
 Release builds are published through [GitHub Releases](https://github.com/FlowNeuro/Flow-Desktop/releases).
 
 - **Stable:** reviewed releases intended for normal use.
@@ -101,14 +105,13 @@ Release builds are published through [GitHub Releases](https://github.com/FlowNe
 | Platform | Supported versions | Architectures | Packages |
 | --- | --- | --- | --- |
 | Windows | Windows 10 22H2, Windows 11 | x64, ARM64 | NSIS installer |
-| macOS | macOS 13 Ventura or later | Intel x64, Apple Silicon | DMG |
 | Linux | Ubuntu 22.04+, Debian 12+, and comparable modern distributions | x64, ARM64 | AppImage, `.deb`, `.rpm` |
 
 Linux builds require a compatible glibc, GTK 3, and WebKitGTK 4.1 environment. Legacy 32-bit systems are not supported.
 
 ### Linux media codecs
 
-On Linux, video decoding goes through WebKitGTK and the system GStreamer plugins (Windows and macOS ship their own decoders). If audio plays but video stays frozen on a spinner, a video decoder is missing.
+On Linux, video decoding goes through WebKitGTK and the system GStreamer plugins (Windows ships its own decoders). If audio plays but video stays frozen on a spinner, a video decoder is missing.
 
 - **AppImage** — bundles the required GStreamer codec plugins (including `gst-libav` for H.264); no system codec packages are needed.
 - **`.deb`** — declares the codec plugins as dependencies. Install with `sudo apt install ./Flow_*.deb` so they are pulled in automatically.
@@ -147,7 +150,7 @@ pnpm build
 pnpm tauri build
 ```
 
-Windows, Linux, and macOS packages are built natively by the GitHub Actions release workflow. Production macOS and Windows releases should be signed and, on macOS, notarized before publication.
+Windows and Linux packages are built natively by the GitHub Actions release workflow. Production Windows releases should be signed before publication.
 
 ---
 

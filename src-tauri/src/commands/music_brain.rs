@@ -260,7 +260,7 @@ pub async fn get_daily_mixes(
 ) -> CmdResult<Vec<DailyMixSeed>> {
     let now = now_ms();
     let brain = music_brain.read().await;
-    Ok(daily_mixes(&brain, now, max_mixes.clamp(1, 8), 4))
+    Ok(daily_mixes(&brain, now, max_mixes.clamp(1, 3), 4))
 }
 
 #[tauri::command]

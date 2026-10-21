@@ -12,6 +12,7 @@ export interface Album {
 }
 
 export interface SongItem {
+  transition?: import("../lib/audio/crossfade").TempoMetadata;
   /** Client-only provenance; never inferred from an unknown musicVideoType. */
   libraryVideo?: import("./video").VideoSummary;
   radioReason?: { kind: "library" | "station"; seedName?: string };

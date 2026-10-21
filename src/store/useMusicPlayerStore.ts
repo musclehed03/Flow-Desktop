@@ -1,3 +1,4 @@
+import { planCrossfade, crossfadeSeconds, shouldCrossfade } from "../lib/audio/crossfade";
 import { sessionPlayed, rememberPlayed, allowReplay } from "../lib/djSession";
 import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, trackStation, type MusicStation } from "../lib/musicStation";
 import { recallArtist, audioMusicOnly } from "../lib/musicRecall";
@@ -39,6 +40,8 @@ import { getSettingValue, setSettingValue } from "./useAppSettingsStore";
 
 export type MusicViewState = "dock" | "full" | "queue" | "lyrics";
 export type MusicRepeatMode = QueueRepeatMode;
+
+let suppressAutomaticFadeUntil = 0;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -257,7 +260,7 @@ interface MusicPlayerState {
 
   // --- internal: driven by the root <audio> controller (element → store) ---
   _ensureRadio: () => Promise<void>;
-  _loadIndex: (index: number, options?: { resumeAt?: number; automatic?: boolean }) => Promise<void>;
+  _loadIndex: (index: number, options?: { resumeAt?: number; automatic?: boolean; manual?: boolean }) => Promise<void>;
   _prefetchUpcoming: () => void;
   _preloadUpcoming: () => void;
   _onPreloadError: () => void;
@@ -386,6 +389,13 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (!options?.automatic) transportGeneration++;
     const track = get().queue[index];
     if (!track) return;
+    const outgoing = get().currentTrack;
+    const fade = !!outgoing && get().isPlaying && options?.resumeAt === undefined && !shouldWatchSong(track)
+      && shouldCrossfade(getSettingValue(SETTINGS.CROSSFADE_ENABLED) === 'true', options?.automatic || options?.manual ? 'advance' : 'explicit', getSettingValue(SETTINGS.CROSSFADE_EVERYTHING) === 'true');
+    const outgoingDuration = get().duration || outgoing?.duration || 0;
+    const makePlan = () => planCrossfade(crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS)), musicAudioEngine.getCurrentTime(),
+      Math.max(0, outgoingDuration - musicAudioEngine.getCurrentTime()), outgoing?.transition, track.transition);
+    musicAudioEngine.cancelCrossfade();
     if (!options?.automatic) allowReplay(videoIdOf(track));
     rememberPlayed(videoIdOf(track));
     const playedIds = [...new Set([...get().playedIds, ...sessionPlayed()])];
@@ -404,11 +414,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const videoId = videoIdOf(track);
     const resumeAt = options?.resumeAt ?? 0;
 
+    const incomingState = { currentTrack: track, currentIndex: index, progress: resumeAt, duration: track.duration ?? 0 };
     set({
-      currentTrack: track,
-      currentIndex: index,
-      progress: resumeAt,
-      duration: track.duration ?? 0,
+      ...(!fade ? incomingState : {}),
       isPlaying: true,
       isBuffering: true,
       streamError: null,
@@ -426,8 +434,19 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       get()._prefetchUpcoming();
     };
 
+    const tryFade = async (url?: string, loudnessDb?: number | null): Promise<boolean> => {
+      if (!fade) return false;
+      if (url) musicAudioEngine.preload(videoId, url, loudnessDb ?? null);
+      const moved = await musicAudioEngine.crossfadeToPreloaded(videoId, makePlan, () => get()._preloadUpcoming());
+      if (get().loadingStreamId !== videoId || !get().isPlaying) return true;
+      if (!moved) return false;
+      set({ ...incomingState, progress: makePlan().incomingStart, loudnessDb: musicAudioEngine.getActiveLoudness(), loadingStreamId: null, isBuffering: false });
+      afterStart(); return true;
+    };
+    if (await tryFade()) return;
     // Gapless: the standby element already holds this track, buffered.
     if (resumeAt === 0 && musicAudioEngine.activatePreloaded(videoId)) {
+      if (fade) set(incomingState);
       const loudnessDb = musicAudioEngine.getActiveLoudness();
       set({ loudnessDb, loadingStreamId: null });
       musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
@@ -463,11 +482,13 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           if (offline.lyrics) seedOfflineLyrics(videoId, offline.lyrics);
           set({
             loudnessDb: null,
-            loadingStreamId: null,
+            ...(!fade ? { loadingStreamId: null } : {}),
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
               : {}),
           });
+          if (await tryFade(offline.url, null)) return;
+          if (fade) set(incomingState);
           musicAudioEngine.setLoudness(null, get().normalizationEnabled);
           await musicAudioEngine.load(offline.url);
           musicAudioEngine.seekWhenReady(resumeAt);
@@ -492,6 +513,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       }
       if (get().loadingStreamId !== videoId) return;
 
+      if (await tryFade(info.audioUrl, info.loudnessDb)) return;
+      if (fade) set(incomingState);
       set({ loudnessDb: info.loudnessDb, loadingStreamId: null });
       musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
       await musicAudioEngine.load(info.audioUrl);
@@ -526,7 +549,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   pause: () => {
     transportGeneration++;
     musicAudioEngine.pause();
-    set({ isPlaying: false });
+    set({ isPlaying: false, ...(get().loadingStreamId && get().currentTrack && get().loadingStreamId !== videoIdOf(get().currentTrack!) ? { loadingStreamId: null, isBuffering: false } : {}) });
   },
 
   // Tear down the player entirely — stops audio, clears the queue, hides the
@@ -575,6 +598,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // Buffers the next track's audio on the standby element near the end of the
   // current one, so the change is a swap with no load in between.
   _preloadUpcoming: () => {
+    if (musicAudioEngine.isCrossfading()) return;
     const state = get();
     const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
@@ -665,10 +689,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     }
     let prevIndex = currentIndex - 1;
     if (prevIndex < 0) prevIndex = repeatMode === "all" ? queue.length - 1 : 0;
-    void get()._loadIndex(prevIndex);
+    void get()._loadIndex(prevIndex, { manual: true });
   },
 
   seek: (seconds) => {
+    suppressAutomaticFadeUntil = Date.now() + 2000;
+    if (get().loadingStreamId && get().currentTrack && get().loadingStreamId !== videoIdOf(get().currentTrack!)) set({ loadingStreamId: null, isBuffering: false });
     musicAudioEngine.seek(seconds);
     set({ progress: Math.max(0, seconds) });
   },
@@ -890,6 +916,21 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     };
     if (Number.isFinite(duration) && duration > 0) next.duration = duration;
     set(next);
+    const state = get();
+    if (getSettingValue(SETTINGS.CROSSFADE_ENABLED) !== 'true' || Date.now() < suppressAutomaticFadeUntil
+      || !state.isPlaying || state.loadingStreamId || state.repeatMode === 'one' || musicAudioEngine.isCrossfading()
+      || duration <= 0 || progress <= 0 || duration-progress <= .2) return;
+    const seconds = crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS));
+    const tempo = state.currentTrack?.transition;
+    const phraseWindow = tempo?.bpm && tempo.bpm >= 40 && tempo.bpm <= 240 ? Math.min(24,60 / tempo.bpm * (tempo.beatsPerPhrase ?? 16)) : 0;
+    if (duration-progress > Math.max(seconds,8) + phraseWindow) return;
+    const nextIndex = nextMusicIndex(state);
+    const upcoming = nextIndex >= 0 ? state.queue[nextIndex] : null;
+    const plan = planCrossfade(seconds, progress, duration-progress, tempo, upcoming?.transition);
+    if (getSettingValue(SETTINGS.CROSSFADE_ENABLED) === 'true' && Date.now() >= suppressAutomaticFadeUntil && state.isPlaying && !state.loadingStreamId
+      && state.repeatMode !== 'one' && !musicAudioEngine.isCrossfading() && upcoming
+      && duration > 0 && progress > 0 && duration - progress <= Math.max(seconds,plan.seconds) + phraseWindow && duration - progress > .2
+      && !shouldWatchSong(upcoming)) state.next();
   },
 
   _reflectPlaying: (isPlaying) => set({ isPlaying }),

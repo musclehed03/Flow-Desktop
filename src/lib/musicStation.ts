@@ -73,7 +73,7 @@ export async function rankStationBatch(songs: SongItem[], station: MusicStation,
   const novelty = !geniusEnabled() || level === "moderate" ? undefined : level === "less" ? 0.10 : 0.65;
   const originals = new Map(songs.map((song) => [songId(song), song]));
   const ranked = await rankMusicCandidates(songs, "radio", novelty).catch(() => songs);
-  const ordered = ranked.map((song) => ({ ...song, libraryVideo: originals.get(songId(song))?.libraryVideo,
+  const ordered = ranked.map((song) => ({ ...song, transition: originals.get(songId(song))?.transition, libraryVideo: originals.get(songId(song))?.libraryVideo,
     radioReason: originals.get(songId(song))?.radioReason ?? { kind: "station" as const, seedName: station.title ?? station.artist?.title ?? station.seed.artists[0]?.name } }));
   if (!geniusEnabled() || level !== "less") return ordered.slice(0, limit);
   const own = ordered.filter((song) => belongsToSeedArtist(song, station));

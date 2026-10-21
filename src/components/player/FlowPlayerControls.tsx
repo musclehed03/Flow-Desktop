@@ -1,3 +1,4 @@
+import { VisualizerToggle } from "../visualizer/Visualizers";
 import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
@@ -711,6 +712,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
 
             <div className="flex items-center gap-1 sm:gap-2 bg-chrome-black/20 rounded-full px-1 py-1">
               <RelatedSongsToggle surface="video" />
+              <VisualizerToggle surface="video" />
               <button
                 type="button"
                 title={getString("queue_title")}

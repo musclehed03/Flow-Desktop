@@ -1,3 +1,5 @@
+import { Visualizers, VisualizerToggle } from "../visualizer/Visualizers";
+import { useVisualizerUi } from "../../lib/useVisualizer";
 import { RelatedSongsSidebar, RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { useRelatedSnapshot } from "../../lib/relatedSnapshot";
 import { act, createElement } from 'react';
@@ -39,7 +41,7 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: close });
   try {
     await act(async () => root.render(createElement(SensoryRoot, null,
-      createElement(ThemeController), createElement(DeviantControls), createElement(SensorySettings), createElement(PlayerTab), createElement(ImportData), createElement(GeniusControls, { surface: "music" }), createElement(SavedStations), createElement(RelatedSongsToggle, { surface: "music" }), createElement(RelatedSongsSidebar))));
+      createElement(ThemeController), createElement(DeviantControls), createElement(SensorySettings), createElement(PlayerTab), createElement(ImportData), createElement(GeniusControls, { surface: "music" }), createElement(SavedStations), createElement(RelatedSongsToggle, { surface: "music" }), createElement(RelatedSongsSidebar), createElement(VisualizerToggle, { surface: "music" }), createElement(Visualizers))));
     for (let mask = 0; mask < 128; mask++) {
       const values = { ...original, [SETTINGS.THEME_VARIANT]: mask & 64 ? 'light' : 'dark' };
       SENSORY_SETTINGS.forEach(([, key], index) => { values[key] = String(Boolean(mask & (1 << index))); });
@@ -60,11 +62,18 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
       const trigger = host.querySelector<HTMLButtonElement>('[aria-controls="deviant-controls-dialog"]')!;
       await act(async () => trigger.click());
       expect(host.querySelector('dialog')?.open).toBe(true);
-      const dialogButtons = host.querySelectorAll('dialog button[aria-pressed]');
+      const dialogButtons = host.querySelectorAll('#deviant-controls-dialog button[aria-pressed]');
       expect(dialogButtons).toHaveLength(7);
       dialogButtons.forEach((button) => expect(button.getAttribute('aria-label')).toBeTruthy());
       await act(async () => host.querySelector<HTMLButtonElement>('dialog > button')!.click());
       expect(document.activeElement).toBe(trigger);
+      await act(async () => useVisualizerUi.setState({ open: true }));
+      const visualizer = host.querySelector<HTMLDialogElement>('[data-visualizer-dialog]')!;
+      expect(visualizer.open).toBe(true);
+      expect(visualizer.querySelectorAll('input[type="range"]')).toHaveLength(5);
+      expect(visualizer.querySelectorAll('select')).toHaveLength(4);
+      await act(async () => visualizer.querySelector<HTMLButtonElement>('button')!.click());
+      expect(visualizer.open).toBe(false);
     }
   } finally {
     await act(async () => root.unmount()); host.remove();

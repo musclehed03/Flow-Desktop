@@ -570,6 +570,7 @@
 /* Dollhouse Deviants sensory tokens. All component colors use these app tokens. */
 :root {
   --dd-pink: #FF1E89;
+  --dd-cyan: #66D9E8;
   --dd-near-black: #0b0b10;
   --dd-dark-panel: #18181f;
   --dd-light-paper: #fafafa;
@@ -790,3 +791,13 @@ dialog::backdrop { background: color-mix(in srgb, var(--dd-near-black) 75%, tran
 }
 .sensory-colorBlind[data-theme-variant="light"] { --dd-focus: #006778; }
 .sensory-focus [data-sensory-playing] [data-sensory-decoration] { display: none !important; }
+
+/* Player controls need their own contrast surface over arbitrary video footage. */
+[data-flow-player-surface="video"] button {
+  background-color: var(--dd-near-black);
+  color: var(--dd-light-text);
+}
+[data-flow-player-surface="video"] [class~="bg-chrome-black/20"] {
+  background-color: var(--dd-near-black);
+  color: var(--dd-light-text);
+}

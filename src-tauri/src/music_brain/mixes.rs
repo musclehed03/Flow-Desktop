@@ -35,6 +35,7 @@ pub fn daily_mixes(
     max_mixes: usize,
     seeds_per_mix: usize,
 ) -> Vec<DailyMixSeed> {
+    let max_mixes = max_mixes.min(3);
     if brain.artist_cooc.is_empty() || brain.track_meta.is_empty() {
         return Vec::new();
     }
@@ -184,5 +185,26 @@ mod tests {
         let mix = &mixes[0];
         assert!(mix.seed_track_ids.len() >= 2);
         assert!(!mix.label.is_empty());
+    }
+    #[test]
+    fn never_generates_more_than_three_daily_mixes() {
+        let mut brain = MusicBrain::default();
+        for index in 0..10 {
+            listen(
+                &mut brain,
+                &format!("t_{index}"),
+                &format!("artist{index}"),
+                &format!("Artist {index}"),
+                1_000 + index,
+            );
+        }
+        brain.artist_cooc.clear();
+        for index in (0..10).step_by(2) {
+            brain.artist_cooc.insert(
+                pair_key(&format!("artist{index}"), &format!("artist{}", index + 1)),
+                4.0,
+            );
+        }
+        assert_eq!(daily_mixes(&brain, 10_000, 8, 4).len(), 3);
     }
 }

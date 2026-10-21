@@ -1,3 +1,4 @@
+import { CrossfadeSettings } from "../../music/CrossfadeSettings";
 import { GeniusControls } from "../../radio/GeniusControls";
 import { DiscoveryControl } from "../../radio/DiscoveryControl";
 import { useTranslation } from "react-i18next";
@@ -67,6 +68,7 @@ export function PlayerTab() {
   return (
     <div className="space-y-6 pb-8">
       <GeniusControls surface="settings" />
+      <CrossfadeSettings />
       <DiscoveryControl />
       <SettingsGroup title={getString('settings_group_playback')}>
         <SettingItem title={t('videoFirst.title')} description={t('videoFirst.description')}>

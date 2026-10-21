@@ -20,6 +20,10 @@ const song = (id: string): SongItem => ({
 const calls: string[] = [];
 const { engine, resolveMusicStream, getMusicWatchQueue } = vi.hoisted(() => ({
   engine: {
+    cancelCrossfade: vi.fn(),
+    isCrossfading: vi.fn(() => false),
+    getCurrentTime: vi.fn(() => 0),
+    crossfadeToPreloaded: vi.fn(async () => false),
     activatePreloaded: vi.fn(() => false),
     clearPreload: vi.fn(() => null),
     getActiveLoudness: vi.fn(() => -3),
@@ -214,4 +218,18 @@ describe("watching and music view preservation", () => {
     expect(resolveMusicStream).toHaveBeenCalledWith("video-off", "Auto");
     expect(useMusicPlayerStore.getState().currentTrack?.id).toBe("video-off");
   });
+});
+
+
+it("never starts an automatic crossfade merely because a seek lands near the end", async () => {
+  const original = useAppSettingsStore.getState().values;
+  useAppSettingsStore.setState({ values: { ...original, [SETTINGS.CROSSFADE_ENABLED]: "true" } });
+  useMusicPlayerStore.setState({ currentTrack: song("seek-current"), queue: [song("seek-current"),song("seek-next")], currentIndex: 0, isPlaying: true, loadingStreamId: null });
+  const next = vi.spyOn(useMusicPlayerStore.getState(), "next").mockImplementation(() => {});
+  try {
+    useMusicPlayerStore.getState().seek(196);
+    useMusicPlayerStore.getState()._syncTime(196,200);
+    expect(next).not.toHaveBeenCalled();
+    expect(engine.crossfadeToPreloaded).not.toHaveBeenCalled();
+  } finally { next.mockRestore(); useAppSettingsStore.setState({ values: original }); }
 });

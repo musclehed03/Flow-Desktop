@@ -2512,6 +2512,7 @@ export const Player: React.FC<PlayerProps> = ({
       )}
 
       <video
+        crossOrigin="anonymous"
         ref={videoRef}
         src={isDashPlayback || isHlsPlayback ? undefined : src || undefined}
         poster={simplifiedView ? undefined : effectivePoster}
@@ -2579,6 +2580,7 @@ export const Player: React.FC<PlayerProps> = ({
 
       {usesExternalAudio && selectedAudioTrack?.localUrl && (
         <audio
+          crossOrigin="anonymous"
           ref={audioRef}
           src={selectedAudioTrack.localUrl}
           preload="auto"

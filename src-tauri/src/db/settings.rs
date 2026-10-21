@@ -72,6 +72,8 @@ mod tuned_tests {
             "color_blind_enabled",
             "simplified_view_enabled",
             "genius_dj_enabled",
+            "music_crossfade_enabled",
+            "music_crossfade_everything",
         ];
         for value in ["false", "true"] {
             let pool = SqlitePoolOptions::new()
@@ -85,6 +87,12 @@ mod tuned_tests {
             }
             for (key, text) in [
                 ("radio_discovery_level", "more"),
+                ("music_crossfade_seconds", "8"),
+                ("music_visualizer_config", r#"{"family":"radial","fps":30}"#),
+                (
+                    "music_visualizer_presets",
+                    r#"[{"name":"Noir","config":{"family":"waveform"}}]"#,
+                ),
                 ("theme_variant", "light"),
                 (
                     "saved_radio_stations",
@@ -125,6 +133,27 @@ mod tuned_tests {
                     .unwrap()
                     .as_deref(),
                 Some("light")
+            );
+            assert_eq!(
+                get_setting(&reopened, "music_crossfade_seconds")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("8")
+            );
+            assert_eq!(
+                get_setting(&reopened, "music_visualizer_config")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some(r#"{"family":"radial","fps":30}"#)
+            );
+            assert!(
+                get_setting(&reopened, "music_visualizer_presets")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .contains("Noir")
             );
             let stations = get_setting(&reopened, "saved_radio_stations")
                 .await

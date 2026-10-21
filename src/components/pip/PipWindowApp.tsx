@@ -1,3 +1,4 @@
+import { Visualizers } from "../visualizer/Visualizers";
 import { RelatedSongsSidebar } from "../radio/RelatedSongsSidebar";
 import { DeviantControls } from "../accessibility/DeviantControls";
 import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
@@ -36,7 +37,7 @@ export function PipWindowApp() {
 
   return (
     <div data-flow-player-surface="video" className="group relative flex h-screen w-screen items-center justify-center overflow-hidden bg-chrome-black text-chrome-zinc-100">
-      <DeviantControls /><RelatedSongsSidebar />
+      <DeviantControls /><RelatedSongsSidebar /><Visualizers />
       {isPlaying && <SensoryAdvisory videoId={currentVideo.id} />}
       {isPlaying ? (
         // Widest 16:9 box that still fits the window, so the transport controls

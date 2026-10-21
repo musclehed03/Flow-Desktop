@@ -47,7 +47,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": "all",
+    "targets": ["nsis", "msi", "deb", "rpm", "appimage"],
     "category": "Entertainment",
     "shortDescription": "The privacy-first desktop companion to Flow for Android.",
     "longDescription": "Flow Desktop is a privacy-first YouTube and YouTube Music companion to Flow for Android, with native playback and the fully local FlowNeuro recommendation engine.",
@@ -61,7 +61,8 @@
     ],
     "resources": [
       "sidecar/integrity.cjs",
-      "sidecar/nsig.cjs"
+      "sidecar/nsig.cjs",
+      "../THIRD_PARTY_NOTICES.md"
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",

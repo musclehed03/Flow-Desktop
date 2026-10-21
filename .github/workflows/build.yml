@@ -100,8 +100,6 @@ jobs:
             runner: windows-2025
           - name: Linux x64
             runner: ubuntu-22.04
-          - name: macOS ARM64
-            runner: macos-15
 
     runs-on: ${{ matrix.runner }}
 
@@ -196,16 +194,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
             appimage: aarch64
             args: --target aarch64-unknown-linux-gnu --bundles appimage
-          - name: macOS Intel
-            slug: macos-x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles dmg
-          - name: macOS Apple Silicon
-            slug: macos-arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles dmg
 
     runs-on: ${{ matrix.runner }}
 
@@ -294,15 +282,6 @@ jobs:
         with:
           name: Flow-nightly-${{ matrix.slug }}-${{ github.run_number }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload macOS nightly disk image
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v7
-        with:
-          name: Flow-nightly-${{ matrix.slug }}-${{ github.run_number }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
 

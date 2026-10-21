@@ -1,3 +1,4 @@
+import { VisualizerToggle } from "../visualizer/Visualizers";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -202,6 +203,7 @@ export function GlobalMusicDock() {
               </HapticButton>
             </div>
 
+            <VisualizerToggle surface="music" />
             {/* RIGHT — secondary actions */}
             <div className="flex w-1/3 items-center justify-end gap-4">
               <HapticButton
