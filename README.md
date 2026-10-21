@@ -1,13 +1,21 @@
-<div align="center">
-  <img src="assets/deviants/tuned.svg" alt="Dollhouse Deviants Tuned" />
-  <img src="assets/deviants/video-first.svg" alt="Video first playback" />
-  <img src="assets/deviants/build-order.svg" alt="Build order: Windows then Linux" />
+<p align="center">
+  <img src="docs/assets/dollhouse-deviants-logo.jpg" alt="Dollhouse Deviants" width="420">
+</p>
+<p align="center">
+  <img src="docs/assets/sonja-doll.png" alt="Sonja Doll coding avatar" width="170">
+</p>
+<p align="center">Tuned by the Doll — Sonja Kelley, Dollhouse Deviants</p>
+<p align="center"><strong>The screen stays lit. The library stays local.</strong></p>
 
-  **The screen stays lit. The library stays local.**
-
-  Dollhouse Deviants Tuned is a watching-focused fork of **Flow Desktop by Dev AE / A-EDev (Aedev), part of Flow-Tube**.
+<p align="center">
+  Dollhouse Deviants Tuned is a watching-focused fork of <strong>Flow Desktop by Dev AE / A-EDev (Aedev), part of Flow-Tube</strong>.<br>
   The upstream project, original documentation, artwork, credits, and GPL terms remain below.
-</div>
+</p>
+<p align="center">
+  <img src="assets/deviants/tuned.svg" alt="Dollhouse Deviants Tuned">
+  <img src="assets/deviants/video-first.svg" alt="Video first playback">
+  <img src="assets/deviants/build-order.svg" alt="Build order: Windows then Linux">
+</p>
 
 ## Dollhouse Deviants Tuned upgrades
 
