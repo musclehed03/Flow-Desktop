@@ -46,12 +46,12 @@ export async function packageRpmFromDeb(args, projectRoot = process.cwd()) {
     }).join('\n');
     const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
     writeFileSync(spec, `%global __os_install_post %{nil}\n%global _build_id_links none\nName: ${name}\nVersion: ${version}\nRelease: 1\nSummary: ${config.productName}\nLicense: GPL-3.0-only\nURL: https://github.com/Flow-Tube/Flow-Desktop\nBuildArch: ${architecture}\nAutoReqProv: yes\n${dependencies}\n\n%description\n${config.bundle.longDescription}\n\n%prep\n%build\n%install\nmkdir -p "%{buildroot}"\ncp -a ${quote(staged + '/.')} "%{buildroot}/"\n\n%files\n${manifest}\n`);
-    execFileSync('rpmbuild', ['-bb', spec, '--define', `_topdir ${directory}`, '--buildroot', join(directory, 'buildroot'), '--target', architecture], { stdio: 'inherit' });
+    execFileSync('rpmbuild', ['-bb', spec, '--define', `_topdir ${directory}`, '--define', `_tmppath ${directory}`, '--define', `_dbpath ${join(directory, 'rpmdb')}`, '--buildroot', join(directory, 'buildroot'), '--target', architecture], { stdio: 'inherit' });
     const produced = readdirSync(join(directory, 'RPMS', architecture)).filter((file) => file.endsWith('.rpm'));
     if (produced.length !== 1) throw new Error('Expected one RPM output');
     const output = join(bundle, 'rpm'); mkdirSync(output, { recursive: true });
     const destination = join(output, produced[0]); copyFileSync(join(directory,'RPMS',architecture,produced[0]), destination);
-    const headerVersion = execFileSync('rpm', ['-qp', '--qf', '%{VERSION}', destination], { encoding: 'utf8' });
+    const headerVersion = execFileSync('rpm', ['--dbpath', join(directory, 'rpmdb'), '-qp', '--qf', '%{VERSION}', destination], { encoding: 'utf8' });
     if (headerVersion !== version) throw new Error('RPM version verification failed');
     console.log(`RPM package: ${destination}; RPM header ${version}; application version ${config.version} unchanged`);
   } finally { rmSync(directory, { recursive: true, force: true }); }
