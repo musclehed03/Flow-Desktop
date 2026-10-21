@@ -27,7 +27,7 @@ export function GeniusControls({ surface }: { surface: 'music' | 'video' | 'sett
       }} />
     </div>
     <p className="mt-1 text-xs text-on-surface-variant">{t('radio.geniusDescription')}</p>
-    {enabled && <DiscoveryControl />}
+    <DiscoveryControl />
     {surface !== 'settings' && <CurrentStationSave surface={surface} />}
     {failed && <div role="status" className="text-sm text-on-surface"><p>{t('radio.exhausted')}</p>
       <button type="button" className="mt-2 rounded-lg border border-outline-variant px-3 py-2" onClick={() => {

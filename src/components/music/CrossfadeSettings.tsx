@@ -3,6 +3,7 @@ import { useBoolPref, useNumberPref } from '../../lib/usePreference';
 import { SETTINGS } from '../../lib/settings/schema';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
 import { SettingsGroup } from '../settings/SettingsGroup';
+import { SettingItem } from '../settings/SettingItem';
 
 export function CrossfadeSettings() {
   const { t } = useTranslation('settings');
@@ -10,10 +11,16 @@ export function CrossfadeSettings() {
   const [seconds, setSeconds] = useNumberPref(SETTINGS.CROSSFADE_SECONDS);
   const [everything, setEverything] = useBoolPref(SETTINGS.CROSSFADE_EVERYTHING);
   return <SettingsGroup title={t('crossfade.title')}>
-    <div className="flex items-center justify-between gap-3"><span>{t('crossfade.enabled')}</span><ToggleSwitch label={t('crossfade.enabled')} checked={enabled} onChange={setEnabled} /></div>
-    <p className="text-sm text-on-surface-variant">{t('crossfade.description')}</p>
-    <label className="block text-on-surface">{t('crossfade.duration', { seconds })}<input aria-label={t('crossfade.durationLabel')} type="range" min="1" max="12" step="1" value={seconds} onChange={(event) => setSeconds(Number(event.target.value))} className="mt-2 block w-full" /></label>
-    <div className="flex items-center justify-between gap-3"><span>{t('crossfade.everything')}</span><ToggleSwitch label={t('crossfade.everything')} checked={everything} onChange={setEverything} /></div>
-    <p className="text-sm text-on-surface-variant">{t('crossfade.metadata')}</p>
+    <SettingItem title={t('crossfade.enabled')} description={t('crossfade.description')}>
+      <ToggleSwitch checked={enabled} onChange={setEnabled} />
+    </SettingItem>
+    <label className="block px-5 py-4 text-sm text-on-surface">
+      {t('crossfade.duration', { seconds })}
+      <input aria-label={t('crossfade.durationLabel')} type="range" min="1" max="12" step="1" value={seconds}
+        onChange={(event) => setSeconds(Number(event.target.value))} className="mt-3 block w-full accent-primary" />
+    </label>
+    <SettingItem title={t('crossfade.everything')} description={t('crossfade.metadata')}>
+      <ToggleSwitch checked={everything} onChange={setEverything} />
+    </SettingItem>
   </SettingsGroup>;
 }
