@@ -1,4 +1,4 @@
-import { customizeMilkdropPreset } from "../../lib/audio/milkdrop";
+import { customizeMilkdropPreset, resolveMilkdropRenderer } from "../../lib/audio/milkdrop";
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { musicAudioEngine } from '../../lib/audio/musicAudioEngine';
@@ -61,7 +61,7 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
           if (stopped) return;
           const node = signal()!;
           const all = presets.getPresets(); const name = config.milkdropPreset && all[config.milkdropPreset] ? config.milkdropPreset : Object.keys(all).sort()[0]!;
-          const visual = butterchurn.createVisualizer(node.context as AudioContext, element, { width: Math.max(1,element.clientWidth), height: Math.max(1,element.clientHeight), pixelRatio: 1, textureRatio: .5, meshWidth: Math.max(16,Math.floor(config.density/2)), meshHeight: Math.max(12,Math.floor(config.density/3)) });
+          const visual = resolveMilkdropRenderer(butterchurn).createVisualizer(node.context as AudioContext, element, { width: Math.max(1,element.clientWidth), height: Math.max(1,element.clientHeight), pixelRatio: 1, textureRatio: .5, meshWidth: Math.max(16,Math.floor(config.density/2)), meshHeight: Math.max(12,Math.floor(config.density/3)) });
           input = (node.context as AudioContext).createGain(); input.gain.value = config.sensitivity;
           node.connect(input); visual.connectAudio(input); visual.loadPreset(customizeMilkdropPreset(all[name], config, primary), 0); milkdrop = visual; connected = input;
         } catch { setStatus('fallback'); setWebglFailed(true); return; }

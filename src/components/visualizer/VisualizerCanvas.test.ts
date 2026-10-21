@@ -7,7 +7,7 @@ import { VISUALIZER_DEFAULT } from '../../lib/audio/visualizer';
 import { SETTINGS } from '../../lib/settings/schema';
 import { useAppSettingsStore } from '../../store/useAppSettingsStore';
 const { createVisualizer, read } = vi.hoisted(()=>({createVisualizer:vi.fn(),read:vi.fn()}));
-vi.mock('butterchurn',()=>({default:{createVisualizer}}));
+vi.mock('butterchurn',()=>({default:{default:{createVisualizer}}}));
 vi.mock('butterchurn-presets',()=>({default:{getPresets:()=>({'Fixture':{}})}}));
 vi.mock('../../lib/audio/musicAudioEngine',()=>({musicAudioEngine:{getAnalyser:()=>({getByteFrequencyData:read,getByteTimeDomainData:read})}}));
 it('uses one static canvas frame under Safe Motion and never starts MilkDrop or samples live motion', async()=>{

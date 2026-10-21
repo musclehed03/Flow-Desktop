@@ -12,3 +12,15 @@ export function customizeMilkdropPreset(preset: unknown, config: VisualizerConfi
   return { ...original, baseVals: { ...original.baseVals, decay:config.falloff, wave_r:rgb[0],wave_g:rgb[1],wave_b:rgb[2] },
     frame_eqs: (variables: Record<string,number>) => ({ ...(original.frame_eqs?.(variables) ?? variables), decay:config.falloff, wave_r:rgb[0],wave_g:rgb[1],wave_b:rgb[2] }) };
 }
+
+/** The published UMD build and bundlers expose different default-export depths. */
+export function resolveMilkdropRenderer(value: unknown): typeof import('butterchurn')['default'] {
+  let candidate = value;
+  for (let depth = 0; depth < 3; depth++) {
+    if (!candidate || (typeof candidate !== 'object' && typeof candidate !== 'function')) break;
+    const module = candidate as { createVisualizer?: unknown; default?: unknown };
+    if (typeof module.createVisualizer === 'function') return candidate as typeof import('butterchurn')['default'];
+    candidate = module.default;
+  }
+  throw new Error('MilkDrop renderer unavailable');
+}
