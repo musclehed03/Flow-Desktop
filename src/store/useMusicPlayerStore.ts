@@ -927,10 +927,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const nextIndex = nextMusicIndex(state);
     const upcoming = nextIndex >= 0 ? state.queue[nextIndex] : null;
     const plan = planCrossfade(seconds, progress, duration-progress, tempo, upcoming?.transition);
-    if (getSettingValue(SETTINGS.CROSSFADE_ENABLED) === 'true' && Date.now() >= suppressAutomaticFadeUntil && state.isPlaying && !state.loadingStreamId
-      && state.repeatMode !== 'one' && !musicAudioEngine.isCrossfading() && upcoming
-      && duration > 0 && progress > 0 && duration - progress <= Math.max(seconds,plan.seconds) + phraseWindow && duration - progress > .2
-      && !shouldWatchSong(upcoming)) state.next();
+    if (upcoming && duration-progress <= Math.max(seconds,plan.seconds) + phraseWindow && !shouldWatchSong(upcoming)) state.next();
   },
 
   _reflectPlaying: (isPlaying) => set({ isPlaying }),
