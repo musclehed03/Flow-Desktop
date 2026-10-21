@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, lstatSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, lstatSync, existsSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -35,6 +35,14 @@ export async function packageRpmFromDeb(args, projectRoot = process.cwd()) {
   const staged = join(directory, 'payload'); mkdirSync(staged);
   try {
     execFileSync('dpkg-deb', ['-x', deb, staged]);
+    // RPM's desktop dependency generator splits names containing spaces.
+    // Use the existing application identifier for its filename, retaining Name.
+    const applications = join(staged, 'usr/share/applications');
+    const desktop = join(applications, config.productName + '.desktop');
+    if (existsSync(desktop)) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(config.identifier)) throw new Error('Unsafe desktop identifier');
+      renameSync(desktop, join(applications, config.identifier + '.desktop'));
+    }
     const spec = join(directory, 'flow.spec');
     const files = [];
     const walk = (path) => { for (const file of readdirSync(path)) { const item = join(path,file); if (lstatSync(item).isDirectory()) walk(item); else files.push(item.slice(staged.length)); } };

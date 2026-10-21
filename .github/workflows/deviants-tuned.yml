@@ -116,6 +116,9 @@ jobs:
           workspaces: src-tauri -> target
           shared-key: deviants-tuned-${{ matrix.runner }}
       - run: pnpm install --frozen-lockfile
+      - name: Verify RPM desktop metadata regression
+        if: matrix.kind == 'deb-rpm'
+        run: node --test scripts/package-rpm.test.mjs
       - run: pnpm tauri build --target x86_64-unknown-linux-gnu --bundles ${{ matrix.bundles }} --config src-tauri/tauri.local.conf.json
       - name: Post-process AppImage
         if: matrix.kind == 'appimage'
