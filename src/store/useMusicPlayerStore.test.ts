@@ -26,6 +26,7 @@ vi.mock("../lib/api/music", () => ({
 }));
 
 import { selectRadioOn, useMusicPlayerStore } from "./useMusicPlayerStore";
+import { useUiStore } from "./useUiStore";
 
 beforeEach(() => {
   getMusicWatchQueue.mockResolvedValue({
@@ -44,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useDjSession.setState({ played: [] });
+  useUiStore.getState().dismissToast();
   vi.clearAllMocks();
 });
 
@@ -105,6 +107,58 @@ describe('queue source ("Playing from")', () => {
     await useMusicPlayerStore.getState().playQueue([song("a")], 0, "Speed dial");
     await useMusicPlayerStore.getState().playTrack(song("c"));
     expect(useMusicPlayerStore.getState().queueSource).toBeNull();
+  });
+});
+
+describe("idle queue actions", () => {
+  it("starts the first queued track when add to queue is used while idle", () => {
+    const loadIndex = vi.fn();
+    useMusicPlayerStore.setState({
+      queue: [],
+      currentTrack: null,
+      currentIndex: -1,
+      isPlaying: false,
+      _loadIndex: loadIndex,
+    });
+
+    useMusicPlayerStore.getState().addToQueue(song("queued"));
+
+    expect(useMusicPlayerStore.getState().queue.map((track) => track.id)).toEqual(["queued"]);
+    expect(loadIndex).toHaveBeenCalledWith(0);
+    expect(useUiStore.getState().toast?.message).toBe("Added to queue");
+  });
+
+  it("starts the existing queue head when play next is used while idle", () => {
+    const loadIndex = vi.fn();
+    useMusicPlayerStore.setState({
+      queue: [song("head")],
+      currentTrack: null,
+      currentIndex: -1,
+      isPlaying: false,
+      _loadIndex: loadIndex,
+    });
+
+    useMusicPlayerStore.getState().playNextInQueue(song("requested"));
+
+    expect(useMusicPlayerStore.getState().queue.map((track) => track.id)).toEqual(["head", "requested"]);
+    expect(loadIndex).toHaveBeenCalledWith(0);
+    expect(useUiStore.getState().toast?.message).toBe("Added to queue");
+  });
+
+  it("plays now immediately from an idle queue", async () => {
+    const loadIndex = vi.fn();
+    useMusicPlayerStore.setState({
+      queue: [song("old")],
+      currentTrack: null,
+      currentIndex: -1,
+      isPlaying: false,
+      _loadIndex: loadIndex,
+    });
+
+    await useMusicPlayerStore.getState().playTrack(song("now"));
+
+    expect(useMusicPlayerStore.getState().queue.map((track) => track.id)).toEqual(["now"]);
+    expect(loadIndex).toHaveBeenCalledWith(0);
   });
 });
 

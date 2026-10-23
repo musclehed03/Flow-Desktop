@@ -10,6 +10,7 @@ import { getSettingValue } from "./useAppSettingsStore";
 import { SETTINGS } from "../lib/settings/schema";
 import type { CaptionTrack, RelatedContentItem, VideoDetails, VideoSummary } from "../types/video";
 import { prefetchStreamInfo } from "../lib/streamResolution";
+import { showQueueFeedback } from "../lib/queueFeedback";
 
 import type { SponsorBlockSegment, DeArrowOverride, RydData } from "../lib/api/foss";
 
@@ -135,6 +136,7 @@ interface PlayerState {
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
   setQueue: (queue: VideoSummary[], startIndex?: number) => void;
   addToQueue: (video: VideoSummary) => QueueAddResult;
+  playNextInQueue: (video: VideoSummary) => QueueAddResult;
   removeFromQueue: (index: number) => void;
   moveQueueItem: (fromIndex: number, toIndex: number) => void;
   playQueueItem: (index: number, automatic?: boolean) => void;
@@ -300,15 +302,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const replay = geniusEnabled() && sessionPlayed().includes(video.id);
     allowReplay(video.id);
     set({ playedIds: get().playedIds.filter((id) => id !== video.id) });
-    if (replay) { set({ queue: [...get().queue, video] }); return "added"; }
     const { queue, currentVideo, currentIndex } = get();
-    if (queue.some((item) => item.id === video.id) || currentVideo?.id === video.id) {
-      return "duplicate";
+    const idle = !currentVideo || currentIndex < 0;
+    if (!replay && (queue.some((item) => item.id === video.id) || currentVideo?.id === video.id)) {
+      if (idle && queue.length > 0) get().playQueueItem(0);
+      return showQueueFeedback("duplicate");
     }
 
     if (queue.length === 0 && currentVideo) {
       set({ queue: [currentVideo, video], currentIndex: 0 });
-      return "added";
+      if (idle) get().playQueueItem(0);
+      return showQueueFeedback("added");
     }
 
     const nextQueue = [...queue, video];
@@ -316,7 +320,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       queue: nextQueue,
       currentIndex: currentVideo && currentIndex < 0 ? 0 : currentIndex,
     });
-    return "added";
+    if (idle) get().playQueueItem(0);
+    return showQueueFeedback("added");
+  },
+
+  playNextInQueue: (video) => {
+    allowReplay(video.id);
+    set({ playedIds: get().playedIds.filter((id) => id !== video.id) });
+    const { currentVideo, queue, currentIndex } = get();
+    if (!currentVideo || currentIndex < 0) return get().addToQueue(video);
+    if (currentVideo.id === video.id) return showQueueFeedback("duplicate");
+
+    const nextQueue = queue.filter((item) => item.id !== video.id);
+    let nextCurrentIndex = nextQueue.findIndex((item) => item.id === currentVideo.id);
+    if (nextCurrentIndex < 0) {
+      nextQueue.unshift(currentVideo);
+      nextCurrentIndex = 0;
+    }
+    nextQueue.splice(nextCurrentIndex + 1, 0, video);
+    set({ queue: nextQueue, currentIndex: nextCurrentIndex });
+    return showQueueFeedback("added");
   },
 
   removeFromQueue: (index) => {

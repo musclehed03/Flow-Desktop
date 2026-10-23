@@ -21,9 +21,6 @@ import {
   SkipBack,
   SkipForward,
   Shrink,
-  Volume1,
-  Volume2,
-  VolumeX,
   Sliders,
 } from "lucide-react";
 import { usePlayerStore, type PlaybackRate } from "../../store/usePlayerStore";
@@ -41,8 +38,9 @@ import {
 import { SponsorBlockIcon } from "../ui/SponsorBlockIcon";
 import { sponsorBlockCategoryLabel } from "../../lib/sponsorBlockCategories";
 import { getString } from "../../lib/i18n/index";
-import { Slider } from "../ui/Slider";
 import { videoCodecLabel } from "../../lib/settings/playerRuntime";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
+import { PlayerVolumeControl } from "./SharedPlayerControls";
 
 export interface FlowPlayerControlsProps {
   title?: string;
@@ -212,6 +210,16 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
   const hoverSegmentRef = useRef<HTMLSpanElement>(null);
   const hoverSegmentDotRef = useRef<HTMLSpanElement>(null);
   const hoverSegmentLabelRef = useRef<HTMLSpanElement>(null);
+  const settingsOpenerRef = useRef<HTMLButtonElement>(null);
+  const settingsPanelRef = useDismissOnOutsideInteraction<HTMLDivElement>({
+    open: settingsOpen,
+    onDismiss: () => {
+      setSettingsOpen(false);
+      setSettingsPane("root");
+    },
+    additionalRefs: [settingsOpenerRef],
+    restoreFocusRef: settingsOpenerRef,
+  });
 
   const segments = React.useMemo(() => {
     if (isLive || !chapters || chapters.length === 0) {
@@ -644,36 +652,22 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <SkipForward size={19} fill="currentColor" />
               </button>
 
-              <div className="group/volume hidden items-center sm:flex bg-chrome-black/20 rounded-full hover:pr-2">
-                <button
-                  type="button"
-                  title={sensoryText("sensory.player.mute")} aria-pressed={muted} aria-label={sensoryText("sensory.player.mute")}
-                  onClick={() => setMuted((value) => !value)}
-                  className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
-                >
-                  {muted || volume === 0 ? (
-                    <VolumeX size={19} />
-                  ) : volume < 0.55 ? (
-                    <Volume1 size={19} />
-                  ) : (
-                    <Volume2 size={19} />
-                  )}
-                </button>
-                <div className="w-0 overflow-hidden opacity-0 transition-all group-hover/volume:w-20 group-hover/volume:opacity-100">
-                  <Slider
-                    aria-label={sensoryText("sensory.player.volume")}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={muted ? 0 : volume}
-                    onChange={(value) => {
-                      setVolume(value);
-                      setMuted(value === 0);
-                    }}
-                  />
-                </div>
-
-              </div>
+              <PlayerVolumeControl
+                volume={volume}
+                muted={muted}
+                onToggleMute={() => setMuted((value) => !value)}
+                onVolumeChange={(value) => {
+                  setVolume(value);
+                  setMuted(value === 0);
+                }}
+                labels={{
+                  mute: sensoryText("sensory.player.mute"),
+                  unmute: getString("music_unmute"),
+                  volume: sensoryText("sensory.player.volume"),
+                }}
+                className="hidden bg-chrome-black/20 sm:flex"
+                buttonClassName="h-7 w-7"
+              />
 
               <div className="ml-1 flex items-center gap-1.5">
                 <div className="whitespace-nowrap text-xs font-semibold text-chrome-white sm:text-sm bg-chrome-black/20 rounded-full px-2 py-1">
@@ -741,7 +735,8 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               <button
                 type="button"
                 title={sensoryText("sensory.player.quality")} aria-pressed={settingsOpen && settingsPane === "quality"} aria-label={sensoryText("sensory.player.quality")}
-                onClick={() => {
+                onClick={(event) => {
+                  settingsOpenerRef.current = event.currentTarget;
                   if (settingsOpen && settingsPane === "quality") {
                     setSettingsOpen(false);
                     setSettingsPane("root");
@@ -759,7 +754,8 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               <button
                 type="button"
                 title={sensoryText("sensory.player.captions")} aria-pressed={selectedCaptionId !== "off"} aria-label={sensoryText("sensory.player.captions")}
-                onClick={() => {
+                onClick={(event) => {
+                  settingsOpenerRef.current = event.currentTarget;
                   if (settingsOpen && settingsPane === "captions") {
                     setSettingsOpen(false);
                     setSettingsPane("root");
@@ -778,7 +774,8 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               <button
                 type="button"
                 title={sensoryText("sensory.player.settings")} aria-pressed={settingsOpen} aria-label={sensoryText("sensory.player.settings")}
-                onClick={() => {
+                onClick={(event) => {
+                  settingsOpenerRef.current = event.currentTarget;
                   setSettingsOpen((value) => !value);
                   setSettingsPane("root");
                 }}
@@ -833,6 +830,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
       </div>
 
       <div
+        ref={settingsPanelRef}
         className={cx(
           "absolute bottom-20 right-3 z-40 w-[min(92vw,360px)] overflow-hidden rounded-xl border border-chrome-white/10 bg-chrome-popover/95 p-2 text-chrome-white shadow-2xl transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] transform sm:right-5",
           settingsOpen

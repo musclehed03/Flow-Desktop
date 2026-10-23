@@ -1,5 +1,5 @@
 import { VisualizerToggle } from "../visualizer/Visualizers";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
@@ -62,6 +62,8 @@ export function GlobalMusicDock() {
   const { errorInfo, onRetry, onCopyLogs, onOpenInBrowser } = useMusicPlayerError();
 
   const [popover, setPopover] = useState<null | "eq" | "vol">(null);
+  const volumeTriggerRef = useRef<HTMLSpanElement>(null);
+  const eqTriggerRef = useRef<HTMLSpanElement>(null);
   const menu = useMusicContextMenu(Boolean(currentTrack));
   const menuActions = useNowPlayingMenuActions(currentTrack);
 
@@ -206,14 +208,16 @@ export function GlobalMusicDock() {
             <VisualizerToggle surface="music" />
             {/* RIGHT — secondary actions */}
             <div className="flex w-1/3 items-center justify-end gap-4">
-              <HapticButton
-                onClick={() => setPopover((p) => (p === "vol" ? null : "vol"))}
-                aria-label={getString("music_volume")}
-                aria-pressed={popover === "vol"}
-                className={popover === "vol" ? `${GHOST} text-chrome-neutral-100` : GHOST_IDLE}
-              >
-                {muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}
-              </HapticButton>
+              <span ref={volumeTriggerRef} className="contents">
+                <HapticButton
+                  onClick={() => setPopover((p) => (p === "vol" ? null : "vol"))}
+                  aria-label={getString("music_volume")}
+                  aria-pressed={popover === "vol"}
+                  className={popover === "vol" ? `${GHOST} text-chrome-neutral-100` : GHOST_IDLE}
+                >
+                  {muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}
+                </HapticButton>
+              </span>
 
               <HapticButton
                 onClick={() => openOverlay("queue")}
@@ -231,15 +235,17 @@ export function GlobalMusicDock() {
                 <Mic2 className="h-[18px] w-[18px]" />
               </HapticButton>
 
-              <HapticButton
-                onClick={() => setPopover((p) => (p === "eq" ? null : "eq"))}
-                aria-label={getString("music_equalizer")}
-                aria-pressed={popover === "eq"}
-                className={popover === "eq" || eqEnabled ? GHOST : GHOST_IDLE}
-                style={popover === "eq" || eqEnabled ? accentActive : undefined}
-              >
-                <SlidersHorizontal className="h-[18px] w-[18px]" />
-              </HapticButton>
+              <span ref={eqTriggerRef} className="contents">
+                <HapticButton
+                  onClick={() => setPopover((p) => (p === "eq" ? null : "eq"))}
+                  aria-label={getString("music_equalizer")}
+                  aria-pressed={popover === "eq"}
+                  className={popover === "eq" || eqEnabled ? GHOST : GHOST_IDLE}
+                  style={popover === "eq" || eqEnabled ? accentActive : undefined}
+                >
+                  <SlidersHorizontal className="h-[18px] w-[18px]" />
+                </HapticButton>
+              </span>
 
               <HapticButton
                 onClick={() => openOverlay("full")}
@@ -260,10 +266,15 @@ export function GlobalMusicDock() {
               open={popover === "eq"}
               onClose={() => setPopover(null)}
               placement="top"
+              triggerRef={eqTriggerRef}
             />
           </div>
           <div className="absolute bottom-full right-2 mb-3">
-            <VolumePopover open={popover === "vol"} />
+            <VolumePopover
+              open={popover === "vol"}
+              onClose={() => setPopover(null)}
+              triggerRef={volumeTriggerRef}
+            />
           </div>
         </motion.div>
       )}

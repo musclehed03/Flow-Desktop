@@ -9,6 +9,7 @@ import { getString } from "../lib/i18n/index";
 import { create } from "zustand";
 import { usePlayerStore } from "./usePlayerStore";
 import { musicVideoFirstEnabled, shouldWatchSong, songToVideoSummary } from "../lib/musicVideoRouting";
+import { showQueueFeedback } from "../lib/queueFeedback";
 
 import type { MusicStreamInfo, SongItem } from "../types/music";
 import {
@@ -799,9 +800,16 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     allowReplay(videoIdOf(track));
     radioSessionSeen.delete(videoIdOf(track));
     set({ playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)) });
-    const { queue } = get();
-    if (!replay && queue.some((t) => videoIdOf(t) === videoIdOf(track))) return;
+    const { queue, currentTrack, currentIndex } = get();
+    const idle = !currentTrack || currentIndex < 0;
+    if (!replay && queue.some((t) => videoIdOf(t) === videoIdOf(track))) {
+      if (idle && queue.length > 0) void get()._loadIndex(0);
+      showQueueFeedback("duplicate");
+      return;
+    }
     set({ queue: [...queue, track] });
+    showQueueFeedback("added");
+    if (idle) void get()._loadIndex(0);
   },
 
   playNextInQueue: (track) => {
@@ -816,7 +824,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
     const currentId = videoIdOf(currentTrack);
     const trackId = videoIdOf(track);
-    if (trackId === currentId) return;
+    if (trackId === currentId) {
+      showQueueFeedback("duplicate");
+      return;
+    }
 
     const next = queue.filter((item) => videoIdOf(item) !== trackId);
     let currentIndex = next.findIndex((item) => videoIdOf(item) === currentId);
@@ -827,6 +838,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
     next.splice(currentIndex + 1, 0, track);
     set({ queue: next, currentIndex });
+    showQueueFeedback("added");
   },
 
   removeFromQueue: (index) => {

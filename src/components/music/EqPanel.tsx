@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import type { RefObject } from "react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import {
@@ -12,6 +13,7 @@ import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { Chip } from "../ui/Chip";
 import { getString } from "../../lib/i18n/index";
 import { Slider } from "../ui/Slider";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 const PRESETS: EqPresetName[] = ["flat", "bass", "vocal", "treble", "electronic", "acoustic"];
 
@@ -29,10 +31,12 @@ export function EqPanel({
   open,
   onClose,
   placement = "top",
+  triggerRef,
 }: {
   open: boolean;
   onClose: () => void;
   placement?: "top" | "bottom";
+  triggerRef?: RefObject<HTMLElement | null>;
 }) {
   const eqEnabled = useMusicPlayerStore((s) => s.eqEnabled);
   const eqGains = useMusicPlayerStore((s) => s.eqGains);
@@ -41,11 +45,18 @@ export function EqPanel({
   const applyEqPreset = useMusicPlayerStore((s) => s.applyEqPreset);
 
   const fromY = placement === "top" ? 10 : -10;
+  const panelRef = useDismissOnOutsideInteraction<HTMLDivElement>({
+    open,
+    onDismiss: onClose,
+    additionalRefs: triggerRef ? [triggerRef] : [],
+    restoreFocusRef: triggerRef,
+  });
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={panelRef}
           key="eq-panel"
           initial={{ opacity: 0, y: fromY, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}

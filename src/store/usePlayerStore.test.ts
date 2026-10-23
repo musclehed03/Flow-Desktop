@@ -8,6 +8,7 @@ vi.mock("../lib/streamResolution", () => ({
 }));
 
 import { usePlayerStore } from "./usePlayerStore";
+import { useUiStore } from "./useUiStore";
 
 const video = (id: string): VideoSummary => ({
   id,
@@ -17,6 +18,7 @@ const video = (id: string): VideoSummary => ({
 
 afterEach(() => {
   useDjSession.setState({ played: [] });
+  useUiStore.getState().dismissToast();
   usePlayerStore.getState().clearQueue();
   usePlayerStore.getState().setRepeatMode("none");
   usePlayerStore.getState().setAutoplayCandidates([]);
@@ -34,6 +36,58 @@ describe("video fullscreen", () => {
 });
 
 describe("video queue", () => {
+  it("starts the first queued video when add to queue is used while idle", () => {
+    const queued = video("queued");
+    usePlayerStore.setState({
+      queue: [],
+      currentVideo: null,
+      currentIndex: -1,
+      isPlaying: false,
+    });
+
+    expect(usePlayerStore.getState().addToQueue(queued)).toBe("added");
+
+    expect(usePlayerStore.getState().queue).toEqual([queued]);
+    expect(usePlayerStore.getState().currentVideo).toEqual(queued);
+    expect(usePlayerStore.getState().currentIndex).toBe(0);
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+    expect(useUiStore.getState().toast?.message).toBe("Added to queue");
+  });
+
+  it("exposes a play-next action for an idle video queue", () => {
+    const head = video("head");
+    const requested = video("requested");
+    usePlayerStore.setState({
+      queue: [head],
+      currentVideo: null,
+      currentIndex: -1,
+      isPlaying: false,
+    });
+    const action = (usePlayerStore.getState() as ReturnType<typeof usePlayerStore.getState> & {
+      playNextInQueue?: (item: VideoSummary) => unknown;
+    }).playNextInQueue;
+
+    expect(action).toBeTypeOf("function");
+    if (!action) return;
+    expect(action(requested)).toBe("added");
+    expect(usePlayerStore.getState().queue).toEqual([head, requested]);
+    expect(usePlayerStore.getState().currentVideo).toEqual(head);
+    expect(usePlayerStore.getState().currentIndex).toBe(0);
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+    expect(useUiStore.getState().toast?.message).toBe("Added to queue");
+  });
+
+  it("plays now immediately from an idle queue", () => {
+    const now = video("now");
+
+    usePlayerStore.getState().setQueue([now], 0);
+
+    expect(usePlayerStore.getState().queue).toEqual([now]);
+    expect(usePlayerStore.getState().currentVideo).toEqual(now);
+    expect(usePlayerStore.getState().currentIndex).toBe(0);
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+  });
+
   it("keeps the current video when the first upcoming item is added", () => {
     const current = video("current");
     const next = video("next");

@@ -1,8 +1,11 @@
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef } from "react";
-import { FastForward, Pause, Play, Rewind, SkipBack, SkipForward } from "lucide-react";
+import { Brain, FastForward, ListVideo, Maximize2, Minimize2, Rewind } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { PROGRESS_EVENTS, setStyleIfChanged, shouldAnimateProgress } from "../../lib/playerProgress";
+import { getString } from "../../lib/i18n/index";
+import { VisualizerToggle } from "../visualizer/Visualizers";
+import { PlayerTransportControls, PlayerVolumeControl } from "./SharedPlayerControls";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -20,6 +23,8 @@ export interface MiniPlayerControlsProps {
   seekTo: (time: number) => void;
   showSkipControls: boolean;
   showNextPrevControls: boolean;
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
 }
 
 export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
@@ -32,10 +37,17 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
   seekTo,
   showSkipControls,
   showNextPrevControls,
+  isFullscreen,
+  toggleFullscreen,
 }) => {
   const { t: sensoryText } = useTranslation("settings");
   const playNext = usePlayerStore((s) => s.playNext);
   const playPrevious = usePlayerStore((s) => s.playPrevious);
+  const volume = usePlayerStore((s) => s.volume);
+  const muted = usePlayerStore((s) => s.muted);
+  const setVolume = usePlayerStore((s) => s.setVolume);
+  const setMuted = usePlayerStore((s) => s.setMuted);
+  const isQueuePanelOpen = usePlayerStore((s) => s.isQueuePanelOpen);
 
   const trackRef = useRef<HTMLDivElement>(null);
   const fillRef = useRef<HTMLDivElement>(null);
@@ -88,6 +100,17 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
 
   const sideBtn =
     "grid h-8 w-8 place-items-center rounded-full text-chrome-white/90 transition-colors hover:bg-chrome-white/15";
+  const openQueue = () => {
+    const player = usePlayerStore.getState();
+    player.setIsQueuePanelOpen(!player.isQueuePanelOpen);
+    if (!player.isQueuePanelOpen) {
+      player.expandVideoPlayer();
+      window.dispatchEvent(new CustomEvent("flow-video-expand-request"));
+    }
+  };
+  const openDeviantControls = () => {
+    document.querySelector<HTMLButtonElement>('[aria-controls="deviant-controls-dialog"]')?.click();
+  };
 
   return (
     <div
@@ -135,11 +158,6 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
 
         {/* Transport row */}
         <div className="mt-0.5 flex items-center justify-center gap-2">
-          {showNextPrevControls && (
-            <button type="button" title={sensoryText("sensory.player.previous")} aria-label={sensoryText("sensory.player.previous")} onClick={playPrevious} className={sideBtn}>
-              <SkipBack size={16} fill="currentColor" />
-            </button>
-          )}
           {showSkipControls && (
             <button
               type="button"
@@ -150,18 +168,20 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
               <Rewind size={17} />
             </button>
           )}
-          <button
-            type="button"
-            title={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-label={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-pressed={isPlaying}
-            onClick={togglePlay}
-            className="grid h-11 w-11 place-items-center rounded-full bg-chrome-white/10 text-chrome-white transition-transform hover:bg-chrome-white/20 active:scale-95"
-          >
-            {isPlaying ? (
-              <Pause size={22} fill="currentColor" />
-            ) : (
-              <Play size={22} fill="currentColor" className="ml-0.5" />
-            )}
-          </button>
+          <PlayerTransportControls
+            isPlaying={isPlaying}
+            onPrevious={playPrevious}
+            onTogglePlay={togglePlay}
+            onNext={() => playNext()}
+            labels={{
+              previous: sensoryText("sensory.player.previous"),
+              play: sensoryText("sensory.player.play"),
+              pause: sensoryText("sensory.player.pause"),
+              next: sensoryText("sensory.player.next"),
+            }}
+            className={showNextPrevControls ? undefined : "[&>button:first-child]:hidden [&>button:last-child]:hidden"}
+            playButtonClassName="h-11 w-11"
+          />
           {showSkipControls && (
             <button
               type="button"
@@ -172,11 +192,54 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
               <FastForward size={17} />
             </button>
           )}
-          {showNextPrevControls && (
-            <button type="button" title={sensoryText("sensory.player.next")} aria-label={sensoryText("sensory.player.next")} onClick={() => playNext()} className={sideBtn}>
-              <SkipForward size={16} fill="currentColor" />
-            </button>
-          )}
+        </div>
+        <div className="mt-1 flex items-center justify-center gap-1 text-chrome-white/90">
+          <PlayerVolumeControl
+            volume={volume}
+            muted={muted}
+            onToggleMute={() => setMuted((value) => !value)}
+            onVolumeChange={(value) => {
+              setVolume(value);
+              setMuted(value === 0);
+            }}
+            labels={{
+              mute: sensoryText("sensory.player.mute"),
+              unmute: getString("music_unmute"),
+              volume: sensoryText("sensory.player.volume"),
+            }}
+            className="bg-chrome-black/20"
+          />
+          <button
+            type="button"
+            data-player-control="queue"
+            aria-label={getString("queue_title")}
+            aria-pressed={isQueuePanelOpen}
+            onClick={openQueue}
+            className={sideBtn}
+          >
+            <ListVideo size={17} />
+          </button>
+          <VisualizerToggle surface="video" />
+          <button
+            type="button"
+            data-player-control="deviant-controls"
+            aria-label={sensoryText("sensory.controls")}
+            aria-haspopup="dialog"
+            onClick={openDeviantControls}
+            className={sideBtn}
+          >
+            <Brain size={17} />
+          </button>
+          <button
+            type="button"
+            data-player-control="fullscreen"
+            aria-label={sensoryText("sensory.player.fullscreen")}
+            aria-pressed={isFullscreen}
+            onClick={toggleFullscreen}
+            className={sideBtn}
+          >
+            {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
         </div>
       </div>
     </div>

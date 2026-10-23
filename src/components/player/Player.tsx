@@ -2765,6 +2765,8 @@ export const Player: React.FC<PlayerProps> = ({
           seekTo={seekTo}
           showSkipControls={miniPlayerShowSkipControls}
           showNextPrevControls={miniPlayerShowNextPrevControls}
+          isFullscreen={isFullscreen}
+          toggleFullscreen={toggleFullscreen}
         />
       ) : (
       <FlowPlayerControls

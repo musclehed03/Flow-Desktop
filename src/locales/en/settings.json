@@ -116,6 +116,7 @@
       "play": "Play",
       "pause": "Pause",
       "mute": "Mute audio",
+      "unmute": "Unmute audio",
       "live": "Go to live",
       "submit": "Submit SponsorBlock segment",
       "quality": "Video quality",
@@ -128,6 +129,7 @@
       "speed": "Playback speed",
       "volume": "Volume",
       "seek": "Playback position",
+      "queue": "Queue",
       "chapters": "Chapters"
     }
   },

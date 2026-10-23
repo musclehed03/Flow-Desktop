@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 export interface MenuAnchor {
   top: number;
@@ -24,7 +25,7 @@ export function AnchoredPortalMenu({
   children,
   closeOnScroll = true,
 }: AnchoredPortalMenuProps) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useDismissOnOutsideInteraction<HTMLDivElement>({ open: true, onDismiss: onClose });
   const [style, setStyle] = useState<React.CSSProperties>({
     position: "fixed",
     top: anchor.top,
@@ -53,21 +54,11 @@ export function AnchoredPortalMenu({
   }, [anchor.top, anchor.left, anchor.right]);
 
   useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onPointerDown);
     if (closeOnScroll) window.addEventListener("scroll", onClose, true);
     window.addEventListener("resize", onClose);
-    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
       if (closeOnScroll) window.removeEventListener("scroll", onClose, true);
       window.removeEventListener("resize", onClose);
-      document.removeEventListener("keydown", onKey);
     };
   }, [onClose, closeOnScroll]);
 

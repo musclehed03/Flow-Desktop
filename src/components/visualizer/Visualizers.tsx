@@ -3,7 +3,7 @@ import { videoAnalyser } from "../../lib/audio/videoAnalyser";
 import { toggleMusicFullscreen } from "../../lib/musicPresentation";
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AudioLines, X, Play, Pause, SkipBack, SkipForward, Maximize2, Brain, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, X, Maximize2, Brain, ListMusic, SlidersHorizontal } from 'lucide-react';
 import { useVisualizerConfig, useVisualizerUi, openVisualizer, acceptVisualizerAdvisory } from '../../lib/useVisualizer';
 import { useBoolPref, usePreference } from '../../lib/usePreference';
 import { SETTINGS } from '../../lib/settings/schema';
@@ -11,11 +11,14 @@ import { parseVisualizerPresets, VISUALIZER_DEFAULTS, type VisualizerConfig } fr
 import { VisualizerCanvas } from './VisualizerCanvas';
 import { useMusicPlayerStore } from '../../store/useMusicPlayerStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
+import { PlayerTransportControls, PlayerVolumeControl } from '../player/SharedPlayerControls';
+import { Slider } from '../ui/Slider';
+import { requestVideoSeek } from '../../lib/playerEvents';
 
 export function VisualizerToggle({ surface }: { surface: 'music' | 'video' }) {
   const { t } = useTranslation('settings');
   const open = useVisualizerUi((state) => state.open);
-  return <button type="button" data-visualizer-toggle="true" aria-label={t('visualizer.title')} title={t('visualizer.title')} aria-pressed={open}
+  return <button type="button" data-visualizer-toggle="true" data-player-control="visualizer" aria-label={t('visualizer.title')} title={t('visualizer.title')} aria-pressed={open}
     onClick={() => { if (open) useVisualizerUi.setState({ open: false }); else void openVisualizer(surface); }}
     className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant bg-surface-container text-on-surface"><AudioLines size={18} /></button>;
 }
@@ -44,6 +47,14 @@ export function Visualizers() {
   const video = usePlayerStore((state) => state.currentVideo);
   const musicPlaying = useMusicPlayerStore((state) => state.isPlaying);
   const videoPlaying = usePlayerStore((state) => state.isPlaying);
+  const musicProgress = useMusicPlayerStore((state) => state.progress);
+  const musicDuration = useMusicPlayerStore((state) => state.duration);
+  const musicVolume = useMusicPlayerStore((state) => state.volume);
+  const musicMuted = useMusicPlayerStore((state) => state.isMuted);
+  const videoProgress = usePlayerStore((state) => state.currentTime);
+  const videoDuration = usePlayerStore((state) => state.duration);
+  const videoVolume = usePlayerStore((state) => state.volume);
+  const videoMuted = usePlayerStore((state) => state.muted);
   const musicFullscreen = useMusicPlayerStore((state) => state.musicFullscreen);
   const videoFullscreen = usePlayerStore((state) => state.isVideoFullscreen);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -63,6 +74,24 @@ export function Visualizers() {
     window.addEventListener('keydown', escape, true); return () => window.removeEventListener('keydown', escape, true);
   }, [config.enabled, config.mode]);
   const update = (next: VisualizerConfig) => { setDraft(next); saveConfig(next); };
+  const activePlaying = surface === 'music' ? musicPlaying : videoPlaying;
+  const activeProgress = surface === 'music' ? musicProgress : videoProgress;
+  const activeDuration = surface === 'music' ? musicDuration : videoDuration;
+  const activeVolume = surface === 'music' ? musicVolume : videoVolume;
+  const activeMuted = surface === 'music' ? musicMuted : videoMuted;
+  const seek = (seconds: number) => surface === 'music'
+    ? useMusicPlayerStore.getState().seek(seconds)
+    : requestVideoSeek(seconds);
+  const openQueue = () => {
+    if (config.mode === 'fullscreen') update({ ...config, mode: 'mini' });
+    if (surface === 'music') useMusicPlayerStore.getState().openOverlay('queue');
+    else {
+      const player = usePlayerStore.getState();
+      player.setIsQueuePanelOpen(true);
+      player.expandVideoPlayer();
+      window.dispatchEvent(new CustomEvent('flow-video-expand-request'));
+    }
+  };
   const visible = config.enabled && !simple && !focus && (surface === 'music' ? !!music : !!video);
   const floating = visible && (config.mode !== 'inline' || surface === 'video');
   return <>
@@ -70,12 +99,37 @@ export function Visualizers() {
     {floating && <section aria-label={t('visualizer.title')} data-sensory-essential="true"
       className={config.mode === 'fullscreen' ? 'fixed inset-0 z-[580] bg-background p-4 text-on-surface' : 'fixed bottom-28 right-4 z-[80] h-40 w-80 rounded-2xl border border-outline-variant bg-background p-2 text-on-surface'}>
       <div className="absolute right-5 top-5 z-10 flex max-w-[90vw] flex-wrap gap-2 rounded-full border border-outline-variant bg-surface-container p-2">
-        <button type="button" aria-label={t('visualizer.playPause')} aria-pressed={surface === 'music' ? musicPlaying : videoPlaying} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => surface === 'music' ? useMusicPlayerStore.getState().togglePlay() : usePlayerStore.getState().setIsPlaying(!usePlayerStore.getState().isPlaying)}>{(surface === 'music' ? musicPlaying : videoPlaying) ? <Pause size={18} /> : <Play size={18} />}</button>
-        <button type="button" aria-label={t('sensory.player.previous')} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => surface === 'music' ? useMusicPlayerStore.getState().previous() : usePlayerStore.getState().playPrevious()}><SkipBack size={18} /></button>
-        <button type="button" aria-label={t('sensory.player.next')} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => surface === 'music' ? useMusicPlayerStore.getState().next() : usePlayerStore.getState().playNext(true)}><SkipForward size={18} /></button>
-        <button type="button" aria-label={t('visualizer.fullscreen')} aria-pressed={surface === 'music' ? musicFullscreen : videoFullscreen} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => { if (surface === 'music') void toggleMusicFullscreen(); else usePlayerStore.getState().setIsVideoFullscreen(!usePlayerStore.getState().isVideoFullscreen); }}><Maximize2 size={18} /></button>
-        <button type="button" aria-label={t('sensory.controls')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={() => document.querySelector<HTMLButtonElement>('[aria-controls="deviant-controls-dialog"]')?.click()}><Brain size={18} /></button>
-        <button type="button" aria-label={t('visualizer.customize')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={() => useVisualizerUi.setState({ open: true })}><SlidersHorizontal size={18} /></button>
+        <PlayerTransportControls
+          isPlaying={activePlaying}
+          onPrevious={() => surface === 'music' ? useMusicPlayerStore.getState().previous() : usePlayerStore.getState().playPrevious()}
+          onTogglePlay={() => surface === 'music' ? useMusicPlayerStore.getState().togglePlay() : usePlayerStore.getState().setIsPlaying(!usePlayerStore.getState().isPlaying)}
+          onNext={() => surface === 'music' ? useMusicPlayerStore.getState().next() : usePlayerStore.getState().playNext(true)}
+          labels={{ previous: t('sensory.player.previous'), play: t('sensory.player.play'), pause: t('sensory.player.pause'), next: t('sensory.player.next') }}
+        />
+        <div className="w-24" data-player-control="seek">
+          <Slider aria-label={t('sensory.player.seek')} min={0} max={Math.max(1, activeDuration)} step={1} value={Math.min(activeProgress, Math.max(1, activeDuration))} onChange={seek} />
+        </div>
+        <PlayerVolumeControl
+          volume={activeVolume}
+          muted={activeMuted}
+          onToggleMute={() => surface === 'music' ? useMusicPlayerStore.getState().toggleMute() : usePlayerStore.getState().setMuted((value) => !value)}
+          onVolumeChange={(value) => {
+            if (surface === 'music') {
+              const player = useMusicPlayerStore.getState();
+              player.setVolume(value);
+              if (player.isMuted && value > 0) player.toggleMute();
+            } else {
+              const player = usePlayerStore.getState();
+              player.setVolume(value);
+              player.setMuted(value === 0);
+            }
+          }}
+          labels={{ mute: t('sensory.player.mute'), unmute: t('sensory.player.unmute'), volume: t('sensory.player.volume') }}
+        />
+        <button type="button" data-player-control="queue" aria-label={t('sensory.player.queue')} className="grid h-8 w-8 place-items-center rounded-full" onClick={openQueue}><ListMusic size={18} /></button>
+        <button type="button" data-player-control="fullscreen" aria-label={t('visualizer.fullscreen')} aria-pressed={surface === 'music' ? musicFullscreen : videoFullscreen} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => { if (surface === 'music') void toggleMusicFullscreen(); else usePlayerStore.getState().setIsVideoFullscreen(!usePlayerStore.getState().isVideoFullscreen); }}><Maximize2 size={18} /></button>
+        <button type="button" data-player-control="deviant-controls" aria-label={t('sensory.controls')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={() => document.querySelector<HTMLButtonElement>('[aria-controls="deviant-controls-dialog"]')?.click()}><Brain size={18} /></button>
+        <button type="button" data-player-control="visualizer" aria-label={t('visualizer.customize')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={() => useVisualizerUi.setState({ open: true })}><SlidersHorizontal size={18} /></button>
         <button type="button" aria-label={t('visualizer.close')} onClick={() => update({ ...config, enabled: false })}><X size={18} /></button>
       </div>
       <VisualizerCanvas config={config} />

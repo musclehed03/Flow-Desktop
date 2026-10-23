@@ -1,7 +1,7 @@
 import { VisualizerArtwork, VisualizerToggle } from "../visualizer/Visualizers";
 import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { MusicPresentationControls } from "./MusicPresentationControls";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -38,6 +38,7 @@ import { MusicQueuePane } from "./MusicQueuePane";
 import { MusicLyrics } from "./MusicLyrics";
 import { AmbientBackdrop, isMusicBackgroundStyle } from "./AmbientBackdrop";
 import { EqPanel } from "./EqPanel";
+import { PlayerVolumeControl } from "../player/SharedPlayerControls";
 import { useLyrics } from "../../lib/lyrics/useLyrics";
 import { useDominantColor } from "../../lib/useDominantColor";
 import { accentForeground, accentSurface } from "../../lib/accentColor";
@@ -69,6 +70,8 @@ export function MusicOverlay() {
   const repeatMode = useMusicPlayerStore((s) => s.repeatMode);
   const isShuffle = useMusicPlayerStore((s) => s.isShuffle);
   const eqEnabled = useMusicPlayerStore((s) => s.eqEnabled);
+  const volume = useMusicPlayerStore((s) => s.volume);
+  const isMuted = useMusicPlayerStore((s) => s.isMuted);
 
   const togglePlay = useMusicPlayerStore((s) => s.togglePlay);
   const next = useMusicPlayerStore((s) => s.next);
@@ -78,6 +81,8 @@ export function MusicOverlay() {
   const setViewState = useMusicPlayerStore((s) => s.setViewState);
   const closeOverlay = useMusicPlayerStore((s) => s.closeOverlay);
   const seek = useMusicPlayerStore((s) => s.seek);
+  const setVolume = useMusicPlayerStore((s) => s.setVolume);
+  const toggleMute = useMusicPlayerStore((s) => s.toggleMute);
   const likedItems = useLikesStore((s) => s.items);
   const likesLoaded = useLikesStore((s) => s.loaded);
   const loadLikes = useLikesStore((s) => s.load);
@@ -87,6 +92,7 @@ export function MusicOverlay() {
 
   const musicError = useMusicPlayerError();
   const [eqOpen, setEqOpen] = useState(false);
+  const eqTriggerRef = useRef<HTMLSpanElement>(null);
   const overlayOpen = currentTrack !== null && viewState !== "dock";
   const lyrics = useLyrics(overlayOpen ? currentTrack : null);
   /*
@@ -170,6 +176,21 @@ export function MusicOverlay() {
             </HapticButton>
 
             <div className="relative flex items-center gap-1">
+              <PlayerVolumeControl
+                volume={volume}
+                muted={isMuted}
+                onToggleMute={toggleMute}
+                onVolumeChange={(value) => {
+                  setVolume(value);
+                  if (isMuted && value > 0) toggleMute();
+                }}
+                labels={{
+                  mute: getString("music_mute"),
+                  unmute: getString("music_unmute"),
+                  volume: getString("music_volume"),
+                }}
+                className="text-on-surface"
+              />
               <MusicPresentationControls />
               <RelatedSongsToggle surface="music" />
               <VisualizerToggle surface="music" />
@@ -201,18 +222,25 @@ export function MusicOverlay() {
                 <Mic2 className="h-5 w-5" />
               </HapticButton>
 
-              <HapticButton
-                onClick={() => setEqOpen((v) => !v)}
-                aria-label={getString("music_equalizer")}
-                aria-pressed={eqOpen}
-                className={eqOpen || eqEnabled ? TOP_BTN_ACTIVE : TOP_BTN}
-              >
-                <SlidersHorizontal className="h-5 w-5" />
-              </HapticButton>
+              <span ref={eqTriggerRef} className="contents">
+                <HapticButton
+                  onClick={() => setEqOpen((v) => !v)}
+                  aria-label={getString("music_equalizer")}
+                  aria-pressed={eqOpen}
+                  className={eqOpen || eqEnabled ? TOP_BTN_ACTIVE : TOP_BTN}
+                >
+                  <SlidersHorizontal className="h-5 w-5" />
+                </HapticButton>
+              </span>
 
               {/* EQ opens BELOW the top bar so it stays in frame */}
               <div className="absolute right-0 top-full mt-2">
-                <EqPanel open={eqOpen} onClose={() => setEqOpen(false)} placement="bottom" />
+                <EqPanel
+                  open={eqOpen}
+                  onClose={() => setEqOpen(false)}
+                  placement="bottom"
+                  triggerRef={eqTriggerRef}
+                />
               </div>
             </div>
           </div>

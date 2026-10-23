@@ -15,6 +15,7 @@ import {
 import { getString } from "../../lib/i18n/index";
 import { useProxyImageSrc } from "../../lib/useImageProxy";
 import { usePlayerStore, type RepeatMode } from "../../store/usePlayerStore";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 const repeatLabels: Record<RepeatMode, string> = {
   none: getString("queue_repeat_off"),
@@ -49,11 +50,15 @@ export function QueuePanel() {
   const clearUpcoming = usePlayerStore((state) => state.clearUpcoming);
   const cycleRepeatMode = usePlayerStore((state) => state.cycleRepeatMode);
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle);
+  const panelRef = useDismissOnOutsideInteraction<HTMLElement>({
+    open: true,
+    onDismiss: () => setIsQueuePanelOpen(false),
+  });
 
   const upcomingCount = Math.max(0, queue.length - currentIndex - 1);
 
   return (
-    <section className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-chrome-neutral-800 bg-surface-container-low text-chrome-neutral-100">
+    <section ref={panelRef} className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-chrome-neutral-800 bg-surface-container-low text-chrome-neutral-100">
       <header className="flex shrink-0 items-center justify-between border-b border-chrome-neutral-800 px-4 py-3.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

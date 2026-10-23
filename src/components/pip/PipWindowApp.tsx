@@ -13,6 +13,7 @@ import { useMediaSessionMetadata } from "../../lib/useMediaSessionMetadata";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { WindowResizeEdges } from "../ui/WindowResizeEdges";
 import { FlowPlayerCore } from "../watch/FlowPlayerCore";
+import { QueuePanel } from "../player/QueuePanel";
 
 const chromeButton =
   "grid h-7 w-7 shrink-0 place-items-center rounded-full text-chrome-white/90 transition-colors hover:bg-chrome-white/15 hover:text-chrome-white";
@@ -29,6 +30,7 @@ export function PipWindowApp() {
   usePipWindowAspectLock();
 
   const currentVideo = usePlayerStore((s) => s.currentVideo);
+  const isQueuePanelOpen = usePlayerStore((s) => s.isQueuePanelOpen);
   useNativeWindowTitle(currentVideo?.title ?? getString("pip_window_title"));
   const isPlaying = status === "playing" && !!currentVideo;
   // This window holds the media element while it is open, so it also owns the
@@ -118,6 +120,11 @@ export function PipWindowApp() {
       </div>
 
       {!IS_MACOS_RUNTIME && <WindowResizeEdges zIndexClass="z-[300]" />}
+      {isQueuePanelOpen && (
+        <div className="fixed inset-3 z-[320] min-h-0">
+          <QueuePanel />
+        </div>
+      )}
     </div>
   );
 }

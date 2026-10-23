@@ -1,22 +1,39 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Volume2, VolumeX } from "lucide-react";
+import type { RefObject } from "react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { getString } from "../../lib/i18n/index";
 import { Slider } from "../ui/Slider";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
-export function VolumePopover({ open }: { open: boolean }) {
+export function VolumePopover({
+  open,
+  onClose,
+  triggerRef,
+}: {
+  open: boolean;
+  onClose: () => void;
+  triggerRef: RefObject<HTMLElement | null>;
+}) {
   const volume = useMusicPlayerStore((s) => s.volume);
   const isMuted = useMusicPlayerStore((s) => s.isMuted);
   const setVolume = useMusicPlayerStore((s) => s.setVolume);
   const toggleMute = useMusicPlayerStore((s) => s.toggleMute);
 
   const shown = isMuted ? 0 : volume;
+  const popoverRef = useDismissOnOutsideInteraction<HTMLDivElement>({
+    open,
+    onDismiss: onClose,
+    additionalRefs: [triggerRef],
+    restoreFocusRef: triggerRef,
+  });
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={popoverRef}
           key="vol-popover"
           initial={{ opacity: 0, y: 10, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}

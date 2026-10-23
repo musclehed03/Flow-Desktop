@@ -4,7 +4,7 @@ import { useBlockedKeywordMatch, useFeedActionsStore } from '../../store/useFeed
 import { useBlockedRevealStore } from '../../lib/blockedContent';
 import { BlockedVideoCard } from './BlockedVideoCard';
 import { useLiveStore } from '../../store/useLiveStore';
-import { Plus, Ban, Check, MoreVertical, Trash2, GripHorizontal, Sparkles, Eye, EyeOff, Clock, ListPlus, Download, User } from 'lucide-react';
+import { Plus, Ban, Check, MoreVertical, Trash2, GripHorizontal, Sparkles, Eye, EyeOff, Clock, ListPlus, Download, User, Play } from 'lucide-react';
 import type { VideoSummary } from '../../types/video';
 import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -350,6 +350,18 @@ function VideoCardComponent({
         >
           <Plus size={16} />
           {getString("music_add_to_queue")}
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            usePlayerStore.getState().playNextInQueue(video);
+            setShowMenu(false);
+          }}
+          className="w-full flex items-center gap-3 px-3.5 py-2.5 text-sm text-chrome-zinc-300 hover:bg-chrome-zinc-800 hover:text-chrome-zinc-100 transition-colors"
+        >
+          <Play size={16} />
+          {getString("music_play_next")}
         </button>
         <button
           type="button"
