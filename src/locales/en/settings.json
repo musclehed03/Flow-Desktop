@@ -156,6 +156,7 @@
     "metadata": "Known tempo and phrase metadata align transitions; incompatible keys use a short clean fade. With no tempo metadata, the selected duration applies. Existing per-track normalization and an overlap peak limiter protect the mix."
   },
   "visualizer": {
+    "loading": "Loading visualizer controls…",
     "title": "Audio visualizers",
     "customize": "Customize",
     "enabled": "Enable visualizer",

@@ -1,7 +1,6 @@
 import { SensorySettings } from "../../accessibility/SensorySettings";
-import { useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import { CustomThemeEditor } from "../../theme/CustomThemeEditor";
 import { ThemePreview } from "../../theme/ThemePreview";
 import { Button } from "../../ui/Button";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
@@ -12,11 +11,15 @@ import {
   BUILTIN_THEMES,
   THEME_VARIANTS,
   createCustomTheme,
+  parseCustomThemes,
   type CustomThemeDefinition,
 } from "../../../lib/themes";
 import { useTheme } from "../../../lib/useTheme";
 import { IS_LINUX_RUNTIME } from "../../../lib/platform";
 import { GraphicsCompatibilitySection } from "../GraphicsCompatibilitySection";
+import { getSettingValue } from "../../../store/useAppSettingsStore";
+
+const CustomThemeEditor = lazy(() => import("../../theme/CustomThemeEditor"));
 
 export function AppearanceTab() {
   const {
@@ -28,22 +31,32 @@ export function AppearanceTab() {
     saveCustomThemes,
   } = useTheme();
   const [editingTheme, setEditingTheme] = useState<CustomThemeDefinition | null>(null);
+  const editorOpenerRef = useRef<HTMLElement | null>(null);
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
 
-  const createTheme = () => {
-    const id = `custom-${crypto.randomUUID()}`;
-    setEditingTheme(createCustomTheme(id, getString("theme_new_name")));
+  const openEditor = (theme: CustomThemeDefinition) => {
+    editorOpenerRef.current = document.activeElement as HTMLElement | null;
+    setEditingTheme(theme);
   };
 
-  const saveTheme = async (theme: CustomThemeDefinition) => {
-    const nextThemes = customThemes.some((item) => item.id === theme.id)
-      ? customThemes.map((item) => item.id === theme.id ? theme : item)
-      : [...customThemes, theme];
-    const saved = await saveCustomThemes(nextThemes);
-    if (saved) {
-      await setTheme(theme.id);
-      setEditingTheme(null);
-    }
+  const createTheme = async () => {
+    const id = `custom-${crypto.randomUUID()}`;
+    const theme = createCustomTheme(id, getString("theme_new_name"));
+    const saved = await saveCustomThemes([...customThemes, theme]);
+    if (!saved) return;
+    await setTheme(theme.id);
+    openEditor(theme);
+  };
+
+  const previewTheme = (theme: CustomThemeDefinition) => {
+    setEditingTheme(theme);
+    if (!theme.name.trim()) return;
+    const currentThemes = parseCustomThemes(getSettingValue(SETTINGS.CUSTOM_THEMES));
+    const nextThemes = currentThemes.some((item) => item.id === theme.id)
+      ? currentThemes.map((item) => item.id === theme.id ? theme : item)
+      : [...currentThemes, theme];
+    void saveCustomThemes(nextThemes);
+    if (themeId !== theme.id) void setTheme(theme.id);
   };
 
   const deleteTheme = async (theme: CustomThemeDefinition) => {
@@ -60,7 +73,7 @@ export function AppearanceTab() {
           <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">{getString("settings_appearance")}</h1>
           <p className="mt-2 text-sm text-chrome-neutral-400">{getString("theme_page_description")}</p>
         </div>
-        <Button onClick={createTheme} disabled={customThemes.length >= 24}>
+        <Button onClick={() => void createTheme()} disabled={customThemes.length >= 24}>
           <Plus size={17} />
           {getString("theme_create")}
         </Button>
@@ -137,7 +150,7 @@ export function AppearanceTab() {
                 editLabel={getString("theme_edit")}
                 deleteLabel={getString("theme_delete")}
                 onSelect={() => void setTheme(theme.id)}
-                onEdit={() => setEditingTheme(theme)}
+                onEdit={() => openEditor(theme)}
                 onDelete={() => void deleteTheme(theme)}
               />
             ))}
@@ -146,11 +159,10 @@ export function AppearanceTab() {
       )}
 
       {editingTheme && (
-        <CustomThemeEditor
-          theme={editingTheme}
-          onCancel={() => setEditingTheme(null)}
-          onSave={(theme) => void saveTheme(theme)}
-        />
+        <Suspense fallback={<p role="status">{getString("panel_loading")}</p>}>
+          <CustomThemeEditor key={editingTheme.id} theme={editingTheme} openerRef={editorOpenerRef}
+            onClose={() => setEditingTheme(null)} onChange={previewTheme} />
+        </Suspense>
       )}
     </div>
   );

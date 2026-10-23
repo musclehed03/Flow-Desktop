@@ -68,12 +68,14 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
       await act(async () => host.querySelector<HTMLButtonElement>('dialog > button')!.click());
       expect(document.activeElement).toBe(trigger);
       await act(async () => useVisualizerUi.setState({ open: true }));
-      const visualizer = host.querySelector<HTMLDialogElement>('[data-visualizer-dialog]')!;
-      expect(visualizer.open).toBe(true);
+      await act(async () => { await import('../visualizer/VisualizerCustomizerPanel'); await Promise.resolve(); });
+      const visualizer = document.querySelector<HTMLElement>('[data-dockable-panel="visualizer-editor"]')!;
+      expect(visualizer).not.toBeNull();
+      expect(visualizer.getAttribute('aria-modal')).toBe('false');
       expect(visualizer.querySelectorAll('input[type="range"]')).toHaveLength(5);
       expect(visualizer.querySelectorAll('select')).toHaveLength(4);
-      await act(async () => visualizer.querySelector<HTMLButtonElement>('button')!.click());
-      expect(visualizer.open).toBe(false);
+      await act(async () => visualizer.querySelector<HTMLButtonElement>('[aria-label="Close panel"]')!.click());
+      expect(document.querySelector('[data-dockable-panel="visualizer-editor"]')).toBeNull();
     }
   } finally {
     await act(async () => root.unmount()); host.remove();
