@@ -16,6 +16,15 @@ export function serializePlaybackSession<T>(session: PlaybackSession<T>): string
   return JSON.stringify(session);
 }
 
+export function parsePlaybackPosition(raw: string, fallback: number): number {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : Math.max(0, fallback);
+  } catch {
+    return Math.max(0, fallback);
+  }
+}
+
 export function parsePlaybackSession<T>(raw: string): PlaybackSession<T> | null {
   try {
     const value: unknown = JSON.parse(raw);

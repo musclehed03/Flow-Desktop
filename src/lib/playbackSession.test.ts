@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePlaybackSession, resolveLaunchRestoreMode, serializePlaybackSession } from "./playbackSession";
+import { parsePlaybackPosition, parsePlaybackSession, resolveLaunchRestoreMode, serializePlaybackSession } from "./playbackSession";
 
 describe("playback session persistence", () => {
   it("defaults to restoring the queue paused and keeps resume modes exclusive", () => {
@@ -26,5 +26,11 @@ describe("playback session persistence", () => {
       currentIndex: 0,
       position: 0,
     });
+  });
+
+  it("restores a separately throttled position with a session fallback", () => {
+    expect(parsePlaybackPosition("81.25", 5)).toBe(81.25);
+    expect(parsePlaybackPosition("null", 5)).toBe(5);
+    expect(parsePlaybackPosition("bad", -2)).toBe(0);
   });
 });
