@@ -36,6 +36,18 @@ describe("video fullscreen", () => {
 });
 
 describe("video queue", () => {
+  it("restores a saved queue and exact position without autoplay by default", () => {
+    const items = [video("one"), video("two")];
+    usePlayerStore.getState().restoreSession(items, 1, 87, false);
+    const state = usePlayerStore.getState();
+    expect(state.queue).toEqual(items);
+    expect(state.currentVideo).toEqual(items[1]);
+    expect(state.currentIndex).toBe(1);
+    expect(state.currentTime).toBe(87);
+    expect(state.isPlaying).toBe(false);
+    expect(state.pipHandoff).toEqual({ videoId: "two", positionSeconds: 87, playing: false });
+  });
+
   it("starts the first queued video when add to queue is used while idle", () => {
     const queued = video("queued");
     usePlayerStore.setState({

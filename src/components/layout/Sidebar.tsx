@@ -249,6 +249,7 @@ export function Sidebar({ mode = 'normal' }: SidebarProps) {
           {showShortsNav && <CompactRailItem path="/shorts" {...shortsRailIconPair} label={getString('sidebar_shorts')} />}
           {showCategoriesNav && <CompactRailItem path="/explore" {...railIconPair('explore')} label={getString('sidebar_explore')} />}
           {showMusicNav && <CompactRailItem path="/music" {...railIconPair('music')} label={getString('sidebar_music')} />}
+          <CompactRailItem path="/player" {...railIconPair('player')} label={getString('sidebar_open_player')} />
           <CompactRailItem path="/subscriptions" {...railIconPair('subscriptions')} label={getString('sidebar_subscriptions')} />
           <CompactRailItem path="/library" {...railIconPair('you')} label={getString('sidebar_you')} />
           <div className="mt-auto w-full pt-1">
@@ -274,6 +275,7 @@ export function Sidebar({ mode = 'normal' }: SidebarProps) {
         {showShortsNav && <SidebarItem to="/shorts" {...shortsNavIconPair} label={getString('sidebar_shorts')} onClick={closeOverlay} />}
         {showCategoriesNav && <SidebarItem to="/explore" {...navIconPair('explore')} label={getString('sidebar_explore')} onClick={closeOverlay} />}
         {showMusicNav && <SidebarItem to="/music" {...navIconPair('music')} label={getString('sidebar_music')} onClick={closeOverlay} />}
+        <SidebarItem to="/player" {...navIconPair('player')} label={getString('sidebar_open_player')} onClick={closeOverlay} />
       </nav>
 
       <hr className="border-chrome-neutral-800/50 my-3 mx-4" />

@@ -2,7 +2,7 @@ import { Visualizers } from "../visualizer/Visualizers";
 import { RelatedSongsSidebar } from "../radio/RelatedSongsSidebar";
 import { DeviantControls } from "../accessibility/DeviantControls";
 import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
-import { Maximize2, Pin, PinOff, X } from "lucide-react";
+import { GripHorizontal, Maximize2, Pin, PinOff, RotateCcw, X } from "lucide-react";
 
 import { IS_MACOS_RUNTIME } from "../../lib/platform";
 import { useNativeWindowTitle } from "../../lib/useNativeWindowTitle";
@@ -14,6 +14,7 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { WindowResizeEdges } from "../ui/WindowResizeEdges";
 import { FlowPlayerCore } from "../watch/FlowPlayerCore";
 import { QueuePanel } from "../player/QueuePanel";
+import { resetPipWindowLayout } from "../../lib/pipWindowLayout";
 
 const chromeButton =
   "grid h-7 w-7 shrink-0 place-items-center rounded-full text-chrome-white/90 transition-colors hover:bg-chrome-white/15 hover:text-chrome-white";
@@ -73,17 +74,16 @@ export function PipWindowApp() {
       )}
 
       {/* macOS uses its native title bar; other platforms need a drag handle. */}
-      <div className="absolute inset-x-0 top-0 z-[250] flex h-9 items-center gap-1 px-2 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
+      <div className="absolute inset-x-0 top-0 z-[250] flex h-9 items-center gap-1 px-2 opacity-70 transition-opacity duration-200 ease-out group-hover:opacity-100">
         <div
           data-tauri-drag-region={IS_MACOS_RUNTIME ? undefined : true}
           className="flex h-full min-w-0 flex-1 items-center rounded-lg px-2"
         >
           {!IS_MACOS_RUNTIME && (
-            <span className="pointer-events-none truncate text-xs font-medium text-chrome-white">
-              {currentVideo?.title ?? getString("pip_window_title")}
-            </span>
+            <><GripHorizontal className="pointer-events-none mr-2 shrink-0" size={16} /><span className="pointer-events-none truncate text-xs font-medium text-chrome-white">{currentVideo?.title ?? getString("pip_window_title")}</span></>
           )}
         </div>
+        {!IS_MACOS_RUNTIME && <button type="button" aria-label={getString("surface_reset")} title={getString("surface_reset")} onClick={() => void resetPipWindowLayout()} className={chromeButton}><RotateCcw size={15} /></button>}
         <button
           type="button"
           aria-label={

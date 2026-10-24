@@ -111,6 +111,19 @@ describe('queue source ("Playing from")', () => {
 });
 
 describe("idle queue actions", () => {
+  it("restores a saved queue and exact position without resolving audio", () => {
+    const loadIndex = vi.fn();
+    useMusicPlayerStore.setState({ _loadIndex: loadIndex });
+    useMusicPlayerStore.getState().restoreSession([song("one"), song("two")], 1, 64, false);
+    const state = useMusicPlayerStore.getState();
+    expect(state.currentTrack?.id).toBe("two");
+    expect(state.currentIndex).toBe(1);
+    expect(state.progress).toBe(64);
+    expect(state.isPlaying).toBe(false);
+    expect(state.restoredPaused).toBe(true);
+    expect(loadIndex).not.toHaveBeenCalled();
+  });
+
   it("starts the first queued track when add to queue is used while idle", () => {
     const loadIndex = vi.fn();
     useMusicPlayerStore.setState({

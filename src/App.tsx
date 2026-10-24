@@ -74,6 +74,9 @@ import { ThemeController } from "./lib/useTheme";
 import { APP_TITLEBAR_HEIGHT } from "./lib/platform";
 import type { CSSProperties } from "react";
 import "./App.css";
+import { PlaybackSessionController } from "./components/player/PlaybackSessionController";
+import { PlayerDropController } from "./components/player/PlayerDropController";
+import PlayerHub from "./pages/PlayerHub";
 
 const windowLayoutStyle = { "--app-titlebar-height": `${APP_TITLEBAR_HEIGHT}px` } as CSSProperties;
 
@@ -154,6 +157,8 @@ function App() {
   return (
     <div style={windowLayoutStyle} className="relative flex h-screen flex-col overflow-hidden bg-background text-chrome-zinc-100 font-sans">
       <ThemeController />
+      <PlaybackSessionController />
+      <PlayerDropController />
       <DeviantControls /><RelatedSongsSidebar /><Visualizers />
       <TitleBar />
       <div className="relative min-h-0 flex-1">
@@ -170,6 +175,7 @@ function App() {
           <Route path="music" element={
             <MusicHome />
           } />
+          <Route path="player" element={<PlayerHub />} />
           <Route path="music/moods" element={<MusicMoodsPage />} />
           <Route path="music/browse" element={<MusicBrowsePage />} />
           <Route path="music/mix/:id" element={<MusicMixPage />} />

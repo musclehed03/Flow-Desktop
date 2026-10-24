@@ -1,13 +1,17 @@
 import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Maximize2, X } from "lucide-react";
+import { GripHorizontal, Maximize2, RotateCcw, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { SETTINGS } from "../../lib/settings/schema";
 import { FlowPlayerCore } from "./FlowPlayerCore";
 import { useMediaSessionMetadata } from "../../lib/useMediaSessionMetadata";
+import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
+
+const VIDEO_PIP_CONSTRAINTS = { minWidth: 280, minHeight: 158, maxWidth: 720, maxHeight: 405, margin: 12 } as const;
 
 type PlayerBounds = {
   top: number;
@@ -43,6 +47,7 @@ function boundsEqual(a: PlayerBounds | null, b: PlayerBounds | null) {
 }
 
 export function GlobalVideoPlayer() {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const location = useLocation();
   const currentVideo = usePlayerStore((s) => s.currentVideo);
@@ -62,6 +67,9 @@ export function GlobalVideoPlayer() {
   const lastSlotBoundsRef = useRef<PlayerBounds | null>(null);
   const previousPathRef = useRef(location.pathname);
   const previousVideoIdRef = useRef(currentVideo?.id ?? null);
+  const pipSurface = useSurfaceLayout("video-pip", () => ({
+    x: Math.max(12, window.innerWidth - 444), y: Math.max(12, window.innerHeight - 272), width: 420, height: 236,
+  }), VIDEO_PIP_CONSTRAINTS);
 
   const isFloating = videoPlayerMode === "pip";
   // The pop-out window owns playback in this mode, so this window renders no
@@ -227,13 +235,10 @@ export function GlobalVideoPlayer() {
 
     if (isFloating) {
       return {
-        top: "auto",
-        left: "auto",
-        height: "auto",
-        bottom: "24px",
-        right: "24px",
-        width: "min(420px, calc(100vw - 32px))",
-        aspectRatio: "16 / 9",
+        top: pipSurface.layout.y,
+        left: pipSurface.layout.x,
+        height: pipSurface.layout.height,
+        width: pipSurface.layout.width,
       } as const;
     }
 
@@ -251,7 +256,7 @@ export function GlobalVideoPlayer() {
       height: `${slotBounds.height}px`,
       willChange: "transform",
     };
-  }, [isFloating, isVideoFullscreen, slotBounds]);
+  }, [isFloating, isVideoFullscreen, slotBounds, pipSurface.layout]);
 
   const videoIdForPlayer = currentVideo?.id ?? null;
   const playerNode = useMemo(
@@ -280,9 +285,11 @@ export function GlobalVideoPlayer() {
       >
         {isFloating && (
           <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-full bg-chrome-black/80 p-1 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
+            <button type="button" aria-label={t("surface.drag")} title={t("surface.drag")} onPointerDown={pipSurface.beginMove} onKeyDown={pipSurface.keyboardMove} className="grid h-7 w-7 touch-none place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15"><GripHorizontal size={16} /></button>
+            <button type="button" aria-label={t("surface.reset")} title={t("surface.reset")} onClick={pipSurface.reset} className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15"><RotateCcw size={15} /></button>
             <button
               type="button"
-              aria-label="Expand video"
+              aria-label={t("surface.expandVideo")}
               onClick={expandFromFloating}
               className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15"
             >
@@ -290,7 +297,7 @@ export function GlobalVideoPlayer() {
             </button>
             <button
               type="button"
-              aria-label="Close video"
+              aria-label={t("surface.closeVideo")}
               onClick={dismissVideoPlayer}
               className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15"
             >
@@ -299,6 +306,7 @@ export function GlobalVideoPlayer() {
           </div>
         )}
         <div className="group h-full w-full">{playerNode}</div>
+        {isFloating && <div role="separator" tabIndex={0} aria-label={t("surface.resize")} onPointerDown={pipSurface.beginResize} onKeyDown={pipSurface.keyboardResize} className="absolute bottom-0 right-0 z-40 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
       </div>
 
       {isVideoFullscreenTransitioning && (

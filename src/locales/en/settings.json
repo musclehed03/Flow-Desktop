@@ -19,6 +19,41 @@
     "title": "Keep watching view",
     "description": "Keep the watching layout on track changes and return from automatic Picture-in-Picture. Manual Picture-in-Picture stays open."
   },
+  "launchPlayback": {
+    "resume": "Resume playback on open",
+    "resumeDescription": "Restore the last queue and continue from the saved position with sound.",
+    "paused": "Restore queue only (paused)",
+    "pausedDescription": "Restore the last queue and position without starting playback. This is the default."
+  },
+  "playerHub": {
+    "title": "Open Player",
+    "description": "Return to either player and its current queue.",
+    "music": "Music player",
+    "watch": "Watch player",
+    "emptyQueue": "Queue is empty",
+    "dropTitle": "Drop media files, a YouTube URL, or a video ID",
+    "dropDescription": "You will choose whether to import a supported item into your local library or play it now."
+  },
+  "playerDrop": {
+    "title": "Dropped media",
+    "description": "What should Flow do with this video?",
+    "import": "Import to library",
+    "play": "Just play",
+    "close": "Close dropped media prompt",
+    "imported": "Added to Imported media in your library.",
+    "playlistName": "Imported media",
+    "playlistDescription": "Media imported from the player",
+    "failed": "The dropped video could not be resolved. Try again.",
+    "localUnsupported": "Local-file playback and import need a dedicated local media path. YouTube URLs and video IDs work in this build.",
+    "unsupported": "This item is not a supported YouTube URL, video ID, or media file."
+  },
+  "surface": {
+    "drag": "Drag surface",
+    "resize": "Resize surface",
+    "reset": "Reset position and size",
+    "expandVideo": "Expand video",
+    "closeVideo": "Close video"
+  },
   "flowImport": {
     "title": "Flow playlist files (TIDAL import)",
     "description": "Choose Flow playlist JSON files or ZIP archives. Playlists with existing names are skipped. Each playlist keeps its original track order.",
@@ -72,6 +107,7 @@
   "sensory": {
     "title": "Dollhouse Deviants Sensory Suite",
     "controls": "Deviant Controls",
+    "dragControls": "Drag to move. Double-click to reset position.",
     "close": "Close Deviant Controls",
     "on": "On",
     "off": "Off",

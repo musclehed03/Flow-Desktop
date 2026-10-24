@@ -2,7 +2,7 @@ import { videoAnalyser } from "../../lib/audio/videoAnalyser";
 import { toggleMusicFullscreen } from "../../lib/musicPresentation";
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AudioLines, X, Maximize2, Brain, ListMusic, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, X, Maximize2, Brain, ListMusic, SlidersHorizontal, GripHorizontal, RotateCcw } from 'lucide-react';
 import { useVisualizerConfig, useVisualizerUi, openVisualizer, openVisualizerCustomizer } from '../../lib/useVisualizer';
 import { useBoolPref } from '../../lib/usePreference';
 import { SETTINGS } from '../../lib/settings/schema';
@@ -12,6 +12,9 @@ import { usePlayerStore } from '../../store/usePlayerStore';
 import { PlayerTransportControls, PlayerVolumeControl } from '../player/SharedPlayerControls';
 import { Slider } from '../ui/Slider';
 import { requestVideoSeek } from '../../lib/playerEvents';
+import { useSurfaceLayout } from '../../lib/useSurfaceLayout';
+
+const VISUALIZER_CONSTRAINTS = { minWidth: 280, minHeight: 140, margin: 12 } as const;
 
 const VisualizerCustomizerPanel = lazy(() => import('./VisualizerCustomizerPanel'));
 
@@ -54,6 +57,9 @@ export function Visualizers() {
   const musicFullscreen = useMusicPlayerStore((state) => state.musicFullscreen);
   const videoFullscreen = usePlayerStore((state) => state.isVideoFullscreen);
   const opener = useRef<HTMLElement | null>(null);
+  const miniSurface = useSurfaceLayout('visualizer-mini', () => ({
+    x: Math.max(12, window.innerWidth - 332), y: Math.max(12, window.innerHeight - 284), width: 320, height: 160,
+  }), VISUALIZER_CONSTRAINTS);
   opener.current = openerElement;
   useEffect(() => {
     if (music) useVisualizerUi.setState({ surface: 'music' });
@@ -89,8 +95,13 @@ export function Visualizers() {
   return <>
     {visible && !acknowledged && <section role="alert" data-sensory-essential="true" className="fixed bottom-28 right-4 z-[590] max-w-sm rounded-2xl border border-outline-variant bg-background p-4 text-on-surface"><p>{t('visualizer.advisory')}</p><button type="button" className="mt-2 rounded-full border border-outline-variant px-3 py-2" onClick={openVisualizerCustomizer}>{t('visualizer.review')}</button></section>}
     {floating && <section aria-label={t('visualizer.title')} data-sensory-essential="true"
-      className={config.mode === 'fullscreen' ? 'fixed inset-0 z-[580] bg-background p-4 text-on-surface' : 'fixed bottom-28 right-4 z-[80] h-40 w-80 rounded-2xl border border-outline-variant bg-background p-2 text-on-surface'}>
+      style={config.mode === 'fullscreen' ? undefined : { left: miniSurface.layout.x, top: miniSurface.layout.y, width: miniSurface.layout.width, height: miniSurface.layout.height }}
+      className={config.mode === 'fullscreen' ? 'fixed inset-0 z-[580] bg-background p-4 text-on-surface' : 'fixed z-[80] overflow-hidden rounded-2xl border border-outline-variant bg-background p-2 text-on-surface'}>
       <div className="absolute right-5 top-5 z-10 flex max-w-[90vw] flex-wrap gap-2 rounded-full border border-outline-variant bg-surface-container p-2">
+        {config.mode !== 'fullscreen' && <>
+          <button type="button" aria-label={t('surface.drag')} title={t('surface.drag')} onPointerDown={miniSurface.beginMove} onKeyDown={miniSurface.keyboardMove} className="grid h-8 w-8 touch-none place-items-center rounded-full"><GripHorizontal size={18} /></button>
+          <button type="button" aria-label={t('surface.reset')} title={t('surface.reset')} onClick={miniSurface.reset} className="grid h-8 w-8 place-items-center rounded-full"><RotateCcw size={17} /></button>
+        </>}
         <PlayerTransportControls
           isPlaying={activePlaying}
           onPrevious={() => surface === 'music' ? useMusicPlayerStore.getState().previous() : usePlayerStore.getState().playPrevious()}
@@ -125,6 +136,7 @@ export function Visualizers() {
         <button type="button" aria-label={t('visualizer.close')} onClick={() => update({ ...config, enabled: false })}><X size={18} /></button>
       </div>
       <VisualizerCanvas config={config} />
+      {config.mode !== 'fullscreen' && <div role="separator" tabIndex={0} aria-label={t('surface.resize')} onPointerDown={miniSurface.beginResize} onKeyDown={miniSurface.keyboardResize} className="absolute bottom-0 right-0 z-20 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
     </section>}
     {open && <Suspense fallback={<p role="status" className="fixed right-4 top-4 z-[620] rounded-lg bg-surface-container p-3 text-on-surface">{t('visualizer.loading')}</p>}>
       <VisualizerCustomizerPanel config={config} openerRef={opener} onChange={saveConfig} onClose={close} />

@@ -135,6 +135,7 @@ interface PlayerState {
   setIsVideoFullscreenTransitioning: (transitioning: boolean) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
   setQueue: (queue: VideoSummary[], startIndex?: number) => void;
+  restoreSession: (queue: VideoSummary[], currentIndex: number, position: number, autoplay: boolean) => void;
   addToQueue: (video: VideoSummary) => QueueAddResult;
   playNextInQueue: (video: VideoSummary) => QueueAddResult;
   removeFromQueue: (index: number) => void;
@@ -296,6 +297,27 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // stream from this one place lets resolution overlap with the route change
     // and the watch page's own mount instead of following them.
     if (nextVideo) prefetchStreamInfo(nextVideo.id);
+  },
+
+  restoreSession: (queue, currentIndex, position, autoplay) => {
+    if (!queue.length) return;
+    const index = Math.max(0, Math.min(currentIndex, queue.length - 1));
+    const video = queue[index]!;
+    const resumeAt = Math.max(0, position);
+    set({
+      queue,
+      currentIndex: index,
+      currentVideo: video,
+      currentTime: resumeAt,
+      duration: video.durationSeconds ?? 0,
+      isPlaying: autoplay,
+      videoPlayerMode: "watch",
+      videoPipIntent: null,
+      isVideoFullscreen: false,
+      pipHandoff: { videoId: video.id, positionSeconds: resumeAt, playing: autoplay },
+      autoplayCandidates: [],
+      playbackStartedVideoId: null,
+    });
   },
 
   addToQueue: (video) => {

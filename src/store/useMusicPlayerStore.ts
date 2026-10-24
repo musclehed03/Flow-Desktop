@@ -179,6 +179,7 @@ interface MusicPlayerState {
   progress: number; // seconds
   duration: number; // seconds
   isBuffering: boolean;
+  restoredPaused: boolean;
 
   // --- audio config (persisted) ---
   volume: number; // 0..1
@@ -218,6 +219,7 @@ interface MusicPlayerState {
   // --- intents (called by UI) ---
   playTrack: (track: SongItem) => Promise<void>;
   playQueue: (tracks: SongItem[], startIndex?: number, source?: string | null) => Promise<void>;
+  restoreSession: (queue: SongItem[], currentIndex: number, position: number, autoplay: boolean) => void;
   togglePlay: () => void;
   play: () => void;
   pause: () => void;
@@ -284,6 +286,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   progress: 0,
   duration: 0,
   isBuffering: false,
+  restoredPaused: false,
 
   volume: initialConfig.volume,
   isMuted: initialConfig.isMuted,
@@ -327,6 +330,27 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     resetRadioSession(tracks.map(videoIdOf));
     set({ queue: tracks, radioQueuedIds: [], radioStationActive: false, queueSource: source });
     await get()._loadIndex(Math.max(0, Math.min(startIndex, tracks.length - 1)));
+  },
+
+  restoreSession: (queue, currentIndex, position, autoplay) => {
+    if (!queue.length) return;
+    const index = Math.max(0, Math.min(currentIndex, queue.length - 1));
+    const track = queue[index]!;
+    set({
+      queue,
+      currentIndex: index,
+      currentTrack: track,
+      progress: Math.max(0, position),
+      duration: track.duration ?? 0,
+      isPlaying: false,
+      isBuffering: false,
+      restoredPaused: !autoplay,
+      loadingStreamId: null,
+      streamError: null,
+      streamErrorKind: null,
+      viewState: "dock",
+    });
+    if (autoplay) void get()._loadIndex(index, { resumeAt: Math.max(0, position) });
   },
 
   _ensureRadio: async () => {
@@ -390,6 +414,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (!options?.automatic) transportGeneration++;
     const track = get().queue[index];
     if (!track) return;
+    set({ restoredPaused: false });
     const outgoing = get().currentTrack;
     const fade = !!outgoing && get().isPlaying && options?.resumeAt === undefined && !shouldWatchSong(track)
       && shouldCrossfade(getSettingValue(SETTINGS.CROSSFADE_ENABLED) === 'true', options?.automatic || options?.manual ? 'advance' : 'explicit', getSettingValue(SETTINGS.CROSSFADE_EVERYTHING) === 'true');
@@ -543,6 +568,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   play: () => {
     if (!get().currentTrack) return;
+    if (get().restoredPaused) {
+      void get()._loadIndex(get().currentIndex, { resumeAt: get().progress });
+      return;
+    }
     void musicAudioEngine.play();
     set({ isPlaying: true });
   },
@@ -572,6 +601,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       currentIndex: -1,
       isPlaying: false,
       isBuffering: false,
+      restoredPaused: false,
       progress: 0,
       duration: 0,
       loudnessDb: null,

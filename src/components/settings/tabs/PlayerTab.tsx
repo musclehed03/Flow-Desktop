@@ -22,6 +22,8 @@ export function PlayerTab() {
   const { t } = useTranslation('settings');
   const [videoFirst, setVideoFirst] = useBoolPref(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, true);
   const [keepWatching, setKeepWatching] = useBoolPref(SETTINGS.KEEP_WATCHING_VIEW_ENABLED, true);
+  const [resumeOnOpen, setResumeOnOpen] = useBoolPref(SETTINGS.RESUME_PLAYBACK_ON_OPEN, false);
+  const [restorePaused, setRestorePaused] = useBoolPref(SETTINGS.RESTORE_QUEUE_ON_OPEN, true);
   const [autoplay, setAutoplay] = useBoolPref(SETTINGS.AUTOPLAY_ENABLED, true);
   const [loop, setLoop] = useBoolPref(SETTINGS.VIDEO_LOOP_ENABLED, false);
   const [skipSilence, setSkipSilence] = useBoolPref(SETTINGS.SKIP_SILENCE_ENABLED, false);
@@ -74,6 +76,18 @@ export function PlayerTab() {
         </SettingItem>
         <SettingItem title={t('keepWatching.title')} description={t('keepWatching.description')}>
           <ToggleSwitch checked={keepWatching} onChange={setKeepWatching} />
+        </SettingItem>
+        <SettingItem title={t('launchPlayback.resume')} description={t('launchPlayback.resumeDescription')}>
+          <ToggleSwitch checked={resumeOnOpen} onChange={(enabled) => {
+            setResumeOnOpen(enabled);
+            if (enabled) setRestorePaused(false);
+          }} />
+        </SettingItem>
+        <SettingItem title={t('launchPlayback.paused')} description={t('launchPlayback.pausedDescription')}>
+          <ToggleSwitch checked={restorePaused} onChange={(enabled) => {
+            setRestorePaused(enabled);
+            if (enabled) setResumeOnOpen(false);
+          }} />
         </SettingItem>
         <SettingItem title={getString('settings_autoplay')} description={getString('settings_autoplay_desc')}>
           <ToggleSwitch checked={autoplay} onChange={setAutoplay} />

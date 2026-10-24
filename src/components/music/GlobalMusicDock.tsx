@@ -17,6 +17,8 @@ import {
   Maximize2,
   Loader2,
   X,
+  GripHorizontal,
+  RotateCcw,
 } from "lucide-react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
@@ -35,11 +37,18 @@ import { useDominantColor } from "../../lib/useDominantColor";
 import { accentForeground, accentSurface } from "../../lib/accentColor";
 import { upgradeMusicImageUrl } from "../../lib/thumbnails";
 import { useProxiedImageUrl } from "../../lib/useProxiedImageUrl";
+import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
+
+const MUSIC_DOCK_CONSTRAINTS = { minWidth: 300, minHeight: 64, maxHeight: 180, margin: 12 } as const;
 
 const GHOST = "grid h-9 w-9 place-items-center rounded-full transition-colors duration-200 ease-out";
 const GHOST_IDLE = `${GHOST} text-chrome-neutral-400 hover:text-chrome-neutral-100`;
 
 export function GlobalMusicDock() {
+  const dockSurface = useSurfaceLayout("music-dock", () => {
+    const width = Math.min(1024, Math.max(300, window.innerWidth * 0.9));
+    return { x: Math.max(12, (window.innerWidth - width) / 2), y: Math.max(12, window.innerHeight - 88), width, height: 64 };
+  }, MUSIC_DOCK_CONSTRAINTS);
   const currentTrack = useMusicPlayerStore((s) => s.currentTrack);
   const viewState = useMusicPlayerStore((s) => s.viewState);
   const isPlaying = useMusicPlayerStore((s) => s.isPlaying);
@@ -87,8 +96,13 @@ export function GlobalMusicDock() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 96, opacity: 0 }}
           transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.9 }}
-          className="group fixed bottom-6 left-1/2 z-50 h-16 w-[90%] max-w-5xl -translate-x-1/2"
+          style={{ left: dockSurface.layout.x, top: dockSurface.layout.y, width: dockSurface.layout.width, height: dockSurface.layout.height }}
+          className="group fixed z-50"
         >
+          <div className="absolute -left-2.5 -top-2.5 z-20 flex gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <button type="button" aria-label={getString("surface_drag")} title={getString("surface_drag")} onPointerDown={dockSurface.beginMove} onKeyDown={dockSurface.keyboardMove} className="grid h-7 w-7 touch-none place-items-center rounded-full border border-outline-variant bg-surface-container-highest text-on-surface"><GripHorizontal size={14} /></button>
+            <button type="button" aria-label={getString("surface_reset")} title={getString("surface_reset")} onClick={dockSurface.reset} className="grid h-7 w-7 place-items-center rounded-full border border-outline-variant bg-surface-container-highest text-on-surface"><RotateCcw size={14} /></button>
+          </div>
           {/* Dismiss — appears on hover at the corner. */}
           <HapticButton
             onClick={dismiss}
@@ -259,6 +273,7 @@ export function GlobalMusicDock() {
             {/* EDGE PROGRESS — pinned to the bottom of the pill */}
             <MusicScrubber variant="edge" className="absolute inset-x-0 bottom-0" />
           </div>
+          <div role="separator" tabIndex={0} aria-label={getString("surface_resize")} onPointerDown={dockSurface.beginResize} onKeyDown={dockSurface.keyboardResize} className="absolute bottom-0 right-0 z-30 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />
 
           {/* Popovers — rendered outside the clipped pill so they aren't cut off. */}
           <div className="absolute bottom-full right-2 mb-3">
