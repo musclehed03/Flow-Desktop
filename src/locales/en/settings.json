@@ -129,7 +129,18 @@
     },
     "colorBlind": {
       "title": "Color Blind Support",
-      "description": "Underline links and reinforce selected states with symbols and labels."
+      "description": "Retheme the whole interface and reinforce state beyond color.",
+      "palette": "Color vision palette",
+      "paletteDescription": "Each palette keeps text and controls at WCAG AA contrast.",
+      "palettes": {
+        "deuteranomaly": "Deuteranomaly",
+        "protanomaly": "Protanomaly",
+        "deuteranopia": "Deuteranopia",
+        "protanopia": "Protanopia",
+        "tritanomaly": "Tritanomaly",
+        "tritanopia": "Tritanopia",
+        "achromatopsia": "Achromatopsia / monochromacy"
+      }
     },
     "light": {
       "title": "Light Theme",
@@ -144,6 +155,20 @@
     "motionAdvisory": "Safe Motion reduces interface movement; it cannot remove flashes from video footage. Every new video waits for your consent.",
     "continue": "Continue playback",
     "shortcuts": "Both players: K play/pause, J/L or arrows seek, ↑/↓ volume, N/P next/previous, F fullscreen, I mini-player/PiP. Tab and Enter operate controls. In the audio player, I toggles the dock; audio has no video PiP window.",
+    "tooltips": {
+      "shortcuts": {
+        "playPause": "K",
+        "previous": "P",
+        "next": "N",
+        "seek": "J / L",
+        "mute": "M",
+        "volume": "↑ / ↓",
+        "fullscreen": "F",
+        "pip": "I",
+        "captions": "C",
+        "miniPlayer": "I"
+      }
+    },
     "musicFullscreen": "Music fullscreen",
     "musicMini": "Music mini-player (audio dock)",
     "player": {

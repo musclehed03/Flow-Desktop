@@ -6,6 +6,8 @@ import { BrowserRouter } from "react-router-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import { PipWindowApp } from "./components/pip/PipWindowApp";
+import { DeviantTracer } from "./components/accessibility/DeviantTracer";
+import { GlobalTooltip } from "./components/ui/GlobalTooltip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { installGlobalErrorHandlers } from "./lib/diagnostics";
 import { PIP_WINDOW_LABEL } from "./lib/api/pip";
@@ -30,10 +32,10 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
       {isPopoutPlayerWindow ? (
-        <SensoryRoot><PipWindowApp /></SensoryRoot>
+        <SensoryRoot><GlobalTooltip /><DeviantTracer /><PipWindowApp /></SensoryRoot>
       ) : (
         <BrowserRouter>
-          <SensoryRoot><App /></SensoryRoot>
+          <SensoryRoot><GlobalTooltip /><DeviantTracer /><App /></SensoryRoot>
         </BrowserRouter>
       )}
     </ErrorBoundary>

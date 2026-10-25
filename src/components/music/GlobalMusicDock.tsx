@@ -131,6 +131,7 @@ export function GlobalMusicDock() {
             <div className="flex w-1/3 min-w-0 items-center gap-3">
               <button
                 type="button"
+                data-player-control="mini-player"
                 onClick={() => openOverlay("full")}
                 onContextMenu={menu.openMenuFromContext}
                 aria-label={getString("music_expand")}
@@ -174,6 +175,7 @@ export function GlobalMusicDock() {
 
               <HapticButton
                 onClick={previous}
+                data-player-control="previous"
                 aria-label={getString("music_previous")}
                 className="grid h-9 w-9 place-items-center rounded-full text-chrome-neutral-200 transition-colors duration-200 ease-out hover:text-chrome-neutral-100"
               >
@@ -182,6 +184,7 @@ export function GlobalMusicDock() {
 
               <HapticButton
                 onClick={togglePlay}
+                data-player-control="play-pause"
                 aria-label={getString(isPlaying ? "music_pause" : "music_play")}
                 className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105"
               >
@@ -196,6 +199,7 @@ export function GlobalMusicDock() {
 
               <HapticButton
                 onClick={next}
+                data-player-control="next"
                 aria-label={getString("music_next")}
                 className="grid h-9 w-9 place-items-center rounded-full text-chrome-neutral-200 transition-colors duration-200 ease-out hover:text-chrome-neutral-100"
               >
@@ -225,6 +229,7 @@ export function GlobalMusicDock() {
               <span ref={volumeTriggerRef} className="contents">
                 <HapticButton
                   onClick={() => setPopover((p) => (p === "vol" ? null : "vol"))}
+                  data-player-control="volume"
                   aria-label={getString("music_volume")}
                   aria-pressed={popover === "vol"}
                   className={popover === "vol" ? `${GHOST} text-chrome-neutral-100` : GHOST_IDLE}

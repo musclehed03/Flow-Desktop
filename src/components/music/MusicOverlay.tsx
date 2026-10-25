@@ -170,6 +170,7 @@ export function MusicOverlay() {
             <HapticButton
               onClick={closeOverlay}
               aria-label={getString("music_collapse")}
+              data-player-control="mini-player"
               className={TOP_BTN}
             >
               <ChevronDown className="h-6 w-6" />
@@ -280,6 +281,7 @@ export function MusicOverlay() {
                 <div className="flex items-center justify-center gap-8">
                   <HapticButton
                     onClick={previous}
+                    data-player-control="previous"
                     aria-label={getString("music_previous")}
                     className="grid h-11 w-11 place-items-center rounded-full text-chrome-neutral-100 transition-transform duration-200 ease-out hover:scale-110"
                   >
@@ -287,6 +289,7 @@ export function MusicOverlay() {
                   </HapticButton>
                   <HapticButton
                     onClick={togglePlay}
+                    data-player-control="play-pause"
                     aria-label={getString(isPlaying ? "music_pause" : "music_play")}
                     className="grid h-14 w-14 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105"
                   >
@@ -300,6 +303,7 @@ export function MusicOverlay() {
                   </HapticButton>
                   <HapticButton
                     onClick={next}
+                    data-player-control="next"
                     aria-label={getString("music_next")}
                     className="grid h-11 w-11 place-items-center rounded-full text-chrome-neutral-100 transition-transform duration-200 ease-out hover:scale-110"
                   >
@@ -406,6 +410,7 @@ export function MusicOverlay() {
                   <div className="flex items-center gap-6">
                     <HapticButton
                       onClick={previous}
+                      data-player-control="previous"
                       aria-label={getString("music_previous")}
                       className="grid h-12 w-12 place-items-center rounded-full text-chrome-neutral-100 transition-transform duration-200 ease-out hover:scale-110"
                     >
@@ -414,6 +419,7 @@ export function MusicOverlay() {
 
                     <HapticButton
                       onClick={togglePlay}
+                      data-player-control="play-pause"
                       aria-label={getString(isPlaying ? "music_pause" : "music_play")}
                       className="grid h-16 w-16 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105"
                     >
@@ -428,6 +434,7 @@ export function MusicOverlay() {
 
                     <HapticButton
                       onClick={next}
+                      data-player-control="next"
                       aria-label={getString("music_next")}
                       className="grid h-12 w-12 place-items-center rounded-full text-chrome-neutral-100 transition-transform duration-200 ease-out hover:scale-110"
                     >

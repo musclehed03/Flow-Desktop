@@ -18,6 +18,8 @@ import { useTheme } from "../../../lib/useTheme";
 import { IS_LINUX_RUNTIME } from "../../../lib/platform";
 import { GraphicsCompatibilitySection } from "../GraphicsCompatibilitySection";
 import { getSettingValue } from "../../../store/useAppSettingsStore";
+import { SettingItem } from "../SettingItem";
+import { SettingsGroup } from "../SettingsGroup";
 
 const CustomThemeEditor = lazy(() => import("../../theme/CustomThemeEditor"));
 
@@ -33,6 +35,7 @@ export function AppearanceTab() {
   const [editingTheme, setEditingTheme] = useState<CustomThemeDefinition | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
+  const [tooltips, setTooltips] = useBoolPref(SETTINGS.TOOLTIPS_ENABLED, true);
 
   const openEditor = (theme: CustomThemeDefinition) => {
     editorOpenerRef.current = document.activeElement as HTMLElement | null;
@@ -68,6 +71,13 @@ export function AppearanceTab() {
   return (
     <div className="mx-auto max-w-5xl pb-10">
       <SensorySettings />
+      <div className="mt-6">
+        <SettingsGroup title={getString("settings_group_guidance")}>
+          <SettingItem title={getString("settings_tooltips")} description={getString("settings_tooltips_desc")}>
+            <ToggleSwitch checked={tooltips} onChange={setTooltips} />
+          </SettingItem>
+        </SettingsGroup>
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">{getString("settings_appearance")}</h1>

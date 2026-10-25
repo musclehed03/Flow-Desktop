@@ -577,9 +577,17 @@
   --dd-dark-text: #15151b;
   --dd-light-text: #fafafa;
   --dd-focus: #FF1E89;
+  --color-interactive-accent: var(--dd-focus);
 }
-:where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 3px solid var(--dd-focus) !important;
+:where(button, a[href], input, select, textarea, [role="button"], [role="switch"], [role="slider"], [tabindex]:not([tabindex="-1"])) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+:where(button, a[href], input, select, textarea, [role="button"], [role="switch"], [role="slider"], [tabindex]:not([tabindex="-1"])):hover {
+  outline-color: var(--color-interactive-accent);
+}
+:where(button, a, input, select, textarea, [role="button"], [role="switch"], [role="slider"], [tabindex]):focus-visible {
+  outline: 4px solid var(--color-interactive-accent) !important;
   outline-offset: 3px !important;
 }
 .sensory-motion *, .sensory-motion *::before, .sensory-motion *::after {
@@ -605,10 +613,78 @@
 .sensory-simplified [data-sensory-decoration] { display: none !important; }
 .sensory-simplified [style*="background-image"] { background-image: none !important; }
 .sensory-simplified video { object-fit: contain; }
-.sensory-colorBlind { --dd-focus: #66D9E8; }
 .sensory-colorBlind a { text-decoration: underline; text-underline-offset: 0.2em; }
-.sensory-colorBlind button[aria-pressed="true"] { border-style: double; border-width: 3px; }
-.sensory-colorBlind button[aria-pressed="true"]::after { content: " ✓"; }
+.sensory-colorBlind :where([aria-pressed="true"], [aria-selected="true"], [aria-current]) {
+  outline: 4px double var(--color-interactive-accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+[data-color-blind-palette="achromatopsia"],
+[data-color-blind-palette="achromatopsia"] :where(button, input, select, textarea, p, span, div, h1, h2, h3, a, td, th) {
+  font-weight: 700;
+}
+[data-color-blind-palette="achromatopsia"] :where(img, video, canvas) {
+  filter: grayscale(1) contrast(1.1);
+}
+
+/* One fixed overlay keeps tracer cost bounded: one geometry read, no layout writes. */
+.deviant-tracer {
+  position: fixed;
+  z-index: 850;
+  pointer-events: none;
+  border: 2px solid var(--color-interactive-accent);
+  contain: layout paint style;
+}
+.deviant-spark {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-interactive-accent);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation-duration: var(--dd-tracer-duration);
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+.deviant-spark--reverse { animation-direction: reverse; }
+.deviant-tracer[data-origin="left"] .deviant-spark { animation-name: deviant-trace-left; }
+.deviant-tracer[data-origin="center"] .deviant-spark { animation-name: deviant-trace-center; }
+.deviant-tracer[data-origin="right"] .deviant-spark { animation-name: deviant-trace-right; }
+
+@keyframes deviant-trace-left {
+  0%, 100% { opacity: 0; transform: translate(0, var(--dd-tracer-height)); }
+  5% { opacity: 1; transform: translate(0, var(--dd-tracer-height)); }
+  25% { opacity: 1; transform: translate(0, 0); }
+  50% { opacity: 1; transform: translate(var(--dd-tracer-width), 0); }
+  75% { opacity: 1; transform: translate(var(--dd-tracer-width), var(--dd-tracer-height)); }
+  95% { opacity: 1; transform: translate(0, var(--dd-tracer-height)); }
+}
+@keyframes deviant-trace-center {
+  0%, 100% { opacity: 0; transform: translate(var(--dd-tracer-half-width), var(--dd-tracer-height)); }
+  5% { opacity: 1; transform: translate(var(--dd-tracer-half-width), var(--dd-tracer-height)); }
+  20% { opacity: 1; transform: translate(0, var(--dd-tracer-height)); }
+  40% { opacity: 1; transform: translate(0, 0); }
+  60% { opacity: 1; transform: translate(var(--dd-tracer-width), 0); }
+  80% { opacity: 1; transform: translate(var(--dd-tracer-width), var(--dd-tracer-height)); }
+  95% { opacity: 1; transform: translate(var(--dd-tracer-half-width), var(--dd-tracer-height)); }
+}
+@keyframes deviant-trace-right {
+  0%, 100% { opacity: 0; transform: translate(var(--dd-tracer-width), var(--dd-tracer-height)); }
+  5% { opacity: 1; transform: translate(var(--dd-tracer-width), var(--dd-tracer-height)); }
+  25% { opacity: 1; transform: translate(var(--dd-tracer-width), 0); }
+  50% { opacity: 1; transform: translate(0, 0); }
+  75% { opacity: 1; transform: translate(0, var(--dd-tracer-height)); }
+  95% { opacity: 1; transform: translate(var(--dd-tracer-width), var(--dd-tracer-height)); }
+}
+.sensory-motion .deviant-tracer,
+.sensory-reducedFlash .deviant-tracer { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .deviant-tracer { display: none; }
+}
 dialog::backdrop { background: color-mix(in srgb, var(--dd-near-black) 75%, transparent); }
 /* Keep volume sliders reachable by keyboard, including while the pointer is elsewhere. */
 .group\/volume:focus-within > div { width: 5rem; opacity: 1; }
@@ -789,7 +865,6 @@ dialog::backdrop { background: color-mix(in srgb, var(--dd-near-black) 75%, tran
   --color-chrome-neutral-400: #dddddd;
   --color-chrome-neutral-500: #dddddd;
 }
-.sensory-colorBlind[data-theme-variant="light"] { --dd-focus: #006778; }
 .sensory-focus [data-sensory-playing] [data-sensory-decoration] { display: none !important; }
 
 /* Player controls need their own contrast surface over arbitrary video footage. */

@@ -170,6 +170,7 @@ export const Chapters: React.FC<ChaptersProps> = ({
         </h2>
         <button
           type="button"
+          aria-label={getString("close")}
           onClick={onClose}
           className="grid h-8 w-8 place-items-center rounded-full text-chrome-zinc-400 hover:bg-chrome-white/10 hover:text-chrome-white transition-colors cursor-pointer"
         >

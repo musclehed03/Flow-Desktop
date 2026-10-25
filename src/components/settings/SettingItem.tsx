@@ -18,6 +18,7 @@ export function SettingItem({ title, description, disabled = false, icon, childr
   return (
     <div
       aria-disabled={disabled}
+      data-tooltip-detail={description || undefined}
       className={cx(
         'flex justify-between items-center px-5 py-4 transition-colors duration-200 ease-out',
         disabled ? 'opacity-50' : 'hover:bg-surface-container'

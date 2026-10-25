@@ -14,6 +14,7 @@ import {
   type ThemeVariant,
 } from "./themes";
 import { useAppSettingsStore } from "../store/useAppSettingsStore";
+import { COLOR_BLIND_PALETTES, resolveColorBlindPalette } from "./colorBlindPalettes";
 
 export function useTheme() {
   const themeId = useAppSettingsStore((state) => state.values[SETTINGS.THEME_ID] ?? "default");
@@ -44,20 +45,34 @@ export function useTheme() {
 
 export function ThemeController() {
   const { theme, variant } = useTheme();
+  const colorBlindEnabled = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_ENABLED] === "true");
+  const paletteValue = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_PALETTE] ?? "deuteranomaly");
 
   useEffect(() => {
     const root = document.documentElement;
-    const colors = theme.variants[variant] ?? DEFAULT_THEME.variants.dark;
-    const variables = themeCssVariables(colors, variant);
-    Object.entries(variables).forEach(([name, value]) => root.style.setProperty(name, value));
+    const palette = resolveColorBlindPalette(paletteValue);
+    const effectiveVariant: ThemeVariant = palette === "achromatopsia" && colorBlindEnabled
+      ? "light"
+      : variant;
+    const paletteVariant = effectiveVariant === "light" ? "light" : "dark";
+    const colors = colorBlindEnabled
+      ? COLOR_BLIND_PALETTES[palette][paletteVariant]
+      : theme.variants[effectiveVariant] ?? DEFAULT_THEME.variants.dark;
+    const variables = themeCssVariables(colors, effectiveVariant);
+    const priority = colorBlindEnabled ? "important" : "";
+    Object.entries(variables).forEach(([name, value]) => root.style.setProperty(name, value, priority));
+    root.style.setProperty("--dd-focus", colors.primary, priority);
+    root.style.setProperty("--color-interactive-accent", colors.primary, priority);
     root.dataset.theme = theme.id;
-    root.dataset.themeVariant = variant;
-    root.style.colorScheme = variant === "light" ? "light" : "dark";
+    root.dataset.themeVariant = effectiveVariant;
+    if (colorBlindEnabled) root.dataset.colorBlindPalette = palette;
+    else delete root.dataset.colorBlindPalette;
+    root.style.colorScheme = effectiveVariant === "light" ? "light" : "dark";
 
     if (!IS_MACOS_RUNTIME) return;
     let disposed = false;
     const appWindow = getCurrentWindow();
-    void appWindow.setTheme(variant === "light" ? "light" : "dark")
+    void appWindow.setTheme(effectiveVariant === "light" ? "light" : "dark")
       .then(async () => {
         if (!disposed) await setNativeWindowBackground(colors.background);
       })
@@ -65,7 +80,7 @@ export function ThemeController() {
         void logToBackend("warn", "native window appearance failed", { cause: String(cause) });
       });
     return () => { disposed = true; };
-  }, [theme, variant]);
+  }, [colorBlindEnabled, paletteValue, theme, variant]);
 
   return null;
 }

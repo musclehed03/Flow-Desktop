@@ -105,6 +105,7 @@ export function PlayerVolumeControl({
       }}
       onFocusCapture={() => setOpen(true)}
       className={cx("flex items-center rounded-full", open && "pr-2", className)}
+      data-player-control="volume"
     >
       <button
         ref={triggerRef}

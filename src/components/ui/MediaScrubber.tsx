@@ -104,6 +104,7 @@ export function MediaScrubber({
 
   const sliderProps = {
     ref: trackRef,
+    "data-progress-track": true,
     role: "slider" as const,
     tabIndex: 0,
     "aria-label": ariaLabel,

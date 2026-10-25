@@ -625,6 +625,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <button
                 type="button"
+                data-player-control="previous"
                 title={sensoryText("sensory.player.previous")} aria-label={sensoryText("sensory.player.previous")}
                 onClick={playPrevious}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
@@ -633,6 +634,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
+                data-player-control="play-pause"
                 title={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-label={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-pressed={isPlaying}
                 onClick={togglePlay}
                 className="grid h-10 w-10 place-items-center rounded-full bg-chrome-black/20 text-chrome-white hover:bg-chrome-white/10 transition-transform active:scale-95"
@@ -645,6 +647,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
+                data-player-control="next"
                 title={sensoryText("sensory.player.next")} aria-label={sensoryText("sensory.player.next")}
                 onClick={() => playNext()}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
@@ -753,6 +756,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </button>
               <button
                 type="button"
+                data-player-control="captions"
                 title={sensoryText("sensory.player.captions")} aria-pressed={selectedCaptionId !== "off"} aria-label={sensoryText("sensory.player.captions")}
                 onClick={(event) => {
                   settingsOpenerRef.current = event.currentTarget;
@@ -793,6 +797,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               {showPipButton && (
                 <button
                   type="button"
+                  data-player-control="pip"
                   title={sensoryText("sensory.player.pip")} aria-pressed={isPip} aria-label={sensoryText("sensory.player.pip")}
                   onClick={togglePictureInPicture}
                   className={cx(
@@ -818,6 +823,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               )}
               <button
                 type="button"
+                data-player-control="fullscreen"
                 title={sensoryText("sensory.player.fullscreen")} aria-pressed={isFullscreen} aria-label={sensoryText("sensory.player.fullscreen")}
                 onClick={toggleFullscreen}
                 className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
