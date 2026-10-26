@@ -23,6 +23,7 @@ const original = useAppSettingsStore.getState().values;
 afterEach(() => {
   useAppSettingsStore.setState({ values: original });
   for (const [name] of SENSORY_SETTINGS) document.documentElement.classList.remove(`sensory-${name}`);
+  document.documentElement.classList.remove('sensory-reducedFlash');
 });
 
 it('keeps settings, importer and quick controls operable across all 128 sensory combinations', async () => {
@@ -43,10 +44,11 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
     await act(async () => root.render(createElement(SensoryRoot, null,
       createElement(ThemeController), createElement(DeviantControls), createElement(SensorySettings), createElement(PlayerTab), createElement(ImportData), createElement(GeniusControls, { surface: "music" }), createElement(SavedStations), createElement(RelatedSongsToggle, { surface: "music" }), createElement(RelatedSongsSidebar), createElement(VisualizerToggle, { surface: "music" }), createElement(Visualizers))));
     for (let mask = 0; mask < 128; mask++) {
-      const values = { ...original, [SETTINGS.THEME_VARIANT]: mask & 64 ? 'light' : 'dark' };
+      const values = { ...original, [SETTINGS.THEME_VARIANT]: mask & 64 ? 'light' : 'dark', [SETTINGS.REDUCED_FLASH_ENABLED]: String(Boolean(mask & 32)) };
       SENSORY_SETTINGS.forEach(([, key], index) => { values[key] = String(Boolean(mask & (1 << index))); });
       await act(async () => useAppSettingsStore.setState({ values }));
       for (const [name, key] of SENSORY_SETTINGS) expect(document.documentElement.classList.contains(`sensory-${name}`), `mode ${mask}, ${name}`).toBe(values[key] === 'true');
+      expect(document.documentElement.classList.contains('sensory-reducedFlash')).toBe(Boolean(mask & 32));
       expect(document.documentElement.dataset.themeVariant).toBe(mask & 64 ? 'light' : 'dark');
       await act(async () => useRelatedSnapshot.setState({ open: true, rows: [{ id: 'snapshot', title: 'Snapshot', artist: 'Artist' }], added: [], loading: false, error: false }));
       const related = host.querySelector('#related-songs-sidebar');
@@ -72,8 +74,11 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
       const visualizer = document.querySelector<HTMLElement>('[data-dockable-panel="visualizer-editor"]')!;
       expect(visualizer).not.toBeNull();
       expect(visualizer.getAttribute('aria-modal')).toBe('false');
-      expect(visualizer.querySelectorAll('input[type="range"]')).toHaveLength(5);
-      expect(visualizer.querySelectorAll('select')).toHaveLength(4);
+      expect(visualizer.querySelectorAll('input[type="range"]')).toHaveLength(9);
+      expect(visualizer.querySelectorAll('select')).toHaveLength(6);
+      visualizer.querySelectorAll('select, input').forEach((control) => {
+        expect(control.closest('[data-tooltip-detail]'), `visualizer control missing explainer: ${control.getAttribute('aria-label') ?? control.getAttribute('type')}`).not.toBeNull();
+      });
       await act(async () => visualizer.querySelector<HTMLButtonElement>('[aria-label="Close panel"]')!.click());
       expect(document.querySelector('[data-dockable-panel="visualizer-editor"]')).toBeNull();
     }

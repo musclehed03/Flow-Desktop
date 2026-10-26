@@ -37,6 +37,7 @@ export const SETTINGS = {
 
   SENSORY_FOCUS_ENABLED: "sensory_focus_enabled",
   SAFE_MOTION_ENABLED: "safe_motion_enabled",
+  REDUCED_FLASH_ENABLED: "reduced_flash_enabled",
   READABLE_FONT_ENABLED: "readable_font_enabled",
   HIGH_CONTRAST_ENABLED: "high_contrast_enabled",
   COLOR_BLIND_ENABLED: "color_blind_enabled",
@@ -264,6 +265,7 @@ export const SETTING_DEFINITIONS = [
 
   bool(SETTINGS.SENSORY_FOCUS_ENABLED, "appearance", false, "wired"),
   bool(SETTINGS.SAFE_MOTION_ENABLED, "appearance", initialSafeMotion(), "wired"),
+  bool(SETTINGS.REDUCED_FLASH_ENABLED, "appearance", false, "wired"),
   bool(SETTINGS.READABLE_FONT_ENABLED, "appearance", false, "wired"),
   bool(SETTINGS.HIGH_CONTRAST_ENABLED, "appearance", false, "wired"),
   bool(SETTINGS.COLOR_BLIND_ENABLED, "appearance", false, "wired"),

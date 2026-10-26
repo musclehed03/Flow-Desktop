@@ -42,6 +42,7 @@ function targetFrom(value: EventTarget | null): HTMLElement | null {
 
 export function DeviantTracer() {
   const safeMotion = useAppSettingsStore((state) => state.values[SETTINGS.SAFE_MOTION_ENABLED] === "true");
+  const reducedFlash = useAppSettingsStore((state) => state.values[SETTINGS.REDUCED_FLASH_ENABLED] === "true");
   const [osReduced, setOsReduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const [view, setView] = useState<TracerView | null>(null);
   const activeTarget = useRef<HTMLElement | null>(null);
@@ -56,7 +57,7 @@ export function DeviantTracer() {
   }, []);
 
   const ignite = useCallback((target: HTMLElement) => {
-    if (safeMotion || osReduced || activeTarget.current === target) return;
+    if (safeMotion || reducedFlash || osReduced || activeTarget.current === target) return;
     const rect = target.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     clear();
@@ -75,7 +76,7 @@ export function DeviantTracer() {
       duration,
     });
     timer.current = setTimeout(clear, duration + 80);
-  }, [clear, osReduced, safeMotion]);
+  }, [clear, osReduced, reducedFlash, safeMotion]);
 
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -86,7 +87,7 @@ export function DeviantTracer() {
   }, []);
 
   useEffect(() => {
-    if (safeMotion || osReduced) { clear(); return undefined; }
+    if (safeMotion || reducedFlash || osReduced) { clear(); return undefined; }
     const pointerOver = (event: PointerEvent) => {
       if (event.pointerType === "touch") return;
       const target = targetFrom(event.target);
@@ -121,7 +122,7 @@ export function DeviantTracer() {
       window.removeEventListener("scroll", clear, true);
       window.removeEventListener("blur", clear);
     };
-  }, [clear, ignite, osReduced, safeMotion]);
+  }, [clear, ignite, osReduced, reducedFlash, safeMotion]);
 
   if (!view || !view.target.isConnected) return null;
   const style = {

@@ -1,12 +1,16 @@
 import { useEffect, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { milkdropPresetNames } from "../../lib/audio/milkdrop";
-import { parseVisualizerPresets, VISUALIZER_DEFAULTS, type VisualizerConfig } from "../../lib/audio/visualizer";
+import { groupMilkdropPresets, milkdropPresetNames } from "../../lib/audio/milkdrop";
+import { enforceReducedFlash, parseVisualizerPresets, type VisualizerConfig } from "../../lib/audio/visualizer";
 import { useLivePreviewHistory } from "../../lib/livePreviewHistory";
 import { SETTINGS } from "../../lib/settings/schema";
 import { useBoolPref, usePreference } from "../../lib/usePreference";
 import { acceptVisualizerAdvisory, useVisualizerUi } from "../../lib/useVisualizer";
 import { DockablePanel } from "../ui/DockablePanel";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { VisualizerColorControls } from "./VisualizerColorControls";
+import { VisualizerControl, visualizerSelectClass } from "./VisualizerControl";
+import { VisualizerPresetControls } from "./VisualizerPresetControls";
 
 interface VisualizerCustomizerPanelProps {
   config: VisualizerConfig;
@@ -15,52 +19,124 @@ interface VisualizerCustomizerPanelProps {
   onClose: () => void;
 }
 
+const sliderDefinitions = [
+  ["sensitivity", 0.2, 3, 0.1],
+  ["smoothing", 0, 0.98, 0.01],
+  ["density", 16, 160, 1],
+  ["falloff", 0.1, 0.98, 0.01],
+  ["beat", 0, 1, 0.05],
+] as const;
+
 export function VisualizerCustomizerPanel({ config, openerRef, onChange, onClose }: VisualizerCustomizerPanelProps) {
   const { t } = useTranslation("settings");
   const { value, apply, undo, reset, canUndo } = useLivePreviewHistory(config, onChange);
   const [presetsRaw, savePresets] = usePreference(SETTINGS.VISUALIZER_PRESETS);
   const presets = parseVisualizerPresets(presetsRaw);
-  const [name, setName] = useState("");
   const [milkdropNames, setMilkdropNames] = useState<string[]>([]);
+  const [pendingFlashConfig, setPendingFlashConfig] = useState<VisualizerConfig | null>(null);
   const [simple] = useBoolPref(SETTINGS.SIMPLIFIED_VIEW_ENABLED);
   const [focus] = useBoolPref(SETTINGS.SENSORY_FOCUS_ENABLED);
+  const [reducedFlash, setReducedFlash] = useBoolPref(SETTINGS.REDUCED_FLASH_ENABLED, false);
   const acknowledged = useVisualizerUi((state) => state.consented);
+  const previewApply = (next: VisualizerConfig) => apply(reducedFlash ? enforceReducedFlash(next) : next);
 
   useEffect(() => {
     if (value.family === "feedback") void milkdropPresetNames().then(setMilkdropNames).catch(() => setMilkdropNames([]));
   }, [value.family]);
+  useEffect(() => {
+    if (reducedFlash) apply(enforceReducedFlash(value));
+  }, [reducedFlash]);
 
-  return (
-    <DockablePanel panelId="visualizer-editor" title={t("visualizer.title")} description={t("visualizer.customize")}
-      openerRef={openerRef} onClose={onClose} onUndo={undo} onReset={reset} canUndo={canUndo}>
-      <p className="mb-3 text-sm" role="note">{t("visualizer.advisory")}</p>
-      <label className="mb-3 flex items-center gap-2">
-        <input type="checkbox" checked={acknowledged} onChange={(event) => acceptVisualizerAdvisory(event.target.checked)} />
-        {t("visualizer.acknowledge")}
-      </label>
-      <button type="button" aria-pressed={value.enabled} aria-label={t("visualizer.enabled")} disabled={!acknowledged && !value.enabled}
-        onClick={() => apply({ ...value, enabled: !value.enabled })} className="mb-4 rounded-full border border-outline-variant px-4 py-2">
-        {t(value.enabled ? "sensory.on" : "sensory.off")} · {t("visualizer.enabled")}
-      </button>
-      {(simple || focus) && <p role="status">{t("visualizer.suiteHidden")}</p>}
-      <div className="grid gap-3">
-        <label>{t("visualizer.family")}<select value={value.family} onChange={(event) => apply({ ...value, family: event.target.value as VisualizerConfig["family"] })} className="block w-full rounded-lg border border-outline-variant bg-surface p-2 text-on-surface">{["spectrum","waveform","radial","nebula","feedback"].map((family) => <option key={family} value={family}>{t(`visualizer.${family}`)}</option>)}</select></label>
-        <label>{t("visualizer.mode")}<select value={value.mode} onChange={(event) => apply({ ...value, mode: event.target.value as VisualizerConfig["mode"] })} className="block w-full rounded-lg border border-outline-variant bg-surface p-2 text-on-surface">{["inline","mini","fullscreen"].map((mode) => <option key={mode} value={mode}>{t(`visualizer.${mode}`)}</option>)}</select></label>
-        <label>{t("visualizer.palette")}<select value={value.palette} onChange={(event) => apply({ ...value, palette: event.target.value as VisualizerConfig["palette"] })} className="block w-full rounded-lg border border-outline-variant bg-surface p-2 text-on-surface">{["deviants","cyan","mono"].map((palette) => <option key={palette} value={palette}>{t(`visualizer.${palette}`)}</option>)}</select></label>
-        <label>{t("visualizer.fps")}<select value={value.fps} onChange={(event) => apply({ ...value, fps: Number(event.target.value) as VisualizerConfig["fps"] })} className="block w-full rounded-lg border border-outline-variant bg-surface p-2 text-on-surface">{[15,30,60].map((fps) => <option key={fps}>{fps}</option>)}</select></label>
-        {([['sensitivity',.2,3,.1],['smoothing',0,.98,.01],['density',16,160,1],['falloff',.1,.98,.01],['beat',0,1,.05]] as const).map(([key,min,max,step]) => <label key={key}>{t(`visualizer.${key}`)} · {value[key]}
-          <input type="range" aria-label={t(`visualizer.${key}`)} min={min} max={max} step={step} value={value[key]} className="block w-full"
-            onChange={(event) => apply({ ...value, [key]: Number(event.target.value) })} /></label>)}
+  return <DockablePanel panelId="visualizer-editor" title={t("visualizer.title")} description={t("visualizer.livePreview")}
+    openerRef={openerRef} onClose={onClose} onUndo={undo} onReset={reset} canUndo={canUndo}>
+    <div className="space-y-4">
+      <div role="note" className="rounded-xl border-2 border-outline-variant p-3">
+        <p className="text-sm">{t("visualizer.advisory")}</p>
+        <label className="mt-2 flex items-center gap-2 text-sm" data-tooltip-detail={t("visualizer.acknowledgeDesc")}>
+          <input type="checkbox" checked={acknowledged} onChange={(event) => acceptVisualizerAdvisory(event.target.checked)} />
+          {t("visualizer.acknowledge")}
+        </label>
+        <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.acknowledgeDesc")}</p>
       </div>
-      {value.family === "feedback" && <label className="mt-3 block">{t("visualizer.milkdropPreset")}<select value={value.milkdropPreset ?? milkdropNames[0] ?? ""} onChange={(event) => apply({ ...value, milkdropPreset: event.target.value })} className="block w-full rounded-lg border border-outline-variant bg-surface p-2 text-on-surface">{milkdropNames.map((preset) => <option key={preset}>{preset}</option>)}</select></label>}
-      <div className="my-4 flex flex-wrap gap-2">{VISUALIZER_DEFAULTS.map((preset) => <button type="button" key={preset.key} className="rounded-full border border-outline-variant px-3 py-2" onClick={() => apply({ ...preset.config, enabled: value.enabled })}>{t(`visualizer.preset_${preset.key}`)}</button>)}</div>
-      <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); if (name.trim()) { savePresets(JSON.stringify([...presets, { name: name.trim(), config: value }])); setName(""); } }}>
-        <input value={name} onChange={(event) => setName(event.target.value)} aria-label={t("visualizer.presetName")} className="min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface p-2 text-on-surface" />
-        <button type="submit" className="rounded-full border border-outline-variant px-3 py-2">{t("visualizer.savePreset")}</button>
-      </form>
-      <div className="mt-3 flex flex-wrap gap-2">{presets.map((preset,index) => <button type="button" key={`${preset.name}-${index}`} className="rounded-full border border-outline-variant px-3 py-2" onClick={() => apply({ ...preset.config, enabled: value.enabled })}>{preset.name}</button>)}</div>
-    </DockablePanel>
-  );
+
+      <VisualizerControl label={t("visualizer.enabled")} description={t("visualizer.enabledDesc")}>
+        <button type="button" aria-pressed={value.enabled} aria-label={t("visualizer.enabled")} disabled={!acknowledged && !value.enabled}
+          onClick={() => previewApply({ ...value, enabled: !value.enabled })} className="rounded-full border-2 border-outline-variant px-4 py-2 disabled:opacity-40">
+          {t(value.enabled ? "sensory.on" : "sensory.off")} · {t("visualizer.enabled")}
+        </button>
+      </VisualizerControl>
+
+      <VisualizerControl label={t("sensory.reducedFlash.title")} description={t("visualizer.reducedFlashDesc")}>
+        <ToggleSwitch checked={reducedFlash} onChange={setReducedFlash} label={t("sensory.reducedFlash.title")} />
+      </VisualizerControl>
+      {(simple || focus) && <p role="status" className="rounded-xl border-2 border-outline-variant p-3 text-sm">{t("visualizer.suiteHidden")}</p>}
+      {pendingFlashConfig && <div role="alert" className="rounded-xl border-2 border-error p-3 text-sm">
+        <p className="font-semibold">{t("visualizer.milkdropWarning")}</p>
+        <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.milkdropWarningDesc")}</p>
+        <div className="mt-3 flex gap-2">
+          <button type="button" onClick={() => { previewApply(pendingFlashConfig); setPendingFlashConfig(null); }} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.applyPreset")}</button>
+          <button type="button" onClick={() => setPendingFlashConfig(null)} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.cancelPreset")}</button>
+        </div>
+      </div>}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <VisualizerControl label={t("visualizer.family")} description={t("visualizer.familyDesc")}>
+          <select aria-label={t("visualizer.family")} value={value.family} onChange={(event) => {
+            const next = { ...value, family: event.target.value as VisualizerConfig["family"] };
+            if (next.family === "feedback" && !reducedFlash) setPendingFlashConfig(next); else previewApply(next);
+          }} className={visualizerSelectClass}>
+            {(["spectrum", "waveform", "radial", "nebula", "feedback"] as const).map((family) => <option key={family} value={family} disabled={reducedFlash && family === "feedback"}>{t(`visualizer.${family}`)}</option>)}
+          </select>
+        </VisualizerControl>
+        <VisualizerControl label={t("visualizer.mode")} description={t("visualizer.modeDesc")}>
+          <select aria-label={t("visualizer.mode")} value={value.mode} onChange={(event) => previewApply({ ...value, mode: event.target.value as VisualizerConfig["mode"] })} className={visualizerSelectClass}>
+            {(["inline", "mini", "fullscreen"] as const).map((mode) => <option key={mode} value={mode}>{t(`visualizer.${mode}`)}</option>)}
+          </select>
+        </VisualizerControl>
+        <VisualizerControl label={t("visualizer.mirror")} description={t("visualizer.mirrorDesc")}>
+          <select aria-label={t("visualizer.mirror")} value={value.mirror} onChange={(event) => previewApply({ ...value, mirror: event.target.value as VisualizerConfig["mirror"] })} className={visualizerSelectClass}>
+            {(["none", "horizontal", "vertical", "quad", "kaleidoscope"] as const).map((mirror) => <option key={mirror} value={mirror} disabled={reducedFlash && mirror === "kaleidoscope"}>{t(`visualizer.mirror_${mirror}`)}</option>)}
+          </select>
+        </VisualizerControl>
+        <VisualizerControl label={t("visualizer.direction")} description={t("visualizer.directionDesc")}>
+          <select aria-label={t("visualizer.direction")} value={value.direction} onChange={(event) => previewApply({ ...value, direction: event.target.value as VisualizerConfig["direction"] })} className={visualizerSelectClass}>
+            {(["up", "down", "left", "right"] as const).map((direction) => <option key={direction} value={direction}>{t(`visualizer.direction_${direction}`)}</option>)}
+          </select>
+        </VisualizerControl>
+        <VisualizerControl label={t("visualizer.fps")} description={t("visualizer.fpsDesc")}>
+          <select aria-label={t("visualizer.fps")} value={value.fps} onChange={(event) => previewApply({ ...value, fps: Number(event.target.value) as VisualizerConfig["fps"] })} className={visualizerSelectClass}>
+            {[15, 30, 60].map((fps) => <option key={fps} value={fps} disabled={reducedFlash && fps > 30}>{fps}</option>)}
+          </select>
+        </VisualizerControl>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {sliderDefinitions.map(([key, min, max, step]) => {
+          const safeMin = reducedFlash && key === "smoothing" ? 0.82 : reducedFlash && key === "falloff" ? 0.78 : min;
+          const safeMax = reducedFlash && key === "sensitivity" ? 1.4 : reducedFlash && key === "beat" ? 0.35 : max;
+          return <VisualizerControl key={key} label={`${t(`visualizer.${key}`)} · ${value[key]}`} description={t(`visualizer.${key}Desc`)}>
+          <input type="range" aria-label={t(`visualizer.${key}`)} min={safeMin} max={safeMax} step={step} value={value[key]} className="block w-full"
+            onChange={(event) => previewApply({ ...value, [key]: Number(event.target.value) })} />
+        </VisualizerControl>;
+        })}
+      </div>
+
+      {value.family === "feedback" && <VisualizerControl label={t("visualizer.milkdropPreset")} description={t("visualizer.milkdropPresetDesc")}>
+        <select aria-label={t("visualizer.milkdropPreset")} value={value.milkdropPreset ?? milkdropNames[0] ?? ""}
+          onChange={(event) => {
+            const next = { ...value, milkdropPreset: event.target.value };
+            if (reducedFlash) previewApply(next); else setPendingFlashConfig(next);
+          }} className={visualizerSelectClass}>
+          {groupMilkdropPresets(milkdropNames).map((group) => <optgroup key={group.name} label={group.name}>
+            {group.presets.map((preset) => <option key={preset} value={preset}>{preset}</option>)}
+          </optgroup>)}
+        </select>
+      </VisualizerControl>}
+
+      <VisualizerColorControls value={value} apply={previewApply} reducedFlash={reducedFlash} />
+      <VisualizerPresetControls value={value} apply={previewApply} presets={presets} savePresets={savePresets} reducedFlash={reducedFlash} />
+    </div>
+  </DockablePanel>;
 }
 
 export default VisualizerCustomizerPanel;

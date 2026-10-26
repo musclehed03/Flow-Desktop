@@ -11,6 +11,7 @@ export function SensoryRoot({ children }: { children: ReactNode }) {
   useMusicKeyboardShortcuts();
   useEffect(() => {
     for (const [name, key] of SENSORY_SETTINGS) document.documentElement.classList.toggle(`sensory-${name}`, values[key] === 'true');
+    document.documentElement.classList.toggle('sensory-reducedFlash', values[SETTINGS.REDUCED_FLASH_ENABLED] === 'true');
   }, [values]);
   return <MotionConfig reducedMotion={safe ? 'always' : 'user'} transition={safe ? { duration: 0 } : undefined}>{children}</MotionConfig>;
 }

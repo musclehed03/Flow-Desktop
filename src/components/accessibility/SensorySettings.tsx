@@ -5,6 +5,8 @@ import { useBoolPref, usePreference } from "../../lib/usePreference";
 import { SETTINGS, type SettingKey } from "../../lib/settings/schema";
 import { SettingsGroup } from "../settings/SettingsGroup";
 import { COLOR_BLIND_PALETTE_IDS, resolveColorBlindPalette } from "../../lib/colorBlindPalettes";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { Fragment } from "react";
 
 function SensoryToggle({ name, setting }: { name: string; setting: SettingKey }) {
   const [enabled, setEnabled] = useBoolPref(setting);
@@ -24,6 +26,17 @@ function SensoryButton({ name, enabled, toggle }: { name: string; enabled: boole
 function LightToggle() {
   const [variant, setVariant] = usePreference(SETTINGS.THEME_VARIANT);
   return <SensoryButton name="light" enabled={variant === 'light'} toggle={() => setVariant(variant === 'light' ? 'dark' : 'light')} />;
+}
+function ReducedFlashSetting() {
+  const { t } = useTranslation('settings');
+  const [enabled, setEnabled] = useBoolPref(SETTINGS.REDUCED_FLASH_ENABLED, false);
+  return <div className="flex items-center justify-between gap-4 px-4 py-3" data-tooltip-detail={t('sensory.reducedFlash.description')}>
+    <span>
+      <span className="block text-sm font-semibold text-on-surface">{t('sensory.reducedFlash.title')}</span>
+      <span className="block text-xs text-on-surface-variant">{t('sensory.reducedFlash.description')}</span>
+    </span>
+    <ToggleSwitch checked={enabled} onChange={setEnabled} label={t('sensory.reducedFlash.title')} />
+  </div>;
 }
 function ColorBlindSettings() {
   const { t } = useTranslation('settings');
@@ -50,9 +63,10 @@ function ColorBlindSettings() {
 export function SensorySettings() {
   const { t } = useTranslation('settings');
   return <SettingsGroup title={t('sensory.title')}>
-    {SENSORY_SETTINGS.map(([name, setting]) => name === 'colorBlind'
-      ? <ColorBlindSettings key={name} />
-      : <SensoryToggle key={name} name={name} setting={setting} />)}
+    {SENSORY_SETTINGS.map(([name, setting]) => <Fragment key={name}>
+      {name === 'colorBlind' ? <ColorBlindSettings /> : <SensoryToggle name={name} setting={setting} />}
+      {name === 'motion' && <ReducedFlashSetting />}
+    </Fragment>)}
     <LightToggle />
   </SettingsGroup>;
 }
