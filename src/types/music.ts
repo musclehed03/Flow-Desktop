@@ -303,6 +303,7 @@ export interface MusicStreamInfo {
   mimeType: string;
   itag: number;
   bitrate: number | null;
+  sampleRate?: number | null;
   approxDurationMs: number | null;
   loudnessDb: number | null;
   perceptualLoudnessDb: number | null;

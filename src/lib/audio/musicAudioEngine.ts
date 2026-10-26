@@ -4,6 +4,7 @@ import {
   EQ_PEAKING_Q,
   normalizeEqGains,
 } from "./eqBands";
+import { defaultAudioProcessingConfig, graphicFrequencies, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "./eqConfig";
 
 type AudioContextCtor = typeof AudioContext;
 
@@ -29,9 +30,10 @@ interface Slot {
   loudnessDb: number | null;
   /** The track a standby slot holds, so a swap only ever plays the right one. */
   key: string | null;
+  format: { mimeType: string; bitrate: number | null; sampleRate: number | null } | null;
 }
 
-const emptySlot = (): Slot => ({ el: null, source: null, normGain: null, fadeGain: null, loudnessDb: null, key: null });
+const emptySlot = (): Slot => ({ el: null, source: null, normGain: null, fadeGain: null, loudnessDb: null, key: null, format: null });
 
 function unload(el: HTMLAudioElement): void {
   el.pause();
@@ -47,6 +49,10 @@ export class MusicAudioEngine {
   private activeIndex: 0 | 1 = 0;
   private ctx: AudioContext | null = null;
   private filters: BiquadFilterNode[] = [];
+  private preampGain: GainNode | null = null;
+  private balanceNode: StereoPannerNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
   private volGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private fadeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -121,7 +127,7 @@ export class MusicAudioEngine {
       this.fading = false; this.fadeTimer = null;
       this.setOverlapLimiter(false);
       if (previous.el) unload(previous.el);
-      previous.key = null; previous.loudnessDb = null;
+      previous.key = null; previous.loudnessDb = null; previous.format = null;
       this.active.fadeGain?.gain.setValueAtTime(1, this.ctx!.currentTime);
       this.applyGain(); complete();
     }, plan.seconds * 1000);
@@ -148,9 +154,13 @@ export class MusicAudioEngine {
 
   private volume = 1;
   private muted = false;
-  private eqEnabled = false;
   private eqGains: number[] = normalizeEqGains(null);
   private normalizationEnabled = true;
+  private processing = defaultAudioProcessingConfig();
+  private volumeBoostEnabled = false;
+  private skipSilenceEnabled = false;
+  private silentSince = 0;
+  private sourceSampleRate: number | null = null;
 
   private get active(): Slot {
     return this.slots[this.activeIndex];
@@ -192,22 +202,32 @@ export class MusicAudioEngine {
         this.webAudioFailed = true;
         return;
       }
-      if (!this.ctx) this.ctx = new Ctor();
+      if (!this.ctx) this.ctx = this.sourceSampleRate ? new Ctor({ sampleRate: this.sourceSampleRate }) : new Ctor();
       const ctx = this.ctx;
 
-      this.filters = EQ_BANDS.map((band) => {
+      this.filters = Array.from({ length: 31 }, (_, index) => {
         const f = ctx.createBiquadFilter();
-        f.type = band.type;
+        const band = EQ_BANDS[index] ?? EQ_BANDS[EQ_BANDS.length - 1]!;
+        f.type = index < EQ_BANDS.length ? band.type : "allpass";
         f.frequency.value = band.frequency;
         f.Q.value = EQ_PEAKING_Q;
         f.gain.value = 0;
         return f;
       });
+      this.preampGain = ctx.createGain();
       this.volGain = ctx.createGain();
+      this.compressor = ctx.createDynamicsCompressor();
+      this.limiter = ctx.createDynamicsCompressor();
+      this.balanceNode = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : null;
+      this.compressor.connect(this.limiter);
+      this.limiter.connect(this.volGain);
+      const dynamicsStart: AudioNode = this.balanceNode ?? this.compressor;
+      if (this.balanceNode) this.balanceNode.connect(this.compressor);
       const chainStart = this.filters.reduceRight<AudioNode>((next, filter) => {
         filter.connect(next);
         return filter;
-      }, this.volGain);
+      }, dynamicsStart);
+      this.preampGain.connect(chainStart);
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.volGain.connect(this.analyser);
@@ -222,12 +242,13 @@ export class MusicAudioEngine {
         slot.source.connect(slot.normGain);
         slot.fadeGain = ctx.createGain();
         slot.normGain.connect(slot.fadeGain);
-        slot.fadeGain.connect(chainStart);
+        slot.fadeGain.connect(this.preampGain);
       }
 
       this.graphReady = true;
       this.applyGain();
       this.applyEq();
+      this.applyProcessing();
     } catch (err) {
       console.warn(
         "[musicAudioEngine] WebAudio graph unavailable — degrading to element volume",
@@ -257,12 +278,13 @@ export class MusicAudioEngine {
    * take over the moment the current track ends. A no-op when it already holds
    * that track.
    */
-  preload(key: string, url: string, loudnessDb: number | null): void {
+  preload(key: string, url: string, loudnessDb: number | null, format: Slot["format"] = null): void {
     if (this.fading) return;
     const slot = this.standby;
     if (!slot.el || slot.key === key) return;
     slot.key = key;
     slot.loudnessDb = loudnessDb;
+    slot.format = format;
     slot.el.src = url;
     try {
       slot.el.load();
@@ -303,6 +325,7 @@ export class MusicAudioEngine {
     if (previous.el) unload(previous.el);
     previous.key = null;
     previous.loudnessDb = null;
+    previous.format = null;
     this.applyGain();
     return true;
   }
@@ -314,6 +337,7 @@ export class MusicAudioEngine {
     if (key === null) return null;
     slot.key = null;
     slot.loudnessDb = null;
+    slot.format = null;
     if (slot.el) unload(slot.el);
     return key;
   }
@@ -322,6 +346,7 @@ export class MusicAudioEngine {
   getActiveLoudness(): number | null {
     return this.active.loudnessDb;
   }
+  getActiveFormat(): Slot["format"] { return this.active.format ? { ...this.active.format } : null; }
 
   /**
    * Seek once the element knows its duration. Setting `currentTime` on an
@@ -371,6 +396,7 @@ export class MusicAudioEngine {
     for (const slot of this.slots) {
       slot.key = null;
       slot.loudnessDb = null;
+      slot.format = null;
       if (slot.el) unload(slot.el);
     }
   }
@@ -424,7 +450,7 @@ export class MusicAudioEngine {
   }
 
   private applyGain(): void {
-    const vol = this.muted ? 0 : this.volume;
+    const vol = this.muted ? 0 : this.volume * (this.volumeBoostEnabled ? 1.35 : 1);
 
     if (this.graphReady && this.ctx && this.volGain) {
       const t = this.ctx.currentTime;
@@ -453,12 +479,13 @@ export class MusicAudioEngine {
   // --- equalizer ----------------------------------------------------------
 
   setEqEnabled(enabled: boolean): void {
-    this.eqEnabled = enabled;
+    this.processing = { ...this.processing, enabled };
     this.applyEq();
   }
 
   setEqGains(gains: number[]): void {
     this.eqGains = normalizeEqGains(gains);
+    this.processing = { ...this.processing, mode: "graphic", bandCount: 10, graphicGains: { ...this.processing.graphicGains, 10: [...this.eqGains] } };
     this.applyEq();
   }
 
@@ -471,12 +498,65 @@ export class MusicAudioEngine {
   }
 
   private applyEq(): void {
+    this.applyProcessing();
+  }
+
+  setProcessingConfig(config: AudioProcessingConfig): void {
+    this.processing = normalizeAudioProcessingConfig(config);
+    if (this.processing.mode === "graphic" && this.processing.bandCount === 10) this.eqGains = normalizeEqGains(this.processing.graphicGains[10]);
+    this.applyProcessing();
+  }
+
+  getProcessingConfig(): AudioProcessingConfig { return structuredClone(this.processing); }
+
+  setVolumeBoostEnabled(enabled: boolean): void { this.volumeBoostEnabled = enabled; this.applyGain(); }
+  setSkipSilenceEnabled(enabled: boolean): void { this.skipSilenceEnabled = enabled; this.silentSince = 0; }
+  setSourceSampleRate(sampleRate: number | null): void {
+    if (sampleRate && sampleRate >= 8000 && sampleRate <= 192000 && !this.ctx) this.sourceSampleRate = sampleRate;
+  }
+
+  tickSilenceSkip(now = performance.now()): boolean {
+    if (!this.skipSilenceEnabled || !this.analyser || !this.active.el || this.active.el.paused) { this.silentSince = 0; return false; }
+    const samples = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(samples);
+    const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+    if (rms >= .003) { this.silentSince = 0; return false; }
+    if (!this.silentSince) this.silentSince = now;
+    if (now - this.silentSince < 1400) return false;
+    const duration = this.getDuration();
+    this.seek(Math.min(Math.max(0, duration - .25), this.getCurrentTime() + 3));
+    this.silentSince = now;
+    return true;
+  }
+
+  private applyProcessing(): void {
     if (!this.graphReady || !this.ctx) return;
     const t = this.ctx.currentTime;
-    this.filters.forEach((f, i) => {
-      const g = this.eqEnabled ? this.eqGains[i] ?? 0 : 0;
-      f.gain.setTargetAtTime(g, t, 0.012);
+    const config = this.processing;
+    const graphic = config.mode === "graphic" ? graphicFrequencies(config.bandCount).map((frequency, index) => ({ frequency, gain: config.graphicGains[config.bandCount][index] ?? 0, q: 1.41, type: index === 0 ? "lowshelf" as const : index === config.bandCount - 1 ? "highshelf" as const : "peaking" as const })) : config.parametricBands;
+    this.filters.forEach((filter, index) => {
+      const band = config.enabled ? graphic[index] : undefined;
+      filter.type = band?.type ?? "allpass";
+      filter.frequency.setTargetAtTime(band?.frequency ?? 1000, t, .012);
+      filter.Q.setTargetAtTime(band?.q ?? .7, t, .012);
+      filter.gain.setTargetAtTime(band?.gain ?? 0, t, .012);
     });
+    this.preampGain?.gain.setTargetAtTime(Math.pow(10, config.dynamics.preampDb / 20), t, .012);
+    this.balanceNode?.pan.setTargetAtTime(config.dynamics.balance, t, .012);
+    if (this.compressor) {
+      this.compressor.threshold.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorThreshold : 0, t, .012);
+      this.compressor.ratio.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorRatio : 1, t, .012);
+      this.compressor.knee.setTargetAtTime(config.dynamics.compressorEnabled ? 12 : 0, t, .012);
+      this.compressor.attack.setTargetAtTime(config.dynamics.compressorAttack, t, .012);
+      this.compressor.release.setTargetAtTime(config.dynamics.compressorRelease, t, .012);
+    }
+    if (this.limiter) {
+      this.limiter.threshold.setTargetAtTime(config.dynamics.limiterEnabled ? -.8 : 0, t, .012);
+      this.limiter.ratio.setTargetAtTime(config.dynamics.limiterEnabled ? 20 : 1, t, .012);
+      this.limiter.knee.setTargetAtTime(0, t, .012);
+      this.limiter.attack.setTargetAtTime(.002, t, .012);
+      this.limiter.release.setTargetAtTime(.08, t, .012);
+    }
   }
 }
 

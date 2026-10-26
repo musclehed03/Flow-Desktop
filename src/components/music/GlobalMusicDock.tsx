@@ -1,5 +1,5 @@
 import { VisualizerToggle } from "../visualizer/Visualizers";
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
@@ -31,13 +31,14 @@ import { MusicCardMenu, useMusicContextMenu } from "./MusicCardMenu";
 import { useNowPlayingMenuActions } from "./useNowPlayingMenuActions";
 import { MusicArtwork } from "./MusicArtwork";
 import { MusicScrubber } from "./MusicScrubber";
-import { EqPanel } from "./EqPanel";
 import { VolumePopover } from "./VolumePopover";
 import { useDominantColor } from "../../lib/useDominantColor";
 import { accentForeground, accentSurface } from "../../lib/accentColor";
 import { upgradeMusicImageUrl } from "../../lib/thumbnails";
 import { useProxiedImageUrl } from "../../lib/useProxiedImageUrl";
 import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
+
+const EqPanel = lazy(() => import("./EqPanel"));
 
 const MUSIC_DOCK_CONSTRAINTS = { minWidth: 300, minHeight: 64, maxHeight: 180, margin: 12 } as const;
 
@@ -282,12 +283,7 @@ export function GlobalMusicDock() {
 
           {/* Popovers — rendered outside the clipped pill so they aren't cut off. */}
           <div className="absolute bottom-full right-2 mb-3">
-            <EqPanel
-              open={popover === "eq"}
-              onClose={() => setPopover(null)}
-              placement="top"
-              triggerRef={eqTriggerRef}
-            />
+            {popover === "eq" && <Suspense fallback={null}><EqPanel open onClose={() => setPopover(null)} placement="top" triggerRef={eqTriggerRef} /></Suspense>}
           </div>
           <div className="absolute bottom-full right-2 mb-3">
             <VolumePopover

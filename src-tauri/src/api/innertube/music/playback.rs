@@ -159,6 +159,14 @@ impl InnertubeClient {
         let bitrate = format["bitrate"]
             .as_u64()
             .or_else(|| format["averageBitrate"].as_u64());
+        let sample_rate = format["audioSampleRate"]
+            .as_str()
+            .and_then(|value| value.parse::<u32>().ok())
+            .or_else(|| {
+                format["audioSampleRate"]
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok())
+            });
         let approx_duration_ms = format["approxDurationMs"]
             .as_str()
             .and_then(|s| s.parse::<u64>().ok());
@@ -184,6 +192,7 @@ impl InnertubeClient {
             mime_type,
             itag,
             bitrate,
+            sample_rate,
             approx_duration_ms,
             loudness_db,
             perceptual_loudness_db,

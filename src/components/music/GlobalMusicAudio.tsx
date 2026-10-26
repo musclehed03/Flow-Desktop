@@ -1,4 +1,4 @@
-import { useEffect, useRef, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, type SyntheticEvent } from "react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { musicAudioEngine } from "../../lib/audio/musicAudioEngine";
@@ -6,6 +6,10 @@ import { PRELOAD_LEAD_SECONDS } from "../../lib/musicPreload";
 import { recordSongHistory } from "../../lib/musicHistory";
 import { upgradeMusicImageUrl } from "../../lib/thumbnails";
 import type { SongItem } from "../../types/music";
+import { SETTINGS } from "../../lib/settings/schema";
+import { useAppSettingsStore } from "../../store/useAppSettingsStore";
+import { normalizeAudioProcessingConfig } from "../../lib/audio/eqConfig";
+import { currentOutputDevice, parseOutputDeviceProfiles } from "../../lib/audio/outputDeviceProfiles";
 
 const HISTORY_PERSIST_MS = 5000;
 /**
@@ -29,6 +33,12 @@ export function GlobalMusicAudio() {
   const secondRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = useMusicPlayerStore((s) => s.currentTrack);
   const isPlaying = useMusicPlayerStore((s) => s.isPlaying);
+  const processingRaw = useAppSettingsStore((s) => s.values[SETTINGS.MUSIC_AUDIO_PROCESSING] ?? "{}");
+  const profileRaw = useAppSettingsStore((s) => s.values[SETTINGS.MUSIC_OUTPUT_PROFILES] ?? "{}");
+  const stableVolume = useAppSettingsStore((s) => s.values[SETTINGS.STABLE_VOLUME_ENABLED] === "true");
+  const volumeBoost = useAppSettingsStore((s) => s.values[SETTINGS.ALLOW_VOLUME_BOOST] === "true");
+  const skipSilence = useAppSettingsStore((s) => s.values[SETTINGS.SKIP_SILENCE_ENABLED] === "true");
+  const profiles = useMemo(() => parseOutputDeviceProfiles(profileRaw), [profileRaw]);
 
   // --- watch-history persistence ---
   const historyTrackRef = useRef<SongItem | null>(null);
@@ -46,6 +56,33 @@ export function GlobalMusicAudio() {
     musicAudioEngine.setEqEnabled(s.eqEnabled);
     musicAudioEngine.setEqGains(s.eqGains);
   }, []);
+
+  useEffect(() => {
+    const config = normalizeAudioProcessingConfig(JSON.parse(processingRaw));
+    musicAudioEngine.setProcessingConfig(config);
+    useMusicPlayerStore.setState({ audioProcessing: config, eqEnabled: config.enabled });
+  }, [processingRaw]);
+
+  useEffect(() => {
+    musicAudioEngine.setLoudness(useMusicPlayerStore.getState().loudnessDb, stableVolume);
+    musicAudioEngine.setVolumeBoostEnabled(volumeBoost);
+    musicAudioEngine.setSkipSilenceEnabled(skipSilence);
+  }, [skipSilence, stableVolume, volumeBoost]);
+
+  useEffect(() => {
+    if (profileRaw === "{}") void useAppSettingsStore.getState().setSettingValue(SETTINGS.MUSIC_OUTPUT_PROFILES, JSON.stringify(profiles));
+    let disposed = false;
+    const apply = async () => {
+      const output = await currentOutputDevice(profiles.salt).catch(() => null);
+      if (disposed || !output) return;
+      const profile = profiles.profiles.find((item) => item.deviceKey === output.key);
+      if (profile) useMusicPlayerStore.getState().setAudioProcessing(profile.config);
+      if (profiles.activeDeviceKey !== output.key) void useAppSettingsStore.getState().setSettingValue(SETTINGS.MUSIC_OUTPUT_PROFILES, JSON.stringify({ ...profiles, activeDeviceKey: output.key }));
+    };
+    void apply();
+    navigator.mediaDevices?.addEventListener?.("devicechange", apply);
+    return () => { disposed = true; navigator.mediaDevices?.removeEventListener?.("devicechange", apply); };
+  }, [profileRaw, profiles]);
 
   useEffect(() => {
     if (currentTrack) {
@@ -135,6 +172,7 @@ export function GlobalMusicAudio() {
         lyrics canvas reads the audio engine directly for frame accuracy.
       */
       store()._syncTime(el.currentTime, el.duration);
+      musicAudioEngine.tickSilenceSkip();
 
       // History is persisted from here for the same reason: a frame loop
       // stops in the background, and listening there is the common case.

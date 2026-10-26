@@ -38,6 +38,7 @@ import {
   type EqPresetName,
 } from "../lib/audio/eqBands";
 import { getSettingValue, setSettingValue } from "./useAppSettingsStore";
+import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "../lib/audio/eqConfig";
 
 export type MusicViewState = "dock" | "full" | "queue" | "lyrics";
 export type MusicRepeatMode = QueueRepeatMode;
@@ -92,6 +93,16 @@ const loadConfig = (): PersistedMusicConfig => {
 };
 
 const initialConfig = loadConfig();
+const initialProcessing = (() => {
+  try {
+    const saved = normalizeAudioProcessingConfig(JSON.parse(getSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING)));
+    if (getSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING) !== "{}") return saved;
+  } catch { /* Migrate the legacy ten-band local config below. */ }
+  const migrated = defaultAudioProcessingConfig();
+  migrated.enabled = initialConfig.eqEnabled;
+  migrated.graphicGains[10] = [...initialConfig.eqGains];
+  return migrated;
+})();
 
 const saveConfig = (get: () => MusicPlayerState) => {
   try {
@@ -169,6 +180,7 @@ const getMusicAudioQualitySetting = (): MusicAudioQuality => {
   const value = getSettingValue(SETTINGS.MUSIC_AUDIO_QUALITY);
   return MUSIC_AUDIO_QUALITY_VALUES.has(value) ? (value as MusicAudioQuality) : "Auto";
 };
+const stableVolumeEnabled = () => getSettingValue(SETTINGS.STABLE_VOLUME_ENABLED) === "true";
 
 interface MusicPlayerState {
   // --- now playing ---
@@ -188,6 +200,8 @@ interface MusicPlayerState {
   normalizationEnabled: boolean;
   eqEnabled: boolean;
   eqGains: number[]; // 10 bands, dB
+  audioProcessing: AudioProcessingConfig;
+  streamFormat: { mimeType: string; bitrate: number | null; sampleRate: number | null } | null;
 
   // --- modes (persisted) ---
   repeatMode: MusicRepeatMode;
@@ -259,6 +273,7 @@ interface MusicPlayerState {
   setEqBand: (index: number, gainDb: number) => void;
   setEqGains: (gains: number[]) => void;
   applyEqPreset: (name: EqPresetName) => void;
+  setAudioProcessing: (config: AudioProcessingConfig) => void;
   setNormalizationEnabled: (enabled: boolean) => void;
 
   // --- internal: driven by the root <audio> controller (element → store) ---
@@ -294,6 +309,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   normalizationEnabled: initialConfig.normalizationEnabled,
   eqEnabled: initialConfig.eqEnabled,
   eqGains: initialConfig.eqGains,
+  audioProcessing: initialProcessing,
+  streamFormat: null,
 
   repeatMode: initialConfig.repeatMode,
   isShuffle: initialConfig.isShuffle,
@@ -474,8 +491,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (resumeAt === 0 && musicAudioEngine.activatePreloaded(videoId)) {
       if (fade) set(incomingState);
       const loudnessDb = musicAudioEngine.getActiveLoudness();
-      set({ loudnessDb, loadingStreamId: null });
-      musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
+      set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null });
+      musicAudioEngine.setLoudness(loudnessDb, stableVolumeEnabled());
       await musicAudioEngine.play();
       recordPlayerEvent(`music started from preload: ${videoId}`);
       afterStart();
@@ -508,6 +525,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           if (offline.lyrics) seedOfflineLyrics(videoId, offline.lyrics);
           set({
             loudnessDb: null,
+            streamFormat: null,
             ...(!fade ? { loadingStreamId: null } : {}),
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
@@ -515,7 +533,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           });
           if (await tryFade(offline.url, null)) return;
           if (fade) set(incomingState);
-          musicAudioEngine.setLoudness(null, get().normalizationEnabled);
+          musicAudioEngine.setLoudness(null, stableVolumeEnabled());
           await musicAudioEngine.load(offline.url);
           musicAudioEngine.seekWhenReady(resumeAt);
           await musicAudioEngine.play();
@@ -539,10 +557,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       }
       if (get().loadingStreamId !== videoId) return;
 
+      set({ streamFormat: { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null } });
+      musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null);
       if (await tryFade(info.audioUrl, info.loudnessDb)) return;
       if (fade) set(incomingState);
       set({ loudnessDb: info.loudnessDb, loadingStreamId: null });
-      musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
+      musicAudioEngine.setLoudness(info.loudnessDb, stableVolumeEnabled());
       await musicAudioEngine.load(info.audioUrl);
       musicAudioEngine.seekWhenReady(resumeAt);
       await musicAudioEngine.play();
@@ -605,6 +625,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       progress: 0,
       duration: 0,
       loudnessDb: null,
+      streamFormat: null,
       loadingStreamId: null,
       streamError: null,
       streamErrorKind: null,
@@ -920,7 +941,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   setEqEnabled: (enabled) => {
     musicAudioEngine.setEqEnabled(enabled);
-    set({ eqEnabled: enabled });
+    const audioProcessing = { ...get().audioProcessing, enabled };
+    musicAudioEngine.setProcessingConfig(audioProcessing);
+    set({ eqEnabled: enabled, audioProcessing });
+    void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
     saveConfig(get);
   },
 
@@ -929,14 +953,18 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     next[index] = gainDb;
     const gains = normalizeEqGains(next);
     musicAudioEngine.setEqGains(gains);
-    set({ eqGains: gains });
+    const audioProcessing = { ...get().audioProcessing, mode: "graphic" as const, bandCount: 10 as const, graphicGains: { ...get().audioProcessing.graphicGains, 10: gains } };
+    set({ eqGains: gains, audioProcessing });
+    void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
     saveConfig(get);
   },
 
   setEqGains: (gains) => {
     const normalized = normalizeEqGains(gains);
     musicAudioEngine.setEqGains(normalized);
-    set({ eqGains: normalized });
+    const audioProcessing = { ...get().audioProcessing, mode: "graphic" as const, bandCount: 10 as const, graphicGains: { ...get().audioProcessing.graphicGains, 10: normalized } };
+    set({ eqGains: normalized, audioProcessing });
+    void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
     saveConfig(get);
   },
 
@@ -944,9 +972,18 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     get().setEqGains([...(EQ_PRESETS[name] ?? EQ_FLAT)]);
   },
 
+  setAudioProcessing: (config) => {
+    const audioProcessing = normalizeAudioProcessingConfig(config);
+    musicAudioEngine.setProcessingConfig(audioProcessing);
+    const eqGains = audioProcessing.bandCount === 10 ? normalizeEqGains(audioProcessing.graphicGains[10]) : get().eqGains;
+    set({ audioProcessing, eqEnabled: audioProcessing.enabled, eqGains });
+    void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
+  },
+
   setNormalizationEnabled: (enabled) => {
     musicAudioEngine.setLoudness(get().loudnessDb, enabled);
     set({ normalizationEnabled: enabled });
+    void setSettingValue(SETTINGS.STABLE_VOLUME_ENABLED, String(enabled));
     saveConfig(get);
   },
 

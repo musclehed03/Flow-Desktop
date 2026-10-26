@@ -65,6 +65,8 @@ pub struct MusicStreamInfo {
     pub mime_type: String,
     pub itag: u32,
     pub bitrate: Option<u64>,
+    /// Source sample rate reported by InnerTube for the selected lossy stream.
+    pub sample_rate: Option<u32>,
     pub approx_duration_ms: Option<u64>,
     /// `playerConfig.audioConfig.loudnessDb`, used for volume normalization on
     /// the frontend (WebAudio GainNode). `None` when the client did not report it.

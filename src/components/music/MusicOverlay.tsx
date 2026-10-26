@@ -1,7 +1,7 @@
 import { VisualizerArtwork, VisualizerToggle } from "../visualizer/Visualizers";
 import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
 import { MusicPresentationControls } from "./MusicPresentationControls";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -33,11 +33,11 @@ import { HapticButton } from "./HapticButton";
 import { MusicCardMenu, useMusicContextMenu } from "./MusicCardMenu";
 import { useNowPlayingMenuActions } from "./useNowPlayingMenuActions";
 import { MusicArtwork } from "./MusicArtwork";
+import { AudioSourceBadge } from "./AudioSourceBadge";
 import { MusicScrubber } from "./MusicScrubber";
 import { MusicQueuePane } from "./MusicQueuePane";
 import { MusicLyrics } from "./MusicLyrics";
 import { AmbientBackdrop, isMusicBackgroundStyle } from "./AmbientBackdrop";
-import { EqPanel } from "./EqPanel";
 import { PlayerVolumeControl } from "../player/SharedPlayerControls";
 import { useLyrics } from "../../lib/lyrics/useLyrics";
 import { useDominantColor } from "../../lib/useDominantColor";
@@ -46,6 +46,8 @@ import { upgradeMusicImageUrl } from "../../lib/thumbnails";
 import { useProxiedImageUrl } from "../../lib/useProxiedImageUrl";
 import { usePreference } from "../../lib/usePreference";
 import { SETTINGS } from "../../lib/settings/schema";
+
+const EqPanel = lazy(() => import("./EqPanel"));
 
 const TOP_BTN =
   "grid h-10 w-10 place-items-center rounded-full text-chrome-neutral-300 transition-colors duration-200 ease-out hover:bg-surface-container-high hover:text-chrome-neutral-100";
@@ -236,12 +238,7 @@ export function MusicOverlay() {
 
               {/* EQ opens BELOW the top bar so it stays in frame */}
               <div className="absolute right-0 top-full mt-2">
-                <EqPanel
-                  open={eqOpen}
-                  onClose={() => setEqOpen(false)}
-                  placement="bottom"
-                  triggerRef={eqTriggerRef}
-                />
+                {eqOpen && <Suspense fallback={null}><EqPanel open onClose={() => setEqOpen(false)} placement="bottom" triggerRef={eqTriggerRef} /></Suspense>}
               </div>
             </div>
           </div>
@@ -366,6 +363,7 @@ export function MusicOverlay() {
                     >
                       {artistsText(currentTrack.artists)}
                     </button>
+                    <AudioSourceBadge />
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <HapticButton
