@@ -26,9 +26,33 @@ export interface ThemeDefinition {
   custom?: boolean;
 }
 
+export const THEME_EFFECTS = ["off", "flame", "swirl", "fire", "ice", "rain", "snow"] as const;
+export type ThemeEffect = (typeof THEME_EFFECTS)[number];
+export const THEME_STYLE_REGIONS = ["frame", "buttons", "containers"] as const;
+export type ThemeStyleRegion = (typeof THEME_STYLE_REGIONS)[number];
+
+export interface ThemeGradient {
+  enabled: boolean;
+  stops: string[];
+  angle: number;
+  animation: "off" | "fade" | "shift";
+  seconds: number;
+}
+
+export interface ThemeRegionStyle {
+  gradient: ThemeGradient;
+  effect: ThemeEffect;
+}
+
+export interface ThemeAppearance {
+  seed: number;
+  regions: Record<ThemeStyleRegion, ThemeRegionStyle>;
+}
+
 export interface CustomThemeDefinition extends Omit<ThemeDefinition, "descriptionKey" | "custom"> {
   descriptionKey?: never;
   custom: true;
+  appearance: ThemeAppearance;
 }
 
 export type ThemeDescriptionKey =
@@ -62,6 +86,48 @@ interface PaletteSeed {
 }
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+function defaultRegionStyle(): ThemeRegionStyle {
+  return {
+    gradient: { enabled: false, stops: ["#ff1e89", "#14d9e6"], angle: 135, animation: "off", seconds: 12 },
+    effect: "off",
+  };
+}
+
+export function createThemeAppearance(): ThemeAppearance {
+  return {
+    seed: 1,
+    regions: {
+      frame: defaultRegionStyle(),
+      buttons: defaultRegionStyle(),
+      containers: defaultRegionStyle(),
+    },
+  };
+}
+
+function isThemeGradient(value: unknown): value is ThemeGradient {
+  if (!value || typeof value !== "object") return false;
+  const gradient = value as Partial<ThemeGradient>;
+  return typeof gradient.enabled === "boolean"
+    && Array.isArray(gradient.stops)
+    && gradient.stops.length >= 2
+    && gradient.stops.length <= 10
+    && gradient.stops.every((stop) => typeof stop === "string" && HEX_COLOR.test(stop))
+    && typeof gradient.angle === "number" && gradient.angle >= 0 && gradient.angle <= 360
+    && ["off", "fade", "shift"].includes(gradient.animation ?? "")
+    && typeof gradient.seconds === "number" && gradient.seconds >= 4 && gradient.seconds <= 60;
+}
+
+function isThemeAppearance(value: unknown): value is ThemeAppearance {
+  if (!value || typeof value !== "object") return false;
+  const appearance = value as Partial<ThemeAppearance>;
+  return Number.isInteger(appearance.seed)
+    && !!appearance.regions
+    && THEME_STYLE_REGIONS.every((region) => {
+      const style = appearance.regions?.[region];
+      return !!style && isThemeGradient(style.gradient) && THEME_EFFECTS.includes(style.effect);
+    });
+}
 
 function expandPalette(
   base: PaletteSeed["light"],
@@ -221,10 +287,10 @@ export function parseCustomThemes(serialized: string): CustomThemeDefinition[] {
   try {
     const parsed: unknown = JSON.parse(serialized);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((theme): theme is CustomThemeDefinition => {
-      if (!theme || typeof theme !== "object") return false;
+    return parsed.flatMap((theme): CustomThemeDefinition[] => {
+      if (!theme || typeof theme !== "object") return [];
       const candidate = theme as Partial<CustomThemeDefinition>;
-      return typeof candidate.id === "string"
+      const valid = typeof candidate.id === "string"
         && candidate.id.startsWith("custom-")
         && typeof candidate.name === "string"
         && candidate.name.trim().length > 0
@@ -232,6 +298,11 @@ export function parseCustomThemes(serialized: string): CustomThemeDefinition[] {
         && candidate.custom === true
         && !!candidate.variants
         && THEME_VARIANTS.every((variant) => isThemeColors(candidate.variants?.[variant]));
+      if (!valid) return [];
+      return [{
+        ...(candidate as CustomThemeDefinition),
+        appearance: isThemeAppearance(candidate.appearance) ? candidate.appearance : createThemeAppearance(),
+      }];
     }).slice(0, 24);
   } catch {
     return [];
@@ -244,7 +315,59 @@ export function createCustomTheme(id: string, name: string): CustomThemeDefiniti
     name: name.trim(),
     custom: true,
     variants: structuredClone(DEFAULT_THEME.variants),
+    appearance: createThemeAppearance(),
   };
+}
+
+export function themeRegionGradient(style: ThemeRegionStyle): string {
+  const stops = style.gradient.stops.join(", ");
+  return `linear-gradient(${Math.round(style.gradient.angle)}deg, ${stops})`;
+}
+
+function seeded(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  const a = s * Math.min(l, 1 - l);
+  const channel = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return `#${[channel(0), channel(8), channel(4)].map((value) => Math.round(value * 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function randomizeCustomTheme(theme: CustomThemeDefinition, seed: number): CustomThemeDefinition {
+  const random = seeded(seed);
+  const primaryHue = Math.floor(random() * 360);
+  const secondaryHue = (primaryHue + 90 + Math.floor(random() * 120)) % 360;
+  const variants = structuredClone(theme.variants);
+  for (const variant of THEME_VARIANTS) {
+    const light = variant === "light";
+    variants[variant] = {
+      ...variants[variant],
+      primary: hslToHex(primaryHue, .82, light ? .38 : .68),
+      onPrimary: light ? "#ffffff" : "#09090d",
+      secondary: hslToHex(secondaryHue, .68, light ? .36 : .7),
+      background: variant === "amoled" ? "#000000" : hslToHex(primaryHue, .12, light ? .97 : .055),
+      surface: hslToHex(primaryHue, .12, light ? .92 : .105),
+      onSurface: light ? "#15151a" : "#f7f7fa",
+      onSurfaceVariant: light ? "#50505b" : "#c9c9d2",
+    };
+  }
+  const appearance = structuredClone(theme.appearance);
+  appearance.seed = seed;
+  for (const region of THEME_STYLE_REGIONS) {
+    appearance.regions[region].gradient.stops = [
+      hslToHex((primaryHue + random() * 30) % 360, .85, .55),
+      hslToHex((secondaryHue + random() * 30) % 360, .78, .48),
+    ];
+  }
+  return { ...theme, variants, appearance };
 }
 
 export function resolveTheme(

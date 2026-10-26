@@ -6,6 +6,8 @@ import {
   parseCustomThemes,
   resolveTheme,
   themeCssVariables,
+  randomizeCustomTheme,
+  themeRegionGradient,
 } from "./themes";
 
 describe("themes", () => {
@@ -30,6 +32,23 @@ describe("themes", () => {
 
     expect(parsed).toEqual([custom]);
     expect(resolveTheme(custom.id, parsed)).toEqual(custom);
+  });
+
+  it("migrates legacy custom themes to disabled region effects", () => {
+    const custom = createCustomTheme("custom-legacy", "Legacy");
+    const { appearance: _appearance, ...legacy } = custom;
+    const parsed = parseCustomThemes(JSON.stringify([legacy]));
+    expect(parsed[0]!.appearance.regions.frame.effect).toBe("off");
+    expect(parsed[0]!.appearance.regions.frame.gradient.enabled).toBe(false);
+  });
+
+  it("re-rolls deterministically and builds multi-stop region gradients", () => {
+    const custom = createCustomTheme("custom-random", "Random");
+    const one = randomizeCustomTheme(custom, 42);
+    const two = randomizeCustomTheme(custom, 42);
+    expect(one).toEqual(two);
+    one.appearance.regions.frame.gradient.stops.push("#ffffff");
+    expect(themeRegionGradient(one.appearance.regions.frame)).toContain("#ffffff");
   });
 
   it("falls back to Flow Default for an unknown selection", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { createElement, useEffect, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setNativeWindowBackground } from "./nativeWindowAppearance";
 import { IS_MACOS_RUNTIME } from "./platform";
@@ -10,6 +10,7 @@ import {
   parseCustomThemes,
   resolveTheme,
   themeCssVariables,
+  themeRegionGradient,
   type CustomThemeDefinition,
   type ThemeVariant,
 } from "./themes";
@@ -68,8 +69,29 @@ export function ThemeController() {
     if (colorBlindEnabled) root.dataset.colorBlindPalette = palette;
     else delete root.dataset.colorBlindPalette;
     root.style.colorScheme = effectiveVariant === "light" ? "light" : "dark";
+    const appearance = "appearance" in theme ? theme.appearance : null;
+    for (const region of ["frame", "buttons", "containers"] as const) {
+      const style = appearance?.regions[region];
+      root.dataset[`theme${region[0]!.toUpperCase()}${region.slice(1)}Effect` as keyof DOMStringMap] = style?.effect ?? "off";
+      root.dataset[`theme${region[0]!.toUpperCase()}${region.slice(1)}Gradient` as keyof DOMStringMap] = style?.gradient.enabled ? "true" : "false";
+      root.dataset[`theme${region[0]!.toUpperCase()}${region.slice(1)}Animation` as keyof DOMStringMap] = style?.gradient.animation ?? "off";
+      if (style) {
+        root.style.setProperty(`--theme-${region}-gradient`, themeRegionGradient(style));
+        root.style.setProperty(`--theme-${region}-animation-seconds`, `${style.gradient.seconds}s`);
+      } else {
+        root.style.removeProperty(`--theme-${region}-gradient`);
+        root.style.removeProperty(`--theme-${region}-animation-seconds`);
+      }
+    }
+    const updateFocus = () => root.classList.toggle("theme-window-inactive", !document.hasFocus());
+    updateFocus();
+    window.addEventListener("focus", updateFocus);
+    window.addEventListener("blur", updateFocus);
 
-    if (!IS_MACOS_RUNTIME) return;
+    if (!IS_MACOS_RUNTIME) return () => {
+      window.removeEventListener("focus", updateFocus);
+      window.removeEventListener("blur", updateFocus);
+    };
     let disposed = false;
     const appWindow = getCurrentWindow();
     void appWindow.setTheme(effectiveVariant === "light" ? "light" : "dark")
@@ -79,8 +101,12 @@ export function ThemeController() {
       .catch((cause) => {
         void logToBackend("warn", "native window appearance failed", { cause: String(cause) });
       });
-    return () => { disposed = true; };
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", updateFocus);
+      window.removeEventListener("blur", updateFocus);
+    };
   }, [colorBlindEnabled, paletteValue, theme, variant]);
 
-  return null;
+  return createElement("div", { className: "theme-ambient-layer", "aria-hidden": "true" });
 }

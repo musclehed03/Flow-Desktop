@@ -1,6 +1,6 @@
 import { SensorySettings } from "../../accessibility/SensorySettings";
 import { lazy, Suspense, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { ThemePreview } from "../../theme/ThemePreview";
 import { Button } from "../../ui/Button";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
@@ -18,6 +18,8 @@ import { useTheme } from "../../../lib/useTheme";
 import { IS_LINUX_RUNTIME } from "../../../lib/platform";
 import { GraphicsCompatibilitySection } from "../GraphicsCompatibilitySection";
 import { getSettingValue } from "../../../store/useAppSettingsStore";
+import { mergeImportedThemes, parseThemeFile } from "../../../lib/themePresetFile";
+import { useUiStore } from "../../../store/useUiStore";
 import { SettingItem } from "../SettingItem";
 import { SettingsGroup } from "../SettingsGroup";
 
@@ -34,6 +36,7 @@ export function AppearanceTab() {
   } = useTheme();
   const [editingTheme, setEditingTheme] = useState<CustomThemeDefinition | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
   const [tooltips, setTooltips] = useBoolPref(SETTINGS.TOOLTIPS_ENABLED, true);
 
@@ -68,6 +71,28 @@ export function AppearanceTab() {
     if (saved && themeId === theme.id) await setTheme("default");
   };
 
+  const duplicateTheme = async (theme: CustomThemeDefinition) => {
+    if (customThemes.length >= 24) return;
+    const copy = { ...structuredClone(theme), id: `custom-${crypto.randomUUID()}`, name: `${theme.name} ${getString("theme_copy_suffix")}` };
+    if (await saveCustomThemes([...customThemes, copy])) {
+      await setTheme(copy.id);
+      setEditingTheme(copy);
+    }
+  };
+
+  const importThemes = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const merged = mergeImportedThemes(customThemes, parseThemeFile(await file.text()));
+      await saveCustomThemes(merged);
+      useUiStore.getState().showToast({ message: getString("theme_import_success"), variant: "success" });
+    } catch {
+      useUiStore.getState().showToast({ message: getString("theme_import_failed"), variant: "error" });
+    } finally {
+      if (importRef.current) importRef.current.value = "";
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl pb-10">
       <SensorySettings />
@@ -83,10 +108,11 @@ export function AppearanceTab() {
           <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">{getString("settings_appearance")}</h1>
           <p className="mt-2 text-sm text-chrome-neutral-400">{getString("theme_page_description")}</p>
         </div>
-        <Button onClick={() => void createTheme()} disabled={customThemes.length >= 24}>
-          <Plus size={17} />
-          {getString("theme_create")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <input ref={importRef} type="file" accept=".ddtheme,.json,application/json" className="hidden" onChange={(event) => void importThemes(event.target.files?.[0])} />
+          <Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={17} />{getString("theme_import")}</Button>
+          <Button onClick={() => void createTheme()} disabled={customThemes.length >= 24}><Plus size={17} />{getString("theme_create")}</Button>
+        </div>
       </div>
 
       <section className="mt-8 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-5">
@@ -171,7 +197,7 @@ export function AppearanceTab() {
       {editingTheme && (
         <Suspense fallback={<p role="status">{getString("panel_loading")}</p>}>
           <CustomThemeEditor key={editingTheme.id} theme={editingTheme} openerRef={editorOpenerRef}
-            onClose={() => setEditingTheme(null)} onChange={previewTheme} />
+            onClose={() => setEditingTheme(null)} onChange={previewTheme} onDuplicate={(value) => void duplicateTheme(value)} />
         </Suspense>
       )}
     </div>

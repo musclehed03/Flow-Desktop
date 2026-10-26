@@ -33,7 +33,8 @@ it("previews color edits immediately and exposes live undo and reset", async () 
     onClose: vi.fn(),
     onChange,
   })));
-  const primary = document.querySelector<HTMLInputElement>('input[type="color"]')!;
+  const primary = [...document.querySelectorAll<HTMLInputElement>('input[type="color"]')]
+    .find((input) => input.closest("label")?.textContent?.includes(getString("theme_color_primary")))!;
   const setInputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setInputValue.call(primary, "#123456");
@@ -52,5 +53,20 @@ it("previews color edits immediately and exposes live undo and reset", async () 
   });
   await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${getString("panel_reset")}"]`)!.click());
   expect(onChange).toHaveBeenLastCalledWith(theme);
+  await act(async () => root.unmount());
+});
+
+it("labels target regions and disables animation controls under Safe Motion", async () => {
+  useAppSettingsStore.setState({ values: { ...originalSettings, ["safe_motion_enabled"]: "true" } });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(CustomThemeEditor, {
+    theme: createCustomTheme("custom-regions", "Regions"), openerRef: { current: null }, onClose: vi.fn(), onChange: vi.fn(),
+  })));
+  expect(document.body.textContent).toContain(getString("theme_region_frame"));
+  expect(document.body.textContent).toContain(getString("theme_region_buttons"));
+  expect(document.body.textContent).toContain(getString("theme_region_containers"));
+  expect([...document.querySelectorAll("select")].some((select) => select.disabled)).toBe(true);
   await act(async () => root.unmount());
 });

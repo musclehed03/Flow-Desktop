@@ -686,6 +686,75 @@
   .deviant-tracer { display: none; }
 }
 dialog::backdrop { background: color-mix(in srgb, var(--dd-near-black) 75%, transparent); }
+
+/* Custom-theme effects are opt-in data attributes. Built-in themes never set a
+   gradient or effect, preserving the default design system. */
+.theme-ambient-layer {
+  position: fixed;
+  inset: var(--app-titlebar-height, 0) 0 0;
+  z-index: 1;
+  pointer-events: none;
+  contain: strict;
+  opacity: .36;
+  padding: 10px;
+  mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+  mask-composite: exclude;
+}
+:root[data-theme-frame-gradient="true"] body,
+:root[data-theme-frame-gradient="true"] #root > div {
+  background-image: var(--theme-frame-gradient);
+  background-size: 180% 180%;
+}
+:root[data-theme-buttons-gradient="true"] :where(button, [role="button"]) {
+  background-image: var(--theme-buttons-gradient);
+  background-size: 180% 180%;
+}
+:root[data-theme-containers-gradient="true"] :where([class*="bg-surface-container"]) {
+  background-image: var(--theme-containers-gradient);
+  background-size: 180% 180%;
+}
+:root[data-theme-frame-animation="fade"] #root > div,
+:root[data-theme-buttons-animation="fade"] :where(button, [role="button"]),
+:root[data-theme-containers-animation="fade"] :where([class*="bg-surface-container"]) { animation: theme-color-fade var(--theme-frame-animation-seconds, 12s) ease-in-out infinite alternate; }
+:root[data-theme-frame-animation="shift"] #root > div,
+:root[data-theme-buttons-animation="shift"] :where(button, [role="button"]),
+:root[data-theme-containers-animation="shift"] :where([class*="bg-surface-container"]) { animation: theme-color-shift var(--theme-frame-animation-seconds, 12s) linear infinite; }
+:root[data-theme-buttons-animation]:not([data-theme-buttons-animation="off"]) :where(button, [role="button"]) { animation-duration: var(--theme-buttons-animation-seconds, 12s); }
+:root[data-theme-containers-animation]:not([data-theme-containers-animation="off"]) :where([class*="bg-surface-container"]) { animation-duration: var(--theme-containers-animation-seconds, 12s); }
+@keyframes theme-color-fade { from { background-position: 0 50%; } to { background-position: 100% 50%; } }
+@keyframes theme-color-shift { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+
+:root[data-theme-frame-effect="flame"] .theme-ambient-layer,
+:root[data-theme-frame-effect="fire"] .theme-ambient-layer {
+  background: radial-gradient(ellipse at 20% 105%, color-mix(in srgb, var(--color-primary) 72%, transparent) 0 4%, transparent 18%), radial-gradient(ellipse at 75% 108%, color-mix(in srgb, var(--color-primary) 60%, transparent) 0 5%, transparent 20%);
+  background-size: 38% 42%, 44% 48%;
+  animation: theme-flame 7s ease-in-out infinite alternate;
+}
+:root[data-theme-frame-effect="swirl"] .theme-ambient-layer { background: conic-gradient(from 0deg at 50% 50%, transparent, color-mix(in srgb, var(--color-primary) 24%, transparent), transparent 45%); animation: theme-swirl 18s linear infinite; }
+:root[data-theme-frame-effect="ice"] .theme-ambient-layer { background: repeating-linear-gradient(135deg, transparent 0 9%, color-mix(in srgb, var(--color-secondary-val) 20%, transparent) 10%, transparent 11% 20%); animation: theme-weather 16s linear infinite; }
+:root[data-theme-frame-effect="rain"] .theme-ambient-layer { background: repeating-linear-gradient(105deg, transparent 0 18px, color-mix(in srgb, var(--color-secondary-val) 30%, transparent) 19px, transparent 20px 38px); animation: theme-rain 9s linear infinite; }
+:root[data-theme-frame-effect="snow"] .theme-ambient-layer { background-image: radial-gradient(circle, color-mix(in srgb, var(--color-on-surface-val) 55%, transparent) 0 2px, transparent 3px); background-size: 42px 42px; animation: theme-snow 14s linear infinite; }
+@keyframes theme-flame { from { transform: translateY(5%) scaleX(.96); } to { transform: translateY(-3%) scaleX(1.04); } }
+@keyframes theme-swirl { to { transform: rotate(360deg) scale(1.35); } }
+@keyframes theme-weather { to { background-position: 240px -160px; } }
+@keyframes theme-rain { to { background-position: 160px 320px; } }
+@keyframes theme-snow { to { background-position: 84px 168px; } }
+
+:root:is([data-theme-buttons-effect="flame"], [data-theme-buttons-effect="fire"], [data-theme-buttons-effect="swirl"], [data-theme-buttons-effect="ice"], [data-theme-buttons-effect="rain"], [data-theme-buttons-effect="snow"]) :where(button, [role="button"]),
+:root:is([data-theme-containers-effect="flame"], [data-theme-containers-effect="fire"], [data-theme-containers-effect="swirl"], [data-theme-containers-effect="ice"], [data-theme-containers-effect="rain"], [data-theme-containers-effect="snow"]) :where([class*="bg-surface-container"]) {
+  background-image: radial-gradient(circle at 20% 120%, color-mix(in srgb, var(--color-primary) 24%, transparent), transparent 44%), var(--theme-buttons-gradient, none);
+  background-size: 160% 160%;
+  animation: theme-color-fade 12s ease-in-out infinite alternate;
+}
+.sensory-motion .theme-ambient-layer,
+.sensory-reducedFlash .theme-ambient-layer { display: none; }
+.sensory-motion :where(button, [role="button"], [class*="bg-surface-container"]),
+.sensory-reducedFlash :where(button, [role="button"], [class*="bg-surface-container"]),
+.theme-window-inactive :where(button, [role="button"], [class*="bg-surface-container"], #root > div, .theme-ambient-layer) { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+  .theme-ambient-layer { display: none; }
+  :where(button, [role="button"], [class*="bg-surface-container"], #root > div) { animation: none !important; }
+}
 /* Keep volume sliders reachable by keyboard, including while the pointer is elsewhere. */
 .group\/volume:focus-within > div { width: 5rem; opacity: 1; }
 
