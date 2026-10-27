@@ -51,7 +51,11 @@ export type ThemeDescriptionKey =
   | "theme_description_tide"
   | "theme_description_sage"
   | "theme_description_caffeine"
-  | "theme_description_claude";
+  | "theme_description_claude"
+  | "theme_description_posh_velvet"
+  | "theme_description_posh_midnight"
+  | "theme_description_posh_astral"
+  | "theme_description_posh_diamond";
 
 interface PaletteSeed {
   id: string;
@@ -195,6 +199,32 @@ const seeds: PaletteSeed[] = [
     id: "claude", name: "Claude", descriptionKey: "theme_description_claude",
     light: { primary: "#c15f3c", onPrimary: "#ffffff", secondary: "#7d685f", background: "#f7f4ef", surface: "#ece7df", onSurface: "#2f2926", onSurfaceVariant: "#6b605b", outline: "#d2c9c0", error: "#b3261e" },
     dark: { primary: "#e07a58", onPrimary: "#2b1510", secondary: "#b9a49b", background: "#1d1b19", surface: "#282522", onSurface: "#eee9e5", onSurfaceVariant: "#c8beb8", outline: "#4b4541", error: "#ffb4ab" },
+  },  // Posh/Mature App Palette (Dollhouse Deviants) — from the Posh Luxe Palette
+  // Studio draft, Oct 27, 2026, final darkened pass. Pink runs orchid to deep
+  // wine; the cool accent runs dark teal to greenish-navy. Metal (1px
+  // pinstripe) + one ornament per variant live in the website palette file
+  // (src/theme/posh-mature-palette.css) and are named in the descriptions
+  // below; error uses the sibling seeds' standard values (the palette
+  // defines none). Amoled + surface containers derive automatically.
+  {
+    id: "posh-velvet-boudoir", name: "Velvet Boudoir", descriptionKey: "theme_description_posh_velvet",
+    light: { primary: "#7c254f", onPrimary: "#ffffff", secondary: "#1f483f", background: "#dcd2d5", surface: "#ece5e7", onSurface: "#211820", onSurfaceVariant: "#493e46", outline: "#32262d", error: "#ba1a1a" },
+    dark: { primary: "#ad3375", onPrimary: "#ffffff", secondary: "#547c6d", background: "#080609", surface: "#120d11", onSurface: "#ddd3d7", onSurfaceVariant: "#a1969e", outline: "#241d23", error: "#ffb4ab" },
+  },
+  {
+    id: "posh-parisian-midnight", name: "Parisian Midnight", descriptionKey: "theme_description_posh_midnight",
+    light: { primary: "#6d1f40", onPrimary: "#ffffff", secondary: "#1e414a", background: "#d7dde1", surface: "#ebeff0", onSurface: "#11141b", onSurfaceVariant: "#333d47", outline: "#232a35", error: "#ba1a1a" },
+    dark: { primary: "#952a4e", onPrimary: "#ffffff", secondary: "#45707b", background: "#06080b", surface: "#0d1219", onSurface: "#d6d9dc", onSurfaceVariant: "#8d99a3", outline: "#1e242e", error: "#ffb4ab" },
+  },
+  {
+    id: "posh-victorian-astral", name: "Victorian Astral", descriptionKey: "theme_description_posh_astral",
+    light: { primary: "#5f1a34", onPrimary: "#ffffff", secondary: "#274639", background: "#ded9cf", surface: "#efe9de", onSurface: "#1a1713", onSurfaceVariant: "#413c35", outline: "#26241f", error: "#ba1a1a" },
+    dark: { primary: "#842b45", onPrimary: "#ffffff", secondary: "#4d6d5a", background: "#060607", surface: "#111010", onSurface: "#dcd7cf", onSurfaceVariant: "#9b968e", outline: "#24211d", error: "#ffb4ab" },
+  },
+  {
+    id: "posh-black-diamond", name: "Black Diamond", descriptionKey: "theme_description_posh_diamond",
+    light: { primary: "#52162b", onPrimary: "#ffffff", secondary: "#263a4a", background: "#d9dbde", surface: "#ececed", onSurface: "#121214", onSurfaceVariant: "#3d3d44", outline: "#1f1f23", error: "#ba1a1a" },
+    dark: { primary: "#701f36", onPrimary: "#ffffff", secondary: "#51687a", background: "#050506", surface: "#0d0d0f", onSurface: "#dcdcdc", onSurfaceVariant: "#8c9199", outline: "#1d1d20", error: "#ffb4ab" },
   },
 ];
 
