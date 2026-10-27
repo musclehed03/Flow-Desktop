@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useUpdaterStore } from "../../store/useUpdaterStore";
 import { UpdateDialog } from "./UpdateDialog";
+import { checkForkRelease } from "../../lib/forkUpdateCheck";
+import { openExternal } from "../../lib/openExternal";
+import { getString } from "../../lib/i18n/index";
+import { useUiStore } from "../../store/useUiStore";
 
 /**
  * Delay the startup check so it never competes with first paint or the initial
@@ -26,7 +30,16 @@ export function UpdateManager({ enabled }: { enabled: boolean }) {
       const store = useUpdaterStore.getState();
       await store.loadPreferences();
       if (cancelled || !useUpdaterStore.getState().autoCheck) return;
-      await store.checkForUpdates({ silent: true });
+      try {
+        const release = await checkForkRelease();
+        if (!cancelled && release) useUiStore.getState().showToast({
+          title: getString("fork_update_available"),
+          message: getString("fork_update_version", release.version),
+          actionLabel: getString("fork_update_view"),
+          onAction: () => void openExternal(release.url),
+          durationMs: 12000,
+        });
+      } catch (error) { console.warn("Fork update check failed", error); }
     }, STARTUP_CHECK_DELAY_MS);
 
     return () => {

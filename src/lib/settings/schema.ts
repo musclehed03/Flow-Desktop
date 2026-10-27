@@ -158,6 +158,7 @@ export const SETTINGS = {
 
   AUTO_BACKUP_FREQUENCY: "auto_backup_frequency",
   AUTO_BACKUP_TYPE: "auto_backup_type",
+  AUTO_BACKUP_LOCATION: "auto_backup_location",
 
   SPONSORBLOCK_ENABLED: "sponsorblock_enabled",
   DEARROW_ENABLED: "dearrow_enabled",
@@ -319,7 +320,7 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.MINI_PLAYER_SHOW_NEXT_PREV_CONTROLS, "player", true, "wired"),
   bool(SETTINGS.SHOW_FULLSCREEN_TITLE, "player", false, "wired"),
   bool(SETTINGS.AMBIENT_MODE_ENABLED, "player", true, "wired"),
-  bool(SETTINGS.ADAPTIVE_PLAYER_SIZE_ENABLED, "player", true, "persisted-only"),
+  bool(SETTINGS.ADAPTIVE_PLAYER_SIZE_ENABLED, "player", true, "wired"),
   bool(SETTINGS.AUTO_PIP_ENABLED, "player", true, "wired"),
   bool(SETTINGS.MANUAL_PIP_BUTTON_ENABLED, "player", true, "wired"),
   bool(SETTINGS.PIP_SEPARATE_WINDOW, "player", true, "wired"),
@@ -350,7 +351,7 @@ export const SETTING_DEFINITIONS = [
   num(SETTINGS.SHORTS_AUTO_SCROLL_SECONDS, "content", 10, "wired", 5, 20),
   bool(SETTINGS.MUSIC_NAVIGATION_ENABLED, "content", true, "wired"),
   bool(SETTINGS.CATEGORIES_NAV_TAB_ENABLED, "content", true, "wired"),
-  bool(SETTINGS.SUBSCRIPTION_REFRESH_ON_STARTUP, "content", false, "persisted-only"),
+  bool(SETTINGS.SUBSCRIPTION_REFRESH_ON_STARTUP, "content", false, "wired"),
   bool(SETTINGS.SUBSCRIPTION_SHOW_VIDEOS, "content", true, "wired"),
   bool(SETTINGS.SUBSCRIPTION_SHOW_SHORTS, "content", true, "wired"),
   bool(SETTINGS.SUBSCRIPTION_SHOW_LIVE, "content", true, "wired"),
@@ -369,13 +370,13 @@ export const SETTING_DEFINITIONS = [
   str(SETTINGS.DEFAULT_VIDEO_CODEC, "quality", "H.264", "wired", ["Auto", "H.264", "VP9", "AV1"]),
   str(SETTINGS.SHORTS_QUALITY_WIFI, "quality", "720p", "wired", QUALITY_VALUES),
   str(SETTINGS.MUSIC_AUDIO_QUALITY, "quality", "Auto", "wired", ["Auto", "High", "Medium", "Low"]),
-  str(SETTINGS.PREFERRED_AUDIO_LANGUAGE, "quality", "original", "persisted-only"),
+  str(SETTINGS.PREFERRED_AUDIO_LANGUAGE, "quality", "original", "wired"),
 
   str(SETTINGS.BUFFER_PROFILE, "network", "STABLE", "wired", ["AGGRESSIVE", "STABLE", "DATASAVER", "CUSTOM"]),
   num(SETTINGS.MIN_BUFFER_MS, "network", 30000, "wired", 5000, 120000),
   num(SETTINGS.MAX_BUFFER_MS, "network", 50000, "wired", 25000, 120000),
-  num(SETTINGS.BUFFER_FOR_PLAYBACK_MS, "network", 2500, "partial", 500, 5000),
-  num(SETTINGS.BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS, "network", 5000, "partial", 2500, 10000),
+  num(SETTINGS.BUFFER_FOR_PLAYBACK_MS, "network", 2500, "wired", 500, 5000),
+  num(SETTINGS.BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS, "network", 5000, "wired", 2500, 10000),
   num(SETTINGS.MEDIA_CACHE_SIZE_MB, "network", 500, "deferred", 0, 2000, "disabled-until-wired", "settings_note_media_cache_accounting_missing"),
   bool(SETTINGS.PROXY_ENABLED, "network", false, "persisted-only"),
   str(SETTINGS.PROXY_TYPE, "network", "http", "persisted-only", ["http", "socks5", "socks4"]),
@@ -392,8 +393,9 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.DOWNLOAD_THUMBNAILS_ENABLED, "downloads", true, "wired"),
   str(SETTINGS.DOWNLOAD_THUMBNAIL_MODE, "downloads", "SIDECAR", "wired", ["SIDECAR", "EMBED", "BOTH"]),
 
-  str(SETTINGS.AUTO_BACKUP_FREQUENCY, "data", "NONE", "persisted-only", ["NONE", "DAILY", "WEEKLY", "MONTHLY"]),
+  str(SETTINGS.AUTO_BACKUP_FREQUENCY, "data", "NONE", "wired", ["NONE", "DAILY", "WEEKLY", "MONTHLY"]),
   str(SETTINGS.AUTO_BACKUP_TYPE, "data", "APP_DATA", "wired", ["APP_DATA", "BRAIN", "MASTER"]),
+  str(SETTINGS.AUTO_BACKUP_LOCATION, "data", "", "wired"),
 
   bool(SETTINGS.SPONSORBLOCK_ENABLED, "extensions", true, "wired"),
   bool(SETTINGS.DEARROW_ENABLED, "extensions", true, "wired"),

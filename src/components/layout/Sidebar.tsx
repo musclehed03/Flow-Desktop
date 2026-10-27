@@ -312,6 +312,7 @@ export function Sidebar({ mode = 'normal' }: SidebarProps) {
           <SidebarItem to="/saved-shorts" {...shortsNavIconPair} label={getString('library_saved_shorts_label')} onClick={closeOverlay} />
           <SidebarItem to="/liked" {...navIconPair('liked')} label={getString('library_likes_label')} onClick={closeOverlay} />
           <SidebarItem to="/downloads" {...navIconPair('downloads')} label={getString('library_downloads_label')} onClick={closeOverlay} />
+          <SidebarItem to="/library-lab" {...navIconPair('history')} label={getString('library_lab_title')} onClick={closeOverlay} />
         </nav>
       </section>
 

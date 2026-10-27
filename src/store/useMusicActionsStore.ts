@@ -53,12 +53,15 @@ function activeSuppressed(entries: Map<string, number>): Map<string, number> {
 
 interface MusicActionsState {
   dismissedTrackIds: Set<string>;
+  blockedTracks: Map<string, string>;
   /** key → display name, so the management UI can render and unblock. */
   blockedArtists: Map<string, string>;
   suppressedArtistKeys: Map<string, number>;
   loaded: boolean;
   load: () => Promise<void>;
   notInterested: (song: SongItem) => Promise<void>;
+  blockTrack: (song: SongItem) => Promise<void>;
+  unblockTrack: (key: string) => Promise<void>;
   blockArtist: (artist: { id?: string | null; name: string }) => Promise<void>;
   unblockArtist: (key: string) => Promise<void>;
 }
@@ -67,6 +70,7 @@ interface MusicActionsState {
  *  player-store sync, which can't use React hooks). */
 function buildHiddenPredicate(state: {
   dismissedTrackIds: Set<string>;
+  blockedTracks: Map<string, string>;
   blockedArtists: Map<string, string>;
   suppressedArtistKeys: Map<string, number>;
 }): (song: SongItem) => boolean {
@@ -74,7 +78,7 @@ function buildHiddenPredicate(state: {
   const blocked = state.blockedArtists;
   const active = activeSuppressed(state.suppressedArtistKeys);
   return (song: SongItem) => {
-    if (dismissed.has(trackKeyOf(song))) return true;
+    if (dismissed.has(trackKeyOf(song)) || state.blockedTracks.has(trackKeyOf(song))) return true;
     for (const artist of song.artists ?? []) {
       const key = musicArtistKey(artist);
       if (key && (blocked.has(key) || active.has(key))) return true;
@@ -85,12 +89,13 @@ function buildHiddenPredicate(state: {
 
 export const useMusicActionsStore = create<MusicActionsState>((set, get) => {
   const persist = () => {
-    const { dismissedTrackIds, blockedArtists, suppressedArtistKeys } = get();
+    const { dismissedTrackIds, blockedTracks, blockedArtists, suppressedArtistKeys } = get();
     const activeS = activeSuppressed(suppressedArtistKeys);
     void setSetting(
       STORE_KEY,
       JSON.stringify({
         dismissed: [...dismissedTrackIds],
+        blockedTracks: [...blockedTracks.entries()],
         blocked: [...blockedArtists.entries()],
         suppressed: [...activeS.entries()],
       }),
@@ -108,6 +113,7 @@ export const useMusicActionsStore = create<MusicActionsState>((set, get) => {
 
   return {
     dismissedTrackIds: new Set(),
+    blockedTracks: new Map(),
     blockedArtists: new Map(),
     suppressedArtistKeys: new Map(),
     loaded: false,
@@ -119,11 +125,13 @@ export const useMusicActionsStore = create<MusicActionsState>((set, get) => {
         if (raw) {
           const parsed = JSON.parse(raw) as {
             dismissed?: string[];
+            blockedTracks?: [string, string][];
             blocked?: [string, string][];
             suppressed?: [string, number][];
           };
           set({
             dismissedTrackIds: new Set(parsed.dismissed ?? []),
+            blockedTracks: new Map(parsed.blockedTracks ?? []),
             blockedArtists: new Map(
               (parsed.blocked ?? []).filter(([key]) => typeof key === "string" && key.length > 0),
             ),
@@ -176,6 +184,23 @@ export const useMusicActionsStore = create<MusicActionsState>((set, get) => {
       }
     },
 
+    blockTrack: async (song) => {
+      const key = trackKeyOf(song);
+      set((state) => ({ blockedTracks: addCappedMap(state.blockedTracks, key, song.title, DISMISSED_CAP) }));
+      persist();
+      syncPlayer();
+    },
+
+    unblockTrack: async (key) => {
+      set((state) => {
+        const blockedTracks = new Map(state.blockedTracks);
+        blockedTracks.delete(key);
+        return { blockedTracks };
+      });
+      persist();
+      syncPlayer();
+    },
+
     blockArtist: async ({ id, name }) => {
       const key = musicArtistKey({ id, name });
       if (!key) return;
@@ -216,19 +241,20 @@ export const useMusicActionsStore = create<MusicActionsState>((set, get) => {
  *  dismissed, or any of its artists is blocked or actively suppressed). */
 export function useMusicHiddenFilter(): (song: SongItem) => boolean {
   const dismissed = useMusicActionsStore((s) => s.dismissedTrackIds);
+  const blockedTracks = useMusicActionsStore((s) => s.blockedTracks);
   const blocked = useMusicActionsStore((s) => s.blockedArtists);
   const suppressed = useMusicActionsStore((s) => s.suppressedArtistKeys);
   const active = useMemo(() => activeSuppressed(suppressed), [suppressed]);
   return useCallback(
     (song: SongItem) => {
-      if (dismissed.has(trackKeyOf(song))) return true;
+      if (dismissed.has(trackKeyOf(song)) || blockedTracks.has(trackKeyOf(song))) return true;
       for (const artist of song.artists ?? []) {
         const key = musicArtistKey(artist);
         if (key && (blocked.has(key) || active.has(key))) return true;
       }
       return false;
     },
-    [dismissed, blocked, active],
+    [dismissed, blockedTracks, blocked, active],
   );
 }
 

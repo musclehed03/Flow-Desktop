@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import { PictureInPicture2 } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { requestPopoutReturn } from "../../lib/pipHandoff";
 import { getString } from "../../lib/i18n/index";
+import { useAppSettingsStore } from "../../store/useAppSettingsStore";
+import { SETTINGS } from "../../lib/settings/schema";
 
 export function WatchPlayerSlot() {
   const isTheaterMode = usePlayerStore((s) => s.isTheaterMode);
@@ -9,6 +12,16 @@ export function WatchPlayerSlot() {
   const expandVideoPlayer = usePlayerStore((s) => s.expandVideoPlayer);
   const isFloating = videoPlayerMode === "pip";
   const isPoppedOut = videoPlayerMode === "window";
+  const adaptive = useAppSettingsStore((state) => state.values[SETTINGS.ADAPTIVE_PLAYER_SIZE_ENABLED] !== "false");
+  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+  useEffect(() => {
+    const update = (raw: Event) => {
+      const ratio = (raw as CustomEvent<{ ratio: number }>).detail?.ratio;
+      if (Number.isFinite(ratio) && ratio >= 0.5 && ratio <= 3) setAspectRatio(ratio);
+    };
+    window.addEventListener("flow-video-aspect-ratio", update);
+    return () => window.removeEventListener("flow-video-aspect-ratio", update);
+  }, []);
 
   const overlayClass =
     "absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-[inherit] bg-chrome-black/85 text-sm font-medium text-chrome-zinc-300 transition-colors hover:text-chrome-white";
@@ -16,10 +29,11 @@ export function WatchPlayerSlot() {
   return (
     <div
       data-flow-watch-player-slot="true"
+      style={adaptive ? { aspectRatio } : undefined}
       className={
         isTheaterMode
-          ? "relative w-full aspect-video max-h-[calc(100vh-160px)] min-h-[480px] bg-chrome-black"
-          : "relative w-full aspect-video overflow-hidden rounded-xl bg-chrome-black"
+          ? `relative w-full max-h-[calc(100vh-160px)] min-h-[480px] bg-chrome-black ${adaptive ? "" : "aspect-video"}`
+          : `relative w-full overflow-hidden rounded-xl bg-chrome-black ${adaptive ? "" : "aspect-video"}`
       }
     >
 

@@ -9,6 +9,8 @@ export interface ToastState {
   message: string;
   variant: ToastVariant;
   durationMs: number;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export interface ShowToastOptions {
@@ -16,6 +18,8 @@ export interface ShowToastOptions {
   message: string;
   variant?: ToastVariant;
   durationMs?: number;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 const getSavedSidebarExpanded = () => {
@@ -85,13 +89,15 @@ export const useUiStore = create<UiState>((set) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setIsSearching: (isSearching) => set({ isSearching }),
   setWatchSidebarOpen: (isWatchSidebarOpen) => set({ isWatchSidebarOpen }),
-  showToast: ({ title, message, variant = "info", durationMs = 2400 }) => set({
+  showToast: ({ title, message, variant = "info", durationMs = 2400, actionLabel, onAction }) => set({
     toast: {
       id: Date.now(),
       title,
       message,
       variant,
       durationMs,
+      actionLabel,
+      onAction,
     },
   }),
   dismissToast: () => set({ toast: null }),

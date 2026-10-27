@@ -424,6 +424,8 @@ export const Player: React.FC<PlayerProps> = ({
   const seekIntervalSetting = useAppSettingsStore((state) => state.values[SETTINGS.DOUBLE_TAP_SEEK_SECONDS] ?? "10");
   const subtitlesEnabled = useAppSettingsStore((state) => state.values[SETTINGS.SUBTITLES_ENABLED] === "true");
   const preferredSubtitleLanguage = useAppSettingsStore((state) => state.values[SETTINGS.PREFERRED_SUBTITLE_LANGUAGE] ?? "en");
+  const preferredAudioLanguage = useAppSettingsStore((state) => state.values[SETTINGS.PREFERRED_AUDIO_LANGUAGE] ?? "original");
+  const adaptivePlayerSize = useAppSettingsStore((state) => state.values[SETTINGS.ADAPTIVE_PLAYER_SIZE_ENABLED] !== "false");
   // Silences this player while it warms up behind a handoff the other window is
   // still playing out loud; user mute and volume stay untouched.
   const isHandoffSilent = usePlayerStore((state) => state.isHandoffSilent);
@@ -971,8 +973,15 @@ export const Player: React.FC<PlayerProps> = ({
   }, [captions, preferredSubtitleLanguage, subtitlesEnabled]);
 
   useEffect(() => {
-    setSelectedAudioTrackId(selectPreferredAudioTrackId(audioTracks, "original"));
-  }, [audioTracks]);
+    setSelectedAudioTrackId(selectPreferredAudioTrackId(audioTracks, preferredAudioLanguage));
+  }, [audioTracks, preferredAudioLanguage]);
+
+  useEffect(() => {
+    if (!adaptivePlayerSize || !selectedQuality?.width || !selectedQuality.height) return;
+    window.dispatchEvent(new CustomEvent("flow-video-aspect-ratio", {
+      detail: { ratio: selectedQuality.width / selectedQuality.height },
+    }));
+  }, [adaptivePlayerSize, selectedQuality?.height, selectedQuality?.width]);
 
   useEffect(() => {
     const video = videoRef.current;

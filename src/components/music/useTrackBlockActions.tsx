@@ -1,4 +1,4 @@
-import { Ban, EyeOff } from 'lucide-react';
+import { Ban, EyeOff, ShieldX } from 'lucide-react';
 
 import { getString } from '../../lib/i18n/index';
 import { useMusicActionsStore } from '../../store/useMusicActionsStore';
@@ -14,6 +14,7 @@ import type { MusicMenuAction } from './MusicCardMenu';
 export function useTrackBlockActions(track: SongItem | null): MusicMenuAction[] {
   const notInterested = useMusicActionsStore((s) => s.notInterested);
   const blockArtist = useMusicActionsStore((s) => s.blockArtist);
+  const blockTrack = useMusicActionsStore((s) => s.blockTrack);
   const showToast = useUiStore((s) => s.showToast);
 
   if (!track) return [];
@@ -28,6 +29,15 @@ export function useTrackBlockActions(track: SongItem | null): MusicMenuAction[] 
       onSelect: async () => {
         await notInterested(track);
         showToast({ variant: 'success', message: getString('music_not_interested_toast') });
+      },
+    },
+    {
+      id: 'block-track',
+      label: getString('music_block_track'),
+      icon: <ShieldX size={16} />,
+      onSelect: async () => {
+        await blockTrack(track);
+        showToast({ variant: 'success', message: getString('music_track_blocked_toast') });
       },
     },
   ];

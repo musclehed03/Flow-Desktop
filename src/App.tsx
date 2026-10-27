@@ -77,7 +77,9 @@ import "./App.css";
 import { PlaybackSessionController } from "./components/player/PlaybackSessionController";
 import { PlayerDropController } from "./components/player/PlayerDropController";
 import PlayerHub from "./pages/PlayerHub";
+import LibraryLab from "./pages/LibraryLab";
 import { MixedMediaQueueController } from "./components/player/MixedMediaQueueController";
+import { MaintenanceController } from "./components/app/MaintenanceController";
 
 const windowLayoutStyle = { "--app-titlebar-height": `${APP_TITLEBAR_HEIGHT}px` } as CSSProperties;
 
@@ -160,6 +162,7 @@ function App() {
       <ThemeController />
       <PlaybackSessionController />
       <MixedMediaQueueController />
+      <MaintenanceController />
       <PlayerDropController />
       <DeviantControls /><RelatedSongsSidebar /><Visualizers />
       <TitleBar />
@@ -228,6 +231,7 @@ function App() {
           <Route path="library" element={
             <LibraryPage onPlay={handlePlayVideo} onAddToQueue={handleAddToQueue} />
           } />
+          <Route path="library-lab" element={<LibraryLab />} />
           <Route path="albums" element={
             <AlbumsLibrary />
           } />

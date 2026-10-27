@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Download, Trash2, FileText } from 'lucide-react';
+import { Upload, Download, Trash2, FileText, FolderOpen } from 'lucide-react';
 import { SettingsGroup } from '../SettingsGroup';
 import { SettingItem } from '../SettingItem';
 import { Select } from '../../ui/Select';
@@ -9,7 +9,7 @@ import { usePreference } from '../../../lib/usePreference';
 import { getSetting, setSetting, clearWatchHistory, getWatchHistory } from '../../../lib/api/db';
 import { writeBackupFile } from '../../../lib/api/files';
 import { buildSettingsBackupJson, type SettingsBackupScope } from '../../../lib/settings/backup';
-import { confirmAction, pickSaveFile } from '../../../lib/dialogs';
+import { confirmAction, pickFolder, pickSaveFile } from '../../../lib/dialogs';
 import { isTauriEnv } from '../../../lib/api/env';
 import { getString } from '../../../lib/i18n/index';
 import { SETTINGS } from '../../../lib/settings/schema';
@@ -21,6 +21,7 @@ export function DataTab() {
   const showToast = useUiStore((state) => state.showToast);
   const [backupFrequency, setBackupFrequency] = usePreference(SETTINGS.AUTO_BACKUP_FREQUENCY, 'NONE');
   const [backupType, setBackupType] = usePreference(SETTINGS.AUTO_BACKUP_TYPE, 'APP_DATA');
+  const [backupLocation, setBackupLocation] = usePreference(SETTINGS.AUTO_BACKUP_LOCATION, '');
   const [historyCount, setHistoryCount] = useState(0);
   const [subCount, setSubCount] = useState(0);
   const [clearing, setClearing] = useState(false);
@@ -99,6 +100,12 @@ export function DataTab() {
           <Select value={backupType} onChange={setBackupType} options={[
             { value: 'APP_DATA', label: getString('settings_backup_scope_app_data') }, { value: 'BRAIN', label: getString('settings_backup_scope_brain') }, { value: 'MASTER', label: getString('settings_backup_scope_master') },
           ]} />
+        </SettingItem>
+        <SettingItem title={getString('settings_backup_location')} description={backupLocation || getString('settings_backup_location_desc')}>
+          <Button variant="secondary" size="sm" onClick={async () => {
+            const path = await pickFolder(getString('settings_backup_location'));
+            if (path) setBackupLocation(path);
+          }}><FolderOpen size={14} />{getString('settings_browse')}</Button>
         </SettingItem>
       </SettingsGroup>
 

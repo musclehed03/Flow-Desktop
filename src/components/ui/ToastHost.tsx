@@ -41,6 +41,7 @@ export function ToastHost() {
           <p className="font-medium text-chrome-neutral-100">{toast.title}</p>
         ) : null}
         <p className="text-chrome-neutral-300">{toast.message}</p>
+        {toast.actionLabel && toast.onAction ? <button type="button" className="mt-2 font-semibold text-[var(--color-primary)] underline underline-offset-2" onClick={() => { toast.onAction?.(); dismissToast(); }}>{toast.actionLabel}</button> : null}
       </div>
       <button
         type="button"
