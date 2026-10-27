@@ -77,6 +77,7 @@ import "./App.css";
 import { PlaybackSessionController } from "./components/player/PlaybackSessionController";
 import { PlayerDropController } from "./components/player/PlayerDropController";
 import PlayerHub from "./pages/PlayerHub";
+import { MixedMediaQueueController } from "./components/player/MixedMediaQueueController";
 
 const windowLayoutStyle = { "--app-titlebar-height": `${APP_TITLEBAR_HEIGHT}px` } as CSSProperties;
 
@@ -158,6 +159,7 @@ function App() {
     <div style={windowLayoutStyle} className="relative flex h-screen flex-col overflow-hidden bg-background text-chrome-zinc-100 font-sans">
       <ThemeController />
       <PlaybackSessionController />
+      <MixedMediaQueueController />
       <PlayerDropController />
       <DeviantControls /><RelatedSongsSidebar /><Visualizers />
       <TitleBar />

@@ -194,15 +194,14 @@ export function FlowPlayerCore({ videoId, videoDetails, onEnded }: FlowPlayerCor
     if (repeatMode === "one") {
       seekToTime(0);
       setIsPlaying(true);
-      onEnded?.();
       return;
     }
+    if (onEnded?.()) return;
     if (autoplayEnabled) {
       playNext(true);
     } else {
       setIsPlaying(false);
     }
-    onEnded?.();
   }, [autoplayEnabled, currentVideo, onEnded, playNext, repeatMode, resolvedChannelId, setIsPlaying, videoDetails]);
 
   const title = (dearrowData?.title || currentVideo?.title) ?? "";

@@ -39,6 +39,7 @@ import {
 } from "../lib/audio/eqBands";
 import { getSettingValue, setSettingValue } from "./useAppSettingsStore";
 import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "../lib/audio/eqConfig";
+import { dispatchMixedMediaEnded, dispatchMixedMediaPrevious } from "../lib/mixedMediaEvents";
 
 export type MusicViewState = "dock" | "full" | "queue" | "lyrics";
 export type MusicRepeatMode = QueueRepeatMode;
@@ -687,6 +688,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   next: () => {
     const { queue, currentIndex, isShuffle, repeatMode } = get();
     if (queue.length === 0) return;
+    if (repeatMode === "none" && currentIndex + 1 >= queue.length && dispatchMixedMediaEnded("music")) return;
 
     if (geniusEnabled() && repeatMode !== "all") {
       const next = nextMusicIndex({ ...get(), repeatMode: repeatMode === "one" ? "none" : repeatMode });
@@ -739,6 +741,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       get().seek(0);
       return;
     }
+    if (currentIndex === 0 && repeatMode !== "all" && dispatchMixedMediaPrevious("music")) return;
     let prevIndex = currentIndex - 1;
     if (prevIndex < 0) prevIndex = repeatMode === "all" ? queue.length - 1 : 0;
     void get()._loadIndex(prevIndex, { manual: true });
@@ -1048,6 +1051,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       set({ progress: 0, isPlaying: true });
       return;
     }
+    if (dispatchMixedMediaEnded("music")) return;
     get().next();
   },
 

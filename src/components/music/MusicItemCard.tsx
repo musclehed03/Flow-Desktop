@@ -23,6 +23,7 @@ import { useTrackBlockActions } from './useTrackBlockActions';
 import { useTrackNavActions } from './useTrackNavActions';
 import { useTrackDownloadAction } from './useTrackDownloadAction';
 import { useTrackRadioAction } from './useTrackRadioAction';
+import { useTrackPlaylistAction } from './useTrackPlaylistAction';
 
 type BaseProps = {
   className?: string;
@@ -265,6 +266,7 @@ function SquareCard({
   const radioActions = useTrackRadioAction(isTrack ? item : null);
   const downloadActions = useTrackDownloadAction(isTrack ? item : null);
   const blockActions = useTrackBlockActions(isTrack ? item : null);
+  const playlistActions = useTrackPlaylistAction(isTrack ? item : null);
 
   const albumBrowseId = isAlbum ? item.browseId : null;
   const albumSaved = useAlbumLibraryStore((s) => (albumBrowseId ? s.isSaved(albumBrowseId) : false));
@@ -290,6 +292,7 @@ function SquareCard({
           onSelect: () => playNextInQueue(item),
         },
         ...navActions,
+        ...playlistActions,
         {
           id: 'add-to-album',
           label: getString('music_add_to_album'),
@@ -575,6 +578,7 @@ function ListRow({
   const radioActions = useTrackRadioAction(item);
   const downloadActions = useTrackDownloadAction(item);
   const blockActions = useTrackBlockActions(item);
+  const playlistActions = useTrackPlaylistAction(item);
   const menu = useMusicContextMenu(true);
   const isPlayingTrack = !!currentTrack && videoIdOf(currentTrack) === trackId && playerIsPlaying;
   const isHighlighted = isHovered || isPlayingTrack;
@@ -594,6 +598,7 @@ function ListRow({
       onSelect: () => playNextInQueue(item),
     },
     ...navActions,
+    ...playlistActions,
     {
       id: 'add-to-album',
       label: getString('music_add_to_album'),

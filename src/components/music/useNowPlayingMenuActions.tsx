@@ -8,6 +8,7 @@ import type { SongItem } from '../../types/music';
 import type { MusicMenuAction } from './MusicCardMenu';
 import { useTrackDownloadAction } from './useTrackDownloadAction';
 import { useTrackNavActions } from './useTrackNavActions';
+import { useTrackPlaylistAction } from './useTrackPlaylistAction';
 
 function videoIdOf(track: SongItem): string {
   return track.videoId ?? track.id;
@@ -21,11 +22,13 @@ export function useNowPlayingMenuActions(
   const openAddToAlbum = useAlbumLibraryStore((s) => s.openAddToAlbum);
   const navActions = useTrackNavActions(track, options);
   const downloadActions = useTrackDownloadAction(track);
+  const playlistActions = useTrackPlaylistAction(track);
 
   if (!track) return [];
 
   return [
     ...navActions,
+    ...playlistActions,
     {
       id: 'add-to-album',
       label: getString('music_add_to_album'),

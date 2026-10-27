@@ -1,4 +1,8 @@
 export interface VideoSummary {
+  /** Phase-one mixed-playlist routing hint. Missing means the stock video engine. */
+  mediaKind?: "music" | "video";
+  /** Complete source music item used to hand this row back to the music engine. */
+  musicTrack?: import("./music").SongItem;
   id: string;
   title: string;
   channelName: string;

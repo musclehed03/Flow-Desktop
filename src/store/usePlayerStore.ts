@@ -11,6 +11,7 @@ import { SETTINGS } from "../lib/settings/schema";
 import type { CaptionTrack, RelatedContentItem, VideoDetails, VideoSummary } from "../types/video";
 import { prefetchStreamInfo } from "../lib/streamResolution";
 import { showQueueFeedback } from "../lib/queueFeedback";
+import { dispatchMixedMediaEnded, dispatchMixedMediaPrevious } from "../lib/mixedMediaEvents";
 
 import type { SponsorBlockSegment, DeArrowOverride, RydData } from "../lib/api/foss";
 
@@ -451,6 +452,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
     }
 
+    if (!allowAutoplayFallback && repeatMode === "none" && dispatchMixedMediaEnded("video")) return null;
+
     if (allowAutoplayFallback) {
       const queuedIds = new Set(queue.map((item) => item.id));
       const nextCandidate = autoplayCandidates.find((item) => !queuedIds.has(item.id) && (!geniusEnabled() || !sessionPlayed().includes(item.id)));
@@ -516,6 +519,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       window.dispatchEvent(new CustomEvent("flow-player-seek", { detail: { time: 0 } }));
       return;
     }
+
+    if (currentIndex === 0 && repeatMode !== "all" && dispatchMixedMediaPrevious("video")) return;
 
     const prevIndex = currentIndex - 1;
     if (prevIndex >= 0) {

@@ -10,6 +10,7 @@ import { SETTINGS } from "../../lib/settings/schema";
 import { FlowPlayerCore } from "./FlowPlayerCore";
 import { useMediaSessionMetadata } from "../../lib/useMediaSessionMetadata";
 import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
+import { dispatchMixedMediaEnded } from "../../lib/mixedMediaEvents";
 
 const VIDEO_PIP_CONSTRAINTS = { minWidth: 280, minHeight: 158, maxWidth: 720, maxHeight: 405, margin: 12 } as const;
 
@@ -262,7 +263,11 @@ export function GlobalVideoPlayer() {
   const playerNode = useMemo(
     () =>
       videoIdForPlayer ? (
-        <FlowPlayerCore videoId={videoIdForPlayer} videoDetails={cachedDetails} />
+        <FlowPlayerCore
+          videoId={videoIdForPlayer}
+          videoDetails={cachedDetails}
+          onEnded={() => dispatchMixedMediaEnded("video")}
+        />
       ) : null,
     [videoIdForPlayer, cachedDetails],
   );

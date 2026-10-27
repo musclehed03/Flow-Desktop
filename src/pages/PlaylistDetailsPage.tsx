@@ -22,6 +22,7 @@ import { usePublishTitle } from "../lib/usePublishTitle";
 import { useCollectionDownloadState } from "../lib/useCollectionDownloads";
 import { youtubePlaylistUrl } from "../lib/youtubeUrl";
 import { copyText } from "../lib/clipboard";
+import { useMixedMediaQueueStore } from "../lib/mixedMediaQueue";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useCollectionDownloadStore } from "../store/useCollectionDownloadStore";
 import { useUiStore } from "../store/useUiStore";
@@ -41,6 +42,7 @@ export function PlaylistDetailsPage({
   const navigate = useNavigate();
   const setQueue = usePlayerStore((state) => state.setQueue);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
+  const startMixedQueue = useMixedMediaQueueStore((state) => state.start);
   const showToast = useUiStore((state) => state.showToast);
 
   const {
@@ -191,6 +193,10 @@ export function PlaylistDetailsPage({
       : displayVideos;
     const first = queue[0];
     if (!first) return;
+    if (queue.some((item) => item.mediaKind === "music")) {
+      startMixedQueue(queue, 0);
+      return;
+    }
     setQueue(queue, 0);
     navigate(`/watch/${first.id}`);
   };
@@ -198,6 +204,10 @@ export function PlaylistDetailsPage({
   const playFromPlaylist = (video: VideoSummary) => {
     const startIndex = displayVideos.findIndex((item) => item.id === video.id);
     const safeIndex = startIndex >= 0 ? startIndex : 0;
+    if (displayVideos.some((item) => item.mediaKind === "music")) {
+      startMixedQueue(displayVideos, safeIndex);
+      return;
+    }
     setQueue(displayVideos, safeIndex);
     navigate(`/watch/${video.id}`);
   };
