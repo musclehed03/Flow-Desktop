@@ -8,6 +8,7 @@ import {
 import type { LikedItem } from "../store/useLikesStore";
 import type { WatchHistoryRecord } from "../types/db";
 import type { VideoSummary } from "../types/video";
+import { refreshSmartPlaylists } from "./smartPlaylists";
 
 const STATE_KEY = "library_metadata_backfill_state_v1";
 const REPORT_KEY = "library_metadata_backfill_report_v1";
@@ -205,6 +206,7 @@ export async function runLibraryMetadataBackfill(): Promise<MetadataBackfillRepo
   // A completed checkpoint is cleared so a later launch can refresh mutable
   // history/like fields while an interrupted pass still resumes where it stopped.
   await setSetting(STATE_KEY, "null");
+  await refreshSmartPlaylists().catch(() => 0);
   return report;
 }
 

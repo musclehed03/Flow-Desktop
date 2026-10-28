@@ -18,6 +18,8 @@ export interface StoredPlaylist {
   videoCountText?: string | null;
   videoCount?: number | null;
   isProtected?: boolean;
+  /** Links a materialized smart playlist to its local rule definition. */
+  smartRuleId?: string;
 }
 
 const PLAYLISTS_SETTING_KEY = "user_playlists";

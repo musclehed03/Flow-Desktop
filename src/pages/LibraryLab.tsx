@@ -6,6 +6,7 @@ import { buildLocalLibraryStats, diagnoseLibrary, type LibraryDiagnosis, type Lo
 import { loadStoredPlaylists } from "../lib/playlistLibrary";
 import { usePublishTitle } from "../lib/usePublishTitle";
 import { getLibraryMetadataBackfillReport, type MetadataBackfillReport } from "../lib/libraryMetadataBackfill";
+import { SmartPlaylistEditor } from "../components/library/SmartPlaylistEditor";
 
 export default function LibraryLab() {
   usePublishTitle(getString("library_lab_title"));
@@ -25,5 +26,6 @@ export default function LibraryLab() {
     <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="flex items-center gap-2 text-xl font-semibold"><Stethoscope aria-hidden="true" />{getString("library_doctor_title")}</h2><p className="text-sm text-on-surface-variant">{getString("library_doctor_report_only")}</p><dl className="mt-4 grid gap-3 sm:grid-cols-3"><div><dt>{getString("library_doctor_exact")}</dt><dd className="text-2xl font-bold">{diagnosis?.exactDuplicates.length ?? 0}</dd></div><div><dt>{getString("library_doctor_near")}</dt><dd className="text-2xl font-bold">{diagnosis?.nearDuplicates.length ?? 0}</dd></div><div><dt>{getString("library_doctor_broken")}</dt><dd className="text-2xl font-bold">{diagnosis?.emptyEntries.length ?? 0}</dd></div></dl></section>
     {coverage ? <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="text-xl font-semibold">{getString("metadata_coverage_title")}</h2><p className="text-sm text-on-surface-variant">{getString(coverage.status === "complete" ? "metadata_coverage_complete" : "metadata_coverage_running")}</p><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>{getString("metadata_field")}</th><th>{getString("metadata_before")}</th><th>{getString("metadata_after")}</th></tr></thead><tbody>{(["genre", "artist", "year", "playCount", "lastPlayed", "likes"] as const).map((field) => <tr key={field} className="border-t border-outline-variant"><th className="py-2">{getString(`metadata_${field}`)}</th><td>{coverage.before[field]} / {coverage.before.total}</td><td>{coverage.after[field]} / {coverage.after.total}</td></tr>)}</tbody></table></div></section> : null}
     <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="text-xl font-semibold">{getString("local_stats_top_tracks")}</h2><ol className="mt-3 space-y-2">{stats?.topTracks.map((track) => <li key={track.id} className="flex justify-between gap-4"><span className="truncate">{track.title}</span><span>{track.plays}</span></li>)}</ol></section>
+    <SmartPlaylistEditor />
   </main>;
 }

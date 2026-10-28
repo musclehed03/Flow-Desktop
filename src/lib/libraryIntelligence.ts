@@ -71,7 +71,7 @@ export function diagnoseLibrary(playlists: readonly StoredPlaylist[]): LibraryDi
   };
 }
 
-export function evaluateSmartPlaylist(tracks: readonly VideoSummary[], history: readonly WatchHistoryRecord[], likedIds: ReadonlySet<string>, rule: SmartPlaylistRule, now = Date.now()): VideoSummary[] {
+export function evaluateSmartPlaylist(tracks: readonly VideoSummary[], history: readonly WatchHistoryRecord[], likedIds: ReadonlySet<string>, rule: SmartPlaylistRule, now = Date.now(), random = Math.random): VideoSummary[] {
   const plays = new Map<string, number>();
   const last = new Map<string, number>();
   history.forEach((entry) => { plays.set(entry.videoId, (plays.get(entry.videoId) ?? 0) + 1); last.set(entry.videoId, Math.max(last.get(entry.videoId) ?? 0, Date.parse(entry.watchDate) || 0)); });
@@ -88,6 +88,11 @@ export function evaluateSmartPlaylist(tracks: readonly VideoSummary[], history: 
     if (rule.notPlayedSinceDays && (track.lastPlayedAt ?? last.get(track.id) ?? 0) > now - rule.notPlayedSinceDays * 86400000) return false;
     return !rule.likedOnly || track.liked === true || likedIds.has(track.id);
   });
-  if (rule.random) candidates.sort(() => Math.random() - .5);
+  if (rule.random) {
+    for (let index = candidates.length - 1; index > 0; index--) {
+      const swap = Math.floor(random() * (index + 1));
+      [candidates[index], candidates[swap]] = [candidates[swap]!, candidates[index]!];
+    }
+  }
   return candidates.slice(0, Math.max(1, Math.min(10000, rule.limit)));
 }
