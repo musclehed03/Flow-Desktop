@@ -78,15 +78,15 @@ export function evaluateSmartPlaylist(tracks: readonly VideoSummary[], history: 
   const artist = rule.artistContains?.trim().toLowerCase();
   const genre = rule.genre?.trim().toLowerCase();
   const candidates = [...new Map(tracks.map((track) => [track.id, track])).values()].filter((track) => {
-    const year = Number(track.publishedText?.match(/\b(19|20)\d{2}\b/)?.[0] ?? 0);
-    const storedGenre = String((track as VideoSummary & { genre?: string }).genre ?? "").toLowerCase();
-    if (artist && !track.channelName.toLowerCase().includes(artist)) return false;
+    const year = track.publicationYear ?? Number(track.publishedText?.match(/\b(19|20)\d{2}\b/)?.[0] ?? 0);
+    const storedGenre = String(track.genre ?? "").toLowerCase();
+    if (artist && !(track.artistName ?? track.channelName).toLowerCase().includes(artist)) return false;
     if (genre && !storedGenre.includes(genre)) return false;
     if (rule.yearFrom && (!year || year < rule.yearFrom)) return false;
     if (rule.yearTo && (!year || year > rule.yearTo)) return false;
-    if ((plays.get(track.id) ?? 0) < (rule.minPlayCount ?? 0)) return false;
-    if (rule.notPlayedSinceDays && (last.get(track.id) ?? 0) > now - rule.notPlayedSinceDays * 86400000) return false;
-    return !rule.likedOnly || likedIds.has(track.id);
+    if ((track.playCount ?? plays.get(track.id) ?? 0) < (rule.minPlayCount ?? 0)) return false;
+    if (rule.notPlayedSinceDays && (track.lastPlayedAt ?? last.get(track.id) ?? 0) > now - rule.notPlayedSinceDays * 86400000) return false;
+    return !rule.likedOnly || track.liked === true || likedIds.has(track.id);
   });
   if (rule.random) candidates.sort(() => Math.random() - .5);
   return candidates.slice(0, Math.max(1, Math.min(10000, rule.limit)));

@@ -3,6 +3,13 @@ export interface VideoSummary {
   mediaKind?: "music" | "video";
   /** Complete source music item used to hand this row back to the music engine. */
   musicTrack?: import("./music").SongItem;
+  /** Local library enrichment used by smart rules; all fields remain optional for old blobs. */
+  genre?: string | null;
+  artistName?: string | null;
+  publicationYear?: number | null;
+  playCount?: number;
+  lastPlayedAt?: number | null;
+  liked?: boolean;
   id: string;
   title: string;
   channelName: string;
