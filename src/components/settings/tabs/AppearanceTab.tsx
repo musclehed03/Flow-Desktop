@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { CustomThemeEditor } from "../../theme/CustomThemeEditor";
 import { ThemePreview } from "../../theme/ThemePreview";
+import { SearchInput } from "../../ui/SearchInput";
 import { Button } from "../../ui/Button";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { useBoolPref } from "../../../lib/usePreference";
 import { SETTINGS } from "../../../lib/settings/schema";
 import { getString } from "../../../lib/i18n/index";
+import { WHEEL_GROUP_ORDER, type WheelGroup } from "../../../lib/deviantWheel";
 import {
   BUILTIN_THEMES,
   THEME_VARIANTS,
@@ -28,6 +30,23 @@ export function AppearanceTab() {
   } = useTheme();
   const [editingTheme, setEditingTheme] = useState<CustomThemeDefinition | null>(null);
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
+  const [wheelGroup, setWheelGroup] = useState<"all" | WheelGroup>("all");
+  const [wheelSearch, setWheelSearch] = useState("");
+
+  const standardThemes = BUILTIN_THEMES.filter((theme) => !theme.group);
+  const wheelQuery = wheelSearch.trim().toLowerCase();
+  const matchesSearch = (name: string): boolean =>
+    wheelQuery === "" || name.toLowerCase().includes(wheelQuery);
+  const curatedThemes = BUILTIN_THEMES.filter(
+    (theme) => theme.group === "curated" && matchesSearch(theme.name),
+  );
+  const wheelThemes = BUILTIN_THEMES.filter(
+    (theme) =>
+      theme.group?.startsWith("wheel-") &&
+      (wheelGroup === "all" || theme.group === `wheel-${wheelGroup}`) &&
+      matchesSearch(theme.name),
+  );
+  const deviantThemes = [...curatedThemes, ...wheelThemes];
 
   const createTheme = () => {
     const id = `custom-${crypto.randomUUID()}`;
@@ -94,10 +113,10 @@ export function AppearanceTab() {
             <h2 className="text-base font-medium text-chrome-neutral-200">{getString("theme_presets")}</h2>
             <p className="mt-1 text-sm text-chrome-neutral-400">{getString("theme_presets_description")}</p>
           </div>
-          <span className="font-mono text-xs text-chrome-neutral-500">{BUILTIN_THEMES.length}</span>
+          <span className="font-mono text-xs text-chrome-neutral-500">{standardThemes.length}</span>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {BUILTIN_THEMES.map((theme) => (
+          {standardThemes.map((theme) => (
             <ThemePreview
               key={theme.id}
               name={theme.name}
@@ -111,6 +130,56 @@ export function AppearanceTab() {
             />
           ))}
         </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-base font-medium text-chrome-neutral-200">{getString("theme_wheel_title")}</h2>
+            <p className="mt-1 text-sm text-chrome-neutral-400">{getString("theme_wheel_description")}</p>
+          </div>
+          <span className="font-mono text-xs text-chrome-neutral-500">{getString("theme_wheel_count", deviantThemes.length)}</span>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button variant={wheelGroup === "all" ? "primary" : "secondary"} onClick={() => setWheelGroup("all")}>
+            {getString("theme_wheel_group_all")}
+          </Button>
+          {WHEEL_GROUP_ORDER.map((group) => (
+            <Button
+              key={group}
+              variant={wheelGroup === group ? "primary" : "secondary"}
+              onClick={() => setWheelGroup(group)}
+            >
+              {getString(`theme_wheel_group_${group}` as Parameters<typeof getString>[0])}
+            </Button>
+          ))}
+        </div>
+        <SearchInput
+          containerClassName="mt-3"
+          value={wheelSearch}
+          onChange={(event) => setWheelSearch(event.target.value)}
+          placeholder={getString("theme_wheel_search_placeholder")}
+          aria-label={getString("theme_wheel_search_placeholder")}
+        />
+        {deviantThemes.length === 0 ? (
+          <p className="mt-4 text-sm text-chrome-neutral-400">{getString("theme_wheel_no_results")}</p>
+        ) : (
+          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {deviantThemes.map((theme) => (
+              <ThemePreview
+                key={theme.id}
+                name={theme.name}
+                description={getString(theme.descriptionKey)}
+                colors={theme.variants[variant]}
+                selected={themeId === theme.id}
+                selectLabel={getString("theme_select")}
+                editLabel={getString("theme_edit")}
+                deleteLabel={getString("theme_delete")}
+                onSelect={() => void setTheme(theme.id)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {customThemes.length > 0 && (
