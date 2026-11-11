@@ -8,10 +8,18 @@ import { recordPlayerEvent } from "./playerDiagnostics";
 
 /**
  * How long before a track ends the next one starts buffering on the standby
- * element. Long enough to get a song's first seconds on a slow link, short
- * enough that a skip rarely wastes the download.
+ * element. A minute: resolving the link plus fetching the first audio takes
+ * far longer than 30 seconds on a slow link or a loaded machine, and the fade
+ * window opens only in the last few seconds — with a 30-second lead the next
+ * track was too often not ready when the fade was due, so the fade never
+ * armed and the track ended into silence while the next one resolved. A skip
+ * wastes a little more speculative download at this lead; never-ending music
+ * is worth more than that.
  */
-export const PRELOAD_LEAD_SECONDS = 30;
+export const PRELOAD_LEAD_SECONDS = 60;
+
+/** One retry, this long after a failed preload resolve, while there is still time. */
+export const PRELOAD_RETRY_MS = 10_000;
 
 let preloading: string | null = null;
 
@@ -27,6 +35,7 @@ export async function preloadTrack(
   track: SongItem,
   quality: MusicAudioQuality,
   stillUpcoming: (videoId: string) => boolean,
+  attempt = 0,
 ): Promise<void> {
   const videoId = track.videoId ?? track.id;
   if (preloading === videoId || musicAudioEngine.hasPreloaded(videoId)) return;
@@ -44,7 +53,16 @@ export async function preloadTrack(
       });
     }
   } catch {
-    // Speculative: if it fails, the track resolves again when it is played.
+    // A single transient failure used to doom the transition: the fade never
+    // armed, the track ended, and the next one resolved from silence. Try
+    // once more while there is still time; the queue may have moved on by
+    // then, so stillUpcoming is asked again before the second attempt.
+    if (attempt === 0) {
+      recordPlayerEvent(`music preload retry: ${videoId}`);
+      setTimeout(() => {
+        if (stillUpcoming(videoId)) void preloadTrack(track, quality, stillUpcoming, 1);
+      }, PRELOAD_RETRY_MS);
+    }
   } finally {
     if (preloading === videoId) preloading = null;
   }
