@@ -1,22 +1,25 @@
-import { motion, type HTMLMotionProps } from "framer-motion";
+import type { ButtonHTMLAttributes, Ref } from "react";
 
-export type HapticButtonProps = HTMLMotionProps<"button">;
+/*
+  The transport buttons' press feedback, same as the shared Button: pure CSS
+  (.press-positive in App.css), no framer-motion spring per tap (fixes batch #10).
+  A disabled HapticButton gets the no-action nudge instead of the squash.
+*/
 
-export function HapticButton({
-  children,
-  type = "button",
-  transition,
-  ...props
-}: HapticButtonProps) {
+export type HapticButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
+};
+
+export function HapticButton({ children, type = "button", disabled, className = "", ref, ...props }: HapticButtonProps) {
   return (
-    <motion.button
+    <button
       type={type}
-      whileTap={{ scale: 0.9 }}
-      // Critically damped: the press settles without bouncing back past its size.
-      transition={transition ?? { type: "spring", stiffness: 400, damping: 40 }}
+      disabled={disabled}
+      ref={ref}
+      className={`${disabled ? "press-noop" : "press-positive"} ${className}`}
       {...props}
     >
       {children}
-    </motion.button>
+    </button>
   );
 }

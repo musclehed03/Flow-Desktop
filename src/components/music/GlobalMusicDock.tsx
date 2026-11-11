@@ -226,7 +226,7 @@ export function GlobalMusicDock() {
                 <HapticButton
                   onClick={togglePlay}
                   aria-label={getString(playing ? "music_pause" : "music_play")}
-                  className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105 active:scale-90"
+                  className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:scale-105"
                 >
                   {busy ? (
                     <Loader2 className="h-7 w-7 animate-spin" />
