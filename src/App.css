@@ -174,10 +174,12 @@
   }
 }
 
-/* Custom Scrollbars */
+/* Custom Scrollbars — wide enough to grab (fixes: 6px scrollbars, fixes batch #2).
+   12px gives a real grab target for mouse and touch; Firefox gets the same via
+   scrollbar-width. Thumb brightens on hover/active so the target is visible. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
@@ -185,7 +187,14 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-chrome-zinc-800 rounded-full hover:bg-chrome-zinc-700 transition-colors;
+  @apply bg-chrome-zinc-800 rounded-full hover:bg-chrome-zinc-700 active:bg-chrome-zinc-600 transition-colors;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-chrome-zinc-800, #27272a) transparent;
 }
 
 .active-nav-item {
