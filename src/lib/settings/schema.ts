@@ -410,6 +410,7 @@ const bool = (
   readiness: SettingReadiness,
   visibility: SettingVisibility = "visible",
   noteKey?: StringKey,
+  exportScope?: SettingExportScope,
 ): SettingDefinition => ({
   key,
   scope: SETTING_SCOPES[key],
@@ -418,7 +419,7 @@ const bool = (
   defaultValue: String(defaultValue),
   readiness,
   visibility,
-  exportScope: visibility === "internal" ? "internal" : "app-data",
+  exportScope: exportScope ?? (visibility === "internal" ? "internal" : "app-data"),
   noteKey,
 });
 
@@ -453,6 +454,7 @@ const num = (
   max?: number,
   visibility: SettingVisibility = "visible",
   noteKey?: StringKey,
+  exportScope?: SettingExportScope,
 ): SettingDefinition => ({
   key,
   scope: SETTING_SCOPES[key],
@@ -461,7 +463,7 @@ const num = (
   defaultValue: String(defaultValue),
   readiness,
   visibility,
-  exportScope: visibility === "internal" ? "internal" : "app-data",
+  exportScope: exportScope ?? (visibility === "internal" ? "internal" : "app-data"),
   min,
   max,
   noteKey,
@@ -516,12 +518,18 @@ export const SETTING_DEFINITIONS = [
   json(SETTINGS.VISUALIZER_PRESETS, "player", "[]", "wired"),
   json(SETTINGS.MUSIC_AUDIO_PROCESSING, "player", "{}", "wired"),
   json(SETTINGS.MUSIC_OUTPUT_PROFILES, "player", "{}", "wired"),
-  json(SETTINGS.EDITOR_PANEL_LAYOUTS, "appearance", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.PLAYER_SURFACE_LAYOUTS, "appearance", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.MUSIC_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.VIDEO_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.MUSIC_PLAYBACK_POSITION, "player", "null", "wired", "internal", "internal"),
-  json(SETTINGS.VIDEO_PLAYBACK_POSITION, "player", "null", "wired", "internal", "internal"),
+  /*
+    Her state travels with her (fixes batch #14): these stay hidden in the Settings UI
+    (internal visibility) but export in backups, so a move to a new device restores the
+    loaded queue, resume positions, volume, and where she put things. Secrets stay
+    out — the PIN and proxy credentials are "private" and never export.
+  */
+  json(SETTINGS.EDITOR_PANEL_LAYOUTS, "appearance", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.PLAYER_SURFACE_LAYOUTS, "appearance", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.MUSIC_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.VIDEO_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.MUSIC_PLAYBACK_POSITION, "player", "null", "wired", "internal", "app-data"),
+  json(SETTINGS.VIDEO_PLAYBACK_POSITION, "player", "null", "wired", "internal", "app-data"),
   json(SETTINGS.SAVED_RADIO_STATIONS, "player", "[]", "wired"),
   bool(SETTINGS.GENIUS_DJ_ENABLED, "player", true, "wired"),
   bool(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, "player", true, "wired"),
@@ -534,9 +542,9 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.STABLE_VOLUME_ENABLED, "player", false, "wired"),
   bool(SETTINGS.VIDEO_LOUDNESS_NORMALIZATION, "player", false, "wired"),
   bool(SETTINGS.ALLOW_VOLUME_BOOST, "player", false, "deferred", "disabled-until-wired", "settings_note_volume_boost_requires_audio_gain"),
-  num(SETTINGS.PLAYER_VOLUME, "player", 1, "wired", 0, 1, "internal"),
-  bool(SETTINGS.PLAYER_MUTED, "player", false, "wired", "internal"),
-  bool(SETTINGS.MUSIC_SIDE_PANE_VISIBLE, "player", true, "wired", "internal"),
+  num(SETTINGS.PLAYER_VOLUME, "player", 1, "wired", 0, 1, "internal", undefined, "app-data"),
+  bool(SETTINGS.PLAYER_MUTED, "player", false, "wired", "internal", undefined, "app-data"),
+  bool(SETTINGS.MUSIC_SIDE_PANE_VISIBLE, "player", true, "wired", "internal", undefined, "app-data"),
   bool(SETTINGS.REMEMBER_PLAYBACK_SPEED, "player", false, "wired"),
   str(SETTINGS.PLAYBACK_SPEED, "player", "1.0", "wired", SPEED_VALUES),
   bool(SETTINGS.CUSTOM_SPEEDS_ENABLED, "player", false, "wired"),
@@ -550,7 +558,7 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.SUBTITLE_BOLD, "player", true, "wired"),
   bool(SETTINGS.MINI_PLAYER_SHOW_SKIP_CONTROLS, "player", true, "wired"),
   bool(SETTINGS.MINI_PLAYER_SHOW_NEXT_PREV_CONTROLS, "player", true, "wired"),
-  json(SETTINGS.MINI_PLAYER_POSITION, "player", "null", "wired", "internal", "internal"),
+  json(SETTINGS.MINI_PLAYER_POSITION, "player", "null", "wired", "internal", "app-data"),
   bool(SETTINGS.SHOW_FULLSCREEN_TITLE, "player", false, "wired"),
   bool(SETTINGS.AMBIENT_MODE_ENABLED, "player", !IS_LINUX_RUNTIME, "wired"),
   bool(SETTINGS.AMBIENT_GLOW_ENABLED, "player", false, "wired"),
