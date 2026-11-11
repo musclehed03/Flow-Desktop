@@ -50,6 +50,10 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
   // re-init and left the visualizer frozen until playback restarted.
   const configRef = useRef(effectiveConfig);
   configRef.current = effectiveConfig;
+  // Item 7: the frame loop compares keys, it never re-stringifies the config
+  // per frame — the key is already computed once per render above.
+  const configKeyRef = useRef(effectiveKey);
+  configKeyRef.current = effectiveKey;
   const requestFrameRef = useRef<(() => void) | null>(null);
   const framePendingRef = useRef(false);
   const [status, setStatus] = useState<VisualizerStatus>("waiting");
@@ -122,7 +126,7 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
         element.width = width; element.height = height;
         milkdrop?.setRendererSize(width, height);
       }
-      const nextColorsKey = JSON.stringify(config);
+      const nextColorsKey = configKeyRef.current;
       if (nextColorsKey !== colorsKey) { colorsKey = nextColorsKey; colors = resolveVisualizerColors(config); }
       // Recreate the MilkDrop renderer only when its family/preset changed —
       // never on a plain slider tick.
