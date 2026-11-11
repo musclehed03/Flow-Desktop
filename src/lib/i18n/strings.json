@@ -646,6 +646,8 @@
   "panel_undo": "Undo last change",
   "panel_reset": "Reset changes",
   "panel_close": "Close panel",
+  "panel_collapse": "Collapse panel to a header strip",
+  "panel_expand": "Expand panel",
   "panel_drag": "Move panel",
   "panel_resize_top": "Resize panel from top edge",
   "panel_resize_right": "Resize panel from right edge",

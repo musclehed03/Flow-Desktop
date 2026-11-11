@@ -15,11 +15,30 @@ describe("dockable panel layout", () => {
     expect(readPanelLayout("not-json", "theme", viewport)).toEqual(createDefaultPanelLayout(viewport));
     expect(clampPanelLayout({ placement: "floating", x: 3000, y: -50, width: 900, height: 900 }, viewport)).toEqual({
       placement: "floating",
-      x: 288,
-      y: 12,
+      x: 1104,
+      y: 0,
       width: 900,
       height: 776,
+      collapsed: false,
     });
+  });
+
+  it("lets a floating panel sit mostly off-viewport but keeps a grab strip visible", () => {
+    // Fixes batch #3: panels may be pushed past the app footprint; 96px stays
+    // on screen so the panel can always be dragged back, and the header (y >= 0)
+    // never leaves the top edge.
+    const offRight = clampPanelLayout({ placement: "floating", x: 1150, y: 100, width: 400, height: 500 }, viewport);
+    expect(offRight.x).toBe(1104);
+    const offLeft = clampPanelLayout({ placement: "floating", x: -500, y: 100, width: 400, height: 500 }, viewport);
+    expect(offLeft.x).toBe(-304);
+    const offTop = clampPanelLayout({ placement: "floating", x: 100, y: -500, width: 400, height: 500 }, viewport);
+    expect(offTop.y).toBe(0);
+  });
+
+  it("keeps the collapsed flag through clamp and read", () => {
+    expect(clampPanelLayout({ placement: "floating", x: 100, y: 100, width: 400, height: 500, collapsed: true }, viewport).collapsed).toBe(true);
+    const raw = JSON.stringify({ theme: { placement: "floating", x: 100, y: 100, width: 400, height: 500, collapsed: true } });
+    expect(readPanelLayout(raw, "theme", viewport).collapsed).toBe(true);
   });
 
   it("moves floating panels but leaves docked panels anchored", () => {

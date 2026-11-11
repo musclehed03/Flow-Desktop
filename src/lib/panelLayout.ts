@@ -7,6 +7,8 @@ export interface PanelLayout {
   y: number;
   width: number;
   height: number;
+  /** Collapsed panels render as a header-only strip; the saved size restores on expand. */
+  collapsed?: boolean;
 }
 
 export interface PanelViewport { width: number; height: number }
@@ -14,6 +16,9 @@ export interface PanelViewport { width: number; height: number }
 export const PANEL_MIN_WIDTH = 320;
 export const PANEL_MIN_HEIGHT = 280;
 const PANEL_MARGIN = 12;
+/** Width of the grab strip that must always stay on screen for a floating panel,
+    so a panel dragged mostly off-viewport can always be grabbed back. */
+export const PANEL_GRAB_STRIP = 96;
 
 export function createDefaultPanelLayout(viewport: PanelViewport): PanelLayout {
   const width = Math.min(420, Math.max(PANEL_MIN_WIDTH, viewport.width - PANEL_MARGIN * 2));
@@ -40,12 +45,27 @@ export function clampPanelLayout(layout: PanelLayout, viewport: PanelViewport): 
   const maxHeight = Math.max(PANEL_MIN_HEIGHT, viewport.height - PANEL_MARGIN * 2);
   const width = Math.min(maxWidth, Math.max(PANEL_MIN_WIDTH, finite(layout.width, PANEL_MIN_WIDTH)));
   const height = Math.min(maxHeight, Math.max(PANEL_MIN_HEIGHT, finite(layout.height, PANEL_MIN_HEIGHT)));
+  const collapsed = layout.collapsed === true;
+  if (layout.placement === "floating") {
+    // Floating panels may be pushed mostly off-viewport — past the app's footprint —
+    // but a grab strip (and the header, y >= 0) always stays visible so the panel
+    // can be dragged back. Fixes batch #3.
+    return {
+      placement: "floating",
+      x: Math.min(Math.max(-(width - PANEL_GRAB_STRIP), finite(layout.x, PANEL_MARGIN)), Math.max(-(width - PANEL_GRAB_STRIP), viewport.width - PANEL_GRAB_STRIP)),
+      y: Math.min(Math.max(0, finite(layout.y, PANEL_MARGIN)), Math.max(0, viewport.height - PANEL_GRAB_STRIP)),
+      width,
+      height,
+      collapsed,
+    };
+  }
   return {
     placement: validPlacement(layout.placement) ? layout.placement : "dock-right",
     x: Math.min(Math.max(PANEL_MARGIN, finite(layout.x, PANEL_MARGIN)), Math.max(PANEL_MARGIN, viewport.width - width - PANEL_MARGIN)),
     y: Math.min(Math.max(PANEL_MARGIN, finite(layout.y, PANEL_MARGIN)), Math.max(PANEL_MARGIN, viewport.height - height - PANEL_MARGIN)),
     width,
     height,
+    collapsed,
   };
 }
 
@@ -69,6 +89,7 @@ export function readPanelLayout(raw: string, panelId: string, viewport: PanelVie
     y: finite(value.y, fallback.y),
     width: finite(value.width, fallback.width),
     height: finite(value.height, fallback.height),
+    collapsed: value.collapsed === true,
   }, viewport);
 }
 
