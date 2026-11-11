@@ -32,6 +32,7 @@ export function EqNumberField({ value, decimals, unit, disabled, ariaLabel, onCo
         value={draft}
         disabled={disabled}
         aria-label={ariaLabel}
+        onFocus={(event) => event.target.select()}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {

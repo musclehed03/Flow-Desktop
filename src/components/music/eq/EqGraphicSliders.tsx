@@ -1,8 +1,8 @@
 import { GraphicEq } from "../../../lib/audio/eq/limits";
 import type { EqBand } from "../../../lib/audio/eq/models";
 import { getString } from "../../../lib/i18n/index";
-import { Slider } from "../../ui/Slider";
-import { formatDb, formatFrequency } from "./eqFormat";
+import { formatFrequency } from "./eqFormat";
+import { EqValueControl } from "./EqValueControl";
 
 export interface EqGraphicSlidersProps {
   bands: readonly EqBand[];
@@ -10,21 +10,23 @@ export interface EqGraphicSlidersProps {
   onChange: (index: number, gain: number) => void;
 }
 
-/** Android's ten graphic bands, ±12 dB in half-dB steps. */
+/** Android's ten graphic bands, ±15 dB in half-dB steps, one input mode at a time. */
 export function EqGraphicSliders({ bands, disabled, onChange }: EqGraphicSlidersProps) {
   return (
     <div className={`flex items-end justify-between gap-1 ${disabled ? "pointer-events-none opacity-40" : ""}`}>
       {bands.map((band, i) => (
         <div key={band.frequency} className="flex flex-col items-center gap-1.5">
-          <span className="font-mono text-[10px] tabular-nums text-chrome-neutral-400">{formatDb(band.gain)}</span>
-          <Slider
+          <EqValueControl
             orientation="vertical"
+            value={band.gain}
             min={-GraphicEq.MAX_GAIN}
             max={GraphicEq.MAX_GAIN}
             step={GraphicEq.STEP}
-            value={band.gain}
-            onChange={(gain) => onChange(i, gain)}
-            aria-label={getString("eq_band_label", formatFrequency(band.frequency))}
+            decimals={2}
+            unit={getString("eq_unit_db")}
+            ariaLabel={getString("eq_band_label", formatFrequency(band.frequency))}
+            disabled={disabled}
+            onCommit={(gain) => onChange(i, gain)}
           />
           <span className="font-mono text-[10px] text-chrome-neutral-500">{formatFrequency(band.frequency)}</span>
         </div>

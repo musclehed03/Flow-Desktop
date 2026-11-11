@@ -165,6 +165,7 @@ export const SETTINGS = {
 
   MUSIC_LOUDNESS_NORMALIZATION: "music_loudness_normalization",
   EQ_STATE_JSON: "eq_state_json",
+  EQ_INPUT_MODE: "eq_input_mode",
   MUSIC_PLAYBACK_SPEED: "music_playback_speed",
 
   BUFFER_PROFILE: "buffer_profile",
@@ -322,6 +323,7 @@ export const SETTING_SCOPES = {
   [SETTINGS.PREFERRED_AUDIO_LANGUAGE]: "profile",
   [SETTINGS.MUSIC_LOUDNESS_NORMALIZATION]: "profile",
   [SETTINGS.EQ_STATE_JSON]: "profile",
+  [SETTINGS.EQ_INPUT_MODE]: "profile",
   [SETTINGS.MUSIC_PLAYBACK_SPEED]: "profile",
   [SETTINGS.BUFFER_PROFILE]: "device",
   [SETTINGS.MIN_BUFFER_MS]: "device",
@@ -628,6 +630,8 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION, "player", true, "wired"),
   // Flow for Android's equalizer JSON, shared by music and video and synced as `equalizer`.
   json(SETTINGS.EQ_STATE_JSON, "player", "{}", "wired"),
+  // How EQ values are changed: type the value, step it, or drag it — one way at a time.
+  str(SETTINGS.EQ_INPUT_MODE, "player", "text", "wired", ["text", "stepper", "slider"]),
   num(SETTINGS.MUSIC_PLAYBACK_SPEED, "player", 1, "wired", 0.5, 2),
 
   str(SETTINGS.BUFFER_PROFILE, "network", "STABLE", "wired", ["AGGRESSIVE", "STABLE", "DATASAVER", "CUSTOM"]),

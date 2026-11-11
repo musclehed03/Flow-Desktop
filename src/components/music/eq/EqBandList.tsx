@@ -3,9 +3,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { defaultQ, EQ_FILTER_TYPES, EqLimits, hasGain, type EqBand, type EqFilterType } from "../../../lib/audio/eq/models";
 import { getString, type StringKey } from "../../../lib/i18n/index";
 import { Select } from "../../ui/Select";
-import { Slider } from "../../ui/Slider";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
-import { EqNumberField } from "./EqNumberField";
+import { EqValueControl } from "./EqValueControl";
 
 const TYPE_LABELS: Record<EqFilterType, StringKey> = {
   PEAK: "eq_type_peak",
@@ -21,6 +20,20 @@ const qToSlider = (q: number) =>
   Math.round((Math.log(q / EqLimits.MIN_Q) / Math.log(EqLimits.MAX_Q / EqLimits.MIN_Q)) * Q_STEPS);
 const sliderToQ = (v: number) =>
   Math.round(EqLimits.MIN_Q * Math.pow(EqLimits.MAX_Q / EqLimits.MIN_Q, v / Q_STEPS) * 100) / 100;
+
+// Frequency spans three decades, so its slider is log-scaled too.
+const FREQ_STEPS = 1_000;
+const freqToSlider = (frequency: number) =>
+  Math.round(
+    (Math.log(frequency / EqLimits.MIN_FREQUENCY) /
+      Math.log(EqLimits.MAX_FREQUENCY / EqLimits.MIN_FREQUENCY)) *
+      FREQ_STEPS,
+  );
+const sliderToFreq = (v: number) =>
+  Math.round(
+    EqLimits.MIN_FREQUENCY *
+      Math.pow(EqLimits.MAX_FREQUENCY / EqLimits.MIN_FREQUENCY, v / FREQ_STEPS),
+  );
 
 export interface EqBandListProps {
   bands: readonly EqBand[];
@@ -62,16 +75,27 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                   onChange(index, { ...band, type, q: defaultQ(type), gain: hasGain(type) ? band.gain : 0 });
                 }}
               />
-              <EqNumberField
+              <EqValueControl
                 value={band.frequency}
+                min={EqLimits.MIN_FREQUENCY}
+                max={EqLimits.MAX_FREQUENCY}
+                step={10}
                 decimals={0}
                 unit={getString("eq_unit_hz")}
                 ariaLabel={getString("eq_frequency")}
+                toSlider={freqToSlider}
+                fromSlider={sliderToFreq}
+                sliderMin={0}
+                sliderMax={FREQ_STEPS}
+                sliderStep={1}
                 onCommit={(frequency) => onChange(index, { ...band, frequency })}
               />
-              <EqNumberField
+              <EqValueControl
                 value={band.gain}
-                decimals={1}
+                min={EqLimits.MIN_GAIN}
+                max={EqLimits.MAX_GAIN}
+                step={0.5}
+                decimals={2}
                 unit={getString("eq_unit_db")}
                 disabled={!hasGain(band.type)}
                 ariaLabel={getString("eq_gain")}
@@ -79,18 +103,19 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
               />
               <div className="flex min-w-[10rem] flex-1 items-center gap-2">
                 <span className="text-xs text-chrome-neutral-500">{getString("eq_q")}</span>
-                <Slider
-                  min={0}
-                  max={Q_STEPS}
-                  value={qToSlider(band.q)}
-                  onChange={(v) => onChange(index, { ...band, q: sliderToQ(v) })}
-                  aria-label={getString("eq_q")}
-                  className="flex-1"
-                />
-                <EqNumberField
+                <EqValueControl
                   value={band.q}
+                  min={EqLimits.MIN_Q}
+                  max={EqLimits.MAX_Q}
+                  step={0.1}
                   decimals={2}
                   ariaLabel={getString("eq_q")}
+                  toSlider={qToSlider}
+                  fromSlider={sliderToQ}
+                  sliderMin={0}
+                  sliderMax={Q_STEPS}
+                  sliderStep={1}
+                  className="flex-1"
                   onCommit={(q) => onChange(index, { ...band, q })}
                 />
               </div>

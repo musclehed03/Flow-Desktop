@@ -16,7 +16,6 @@ import { useEqualizer, useMusicEqAvailable } from "../../../lib/audio/eq/useEqua
 import { getString } from "../../../lib/i18n/index";
 import { useEqStore } from "../../../store/useEqStore";
 import { Chip } from "../../ui/Chip";
-import { Slider } from "../../ui/Slider";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { EqBandList } from "./EqBandList";
 import { EqCompareButton } from "./EqCompareButton";
@@ -24,6 +23,7 @@ import { EqGraphicSliders } from "./EqGraphicSliders";
 import { EqImportExport } from "./EqImportExport";
 import { EqPresetBar } from "./EqPresetBar";
 import { EqResponseGraph } from "./EqResponseGraph";
+import { EqInputModeSelector, EqValueControl } from "./EqValueControl";
 import { formatDb } from "./eqFormat";
 
 const SECTION_LABEL = "text-xs font-semibold uppercase tracking-widest text-chrome-neutral-500";
@@ -137,6 +137,8 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
           <EqCompareButton className="ml-auto" />
         </div>
 
+        <EqInputModeSelector />
+
         <section className="flex flex-col gap-2">
           <span className={SECTION_LABEL}>{getString("eq_presets")}</span>
           <EqPresetBar />
@@ -196,39 +198,32 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
                 {getString("eq_db_value", formatDb(eq.autoPreampDb))}
               </span>
             ) : (
-              <div className="flex items-center gap-3">
-                <Slider
-                  min={EqLimits.MIN_PREAMP}
-                  max={EqLimits.MAX_PREAMP}
-                  step={0.5}
-                  value={active.curve.preamp}
-                  onChange={(db) => update((s) => withManualPreamp(s, db))}
-                  aria-label={getString("eq_preamp")}
-                  className="flex-1"
-                />
-                <span className="w-16 text-right font-mono text-sm text-chrome-neutral-100">
-                  {getString("eq_db_value", formatDb(active.curve.preamp))}
-                </span>
-              </div>
+              <EqValueControl
+                value={active.curve.preamp}
+                min={EqLimits.MIN_PREAMP}
+                max={EqLimits.MAX_PREAMP}
+                step={0.5}
+                decimals={2}
+                unit={getString("eq_unit_db")}
+                ariaLabel={getString("eq_preamp")}
+                className="flex-1"
+                onCommit={(db) => update((s) => withManualPreamp(s, db))}
+              />
             )}
           </div>
 
           <div className="flex flex-col gap-2 rounded-xl border border-chrome-neutral-800 p-3">
             <span className="text-sm text-chrome-neutral-200">{getString("eq_bass_boost")}</span>
-            <div className="flex items-center gap-3">
-              <Slider
-                min={0}
-                max={EqLimits.MAX_BASS_BOOST}
-                step={0.5}
-                value={state.bassBoost}
-                onChange={(db) => update((s) => withBassBoost(s, db))}
-                aria-label={getString("eq_bass_boost")}
-                className="flex-1"
-              />
-              <span className="w-16 text-right font-mono text-sm text-chrome-neutral-100">
-                {getString("eq_db_value", formatDb(state.bassBoost))}
-              </span>
-            </div>
+            <EqValueControl
+              value={state.bassBoost}
+              min={0}
+              max={EqLimits.MAX_BASS_BOOST}
+              step={0.5}
+              decimals={2}
+              unit={getString("eq_unit_db")}
+              ariaLabel={getString("eq_bass_boost")}
+              onCommit={(db) => update((s) => withBassBoost(s, db))}
+            />
           </div>
         </section>
 
