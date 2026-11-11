@@ -1,3 +1,5 @@
+import { deriveWheelTheme, WHEEL_ENTRIES } from "./deviantWheel";
+
 export const THEME_VARIANTS = ["light", "dark", "amoled"] as const;
 
 export type ThemeVariant = (typeof THEME_VARIANTS)[number];
@@ -22,6 +24,8 @@ export interface ThemeDefinition {
   id: string;
   name: string;
   descriptionKey: ThemeDescriptionKey;
+  /** Filter group carried through to the UI, e.g. "curated" or "wheel-base". */
+  group?: string;
   variants: Record<ThemeVariant, ThemeColors>;
   custom?: boolean;
 }
@@ -51,12 +55,25 @@ export type ThemeDescriptionKey =
   | "theme_description_tide"
   | "theme_description_sage"
   | "theme_description_caffeine"
-  | "theme_description_claude";
+  | "theme_description_claude"
+  | "theme_description_wheel_base"
+  | "theme_description_wheel_metal"
+  | "theme_description_wheel_holographic"
+  | "theme_description_wheel_pearl"
+  | "theme_description_wheel_gem"
+  | "theme_description_deviant_noir"
+  | "theme_description_trevor_sunrise"
+  | "theme_description_chrysoprase"
+  | "theme_description_spectrolite"
+  | "theme_description_rose_gold"
+  | "theme_description_abalone"
+  | "theme_description_bismuth";
 
-interface PaletteSeed {
+export interface PaletteSeed {
   id: string;
   name: string;
   descriptionKey: ThemeDescriptionKey;
+  group?: string;
   light: Pick<ThemeColors, "primary" | "onPrimary" | "secondary" | "background" | "surface" | "onSurface" | "onSurfaceVariant" | "outline" | "error">;
   dark: Pick<ThemeColors, "primary" | "onPrimary" | "secondary" | "background" | "surface" | "onSurface" | "onSurfaceVariant" | "outline" | "error">;
 }
@@ -87,6 +104,7 @@ function createTheme(seed: PaletteSeed): ThemeDefinition {
     id: seed.id,
     name: seed.name,
     descriptionKey: seed.descriptionKey,
+    group: seed.group,
     variants: {
       light: expandPalette(seed.light, "light"),
       dark: expandPalette(seed.dark, "dark"),
@@ -198,7 +216,53 @@ const seeds: PaletteSeed[] = [
   },
 ];
 
-export const BUILTIN_THEMES = seeds.map(createTheme);
+/**
+ * Hand-tuned Dollhouse Deviants presets. Primary vs onPrimary is >= 4.5:1
+ * in both variants for every entry (checked in themes.test.ts).
+ * Posh A–D are intentionally not here: they live on the separate
+ * posh-mature-app-palette branch and must not collide with it.
+ */
+const curatedSeeds: PaletteSeed[] = [
+  {
+    id: "deviant-noir", name: "Deviant Noir", descriptionKey: "theme_description_deviant_noir", group: "curated",
+    light: { primary: "#FF1E89", onPrimary: "#000000", secondary: "#00E5FF", background: "#FFFFFF", surface: "#F6F6F6", onSurface: "#111111", onSurfaceVariant: "#5F5F5F", outline: "#D7D7D7", error: "#BA1A1A" },
+    dark: { primary: "#FF1E89", onPrimary: "#000000", secondary: "#00E5FF", background: "#000000", surface: "#141414", onSurface: "#F4F4F4", onSurfaceVariant: "#B8B8B8", outline: "#343434", error: "#FFB4AB" },
+  },
+  {
+    id: "trevor-sunrise", name: "Trevor Sunrise", descriptionKey: "theme_description_trevor_sunrise", group: "curated",
+    light: { primary: "#FF8200", onPrimary: "#000000", secondary: "#FFEA00", background: "#FFFBF2", surface: "#FDF3DF", onSurface: "#20180A", onSurfaceVariant: "#6B5B3D", outline: "#E0D3B8", error: "#BA1A1A" },
+    dark: { primary: "#FF8200", onPrimary: "#000000", secondary: "#FFEA00", background: "#171208", surface: "#241C0D", onSurface: "#F4EDE0", onSurfaceVariant: "#CDBFA4", outline: "#4A3D28", error: "#FFB4AB" },
+  },
+  {
+    id: "chrysoprase", name: "Chrysoprase", descriptionKey: "theme_description_chrysoprase", group: "curated",
+    light: { primary: "#79C98F", onPrimary: "#000000", secondary: "#2E5A46", background: "#F7FBF8", surface: "#EAF4EC", onSurface: "#16241B", onSurfaceVariant: "#55685C", outline: "#C4D6C8", error: "#BA1A1A" },
+    dark: { primary: "#79C98F", onPrimary: "#000000", secondary: "#8FC7A8", background: "#0E1712", surface: "#16241B", onSurface: "#E8F2EB", onSurfaceVariant: "#B3C8B9", outline: "#33463A", error: "#FFB4AB" },
+  },
+  {
+    id: "spectrolite", name: "Spectrolite", descriptionKey: "theme_description_spectrolite", group: "curated",
+    light: { primary: "#3E6FB0", onPrimary: "#FFFFFF", secondary: "#3A6EA8", background: "#F7F9FC", surface: "#EAF0F7", onSurface: "#16233A", onSurfaceVariant: "#55637A", outline: "#C4D0DE", error: "#BA1A1A" },
+    dark: { primary: "#8FB4E0", onPrimary: "#000000", secondary: "#7FA8D9", background: "#0E141D", surface: "#182230", onSurface: "#E8EEF6", onSurfaceVariant: "#B3BFD3", outline: "#33445C", error: "#FFB4AB" },
+  },
+  {
+    id: "rose-gold", name: "Rose Gold", descriptionKey: "theme_description_rose_gold", group: "curated",
+    light: { primary: "#D89A82", onPrimary: "#000000", secondary: "#B87333", background: "#FDF9F6", surface: "#F6ECE5", onSurface: "#2A1D18", onSurfaceVariant: "#6B5A51", outline: "#DCCBC0", error: "#BA1A1A" },
+    dark: { primary: "#D89A82", onPrimary: "#000000", secondary: "#E8A76F", background: "#171110", surface: "#241A17", onSurface: "#F4E8E2", onSurfaceVariant: "#CDBDB5", outline: "#493A34", error: "#FFB4AB" },
+  },
+  {
+    id: "abalone", name: "Abalone", descriptionKey: "theme_description_abalone", group: "curated",
+    light: { primary: "#2E7A74", onPrimary: "#FFFFFF", secondary: "#B8A88F", background: "#F7FAF9", surface: "#EAF2F0", onSurface: "#162422", onSurfaceVariant: "#556865", outline: "#C4D2CF", error: "#BA1A1A" },
+    dark: { primary: "#6FBDB5", onPrimary: "#000000", secondary: "#EFE9E0", background: "#0E1716", surface: "#162422", onSurface: "#E8F2F0", onSurfaceVariant: "#B3C8C4", outline: "#33463F", error: "#FFB4AB" },
+  },
+  {
+    id: "bismuth", name: "Bismuth", descriptionKey: "theme_description_bismuth", group: "curated",
+    light: { primary: "#C46A8C", onPrimary: "#000000", secondary: "#7A3A8C", background: "#FCF7F9", surface: "#F6EAF0", onSurface: "#2A1620", onSurfaceVariant: "#6B5560", outline: "#DCC4CF", error: "#BA1A1A" },
+    dark: { primary: "#E89BB8", onPrimary: "#000000", secondary: "#B07AC0", background: "#181014", surface: "#261A21", onSurface: "#F4E8EE", onSurfaceVariant: "#CDB9C4", outline: "#49343F", error: "#FFB4AB" },
+  },
+];
+
+const wheelSeeds: PaletteSeed[] = WHEEL_ENTRIES.map((entry) => deriveWheelTheme(entry));
+
+export const BUILTIN_THEMES = [...seeds, ...curatedSeeds, ...wheelSeeds].map(createTheme);
 
 export const DEFAULT_THEME: ThemeDefinition = BUILTIN_THEMES[0]!;
 

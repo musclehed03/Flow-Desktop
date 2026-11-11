@@ -1,0 +1,412 @@
+{
+  "_meta": {
+    "palette": "Posh Luxe (Posh/Mature App Palette)",
+    "source": "posh-mature-palette.css, origin/posh-mature-app-palette, commit 4927646",
+    "date": "2026-11-10",
+    "note": "All four Posh Luxe variants (A-D) in one import.",
+    "metal": "1px pinstripe + one small ornament per variant only; gradient stops carry the metal ramp (darkest->brightest) at 45 deg (NE/sunrise light) for future pinstripe rendering; gradients disabled in this file.",
+    "error": "Error reds are derived (wine-rose family) \u2014 the palette defines no error token.",
+    "grayscale": "All meaning must also carry in pure grayscale (labels/borders, never color alone) per the Accessibility Suite SOP."
+  },
+  "format": "dollhouse-deviants-theme",
+  "version": 1,
+  "exportedAt": "2026-11-10T00:00:00.000Z",
+  "themes": [
+    {
+      "id": "custom-posh-luxe-a",
+      "name": "Posh Luxe \u2014 Velvet Boudoir",
+      "custom": true,
+      "variants": {
+        "light": {
+          "primary": "#7c254f",
+          "onPrimary": "#ffffff",
+          "secondary": "#1f483f",
+          "background": "#dcd2d5",
+          "surface": "#ece5e7",
+          "outline": "#32262d",
+          "onSurface": "#211820",
+          "onSurfaceVariant": "#493e46",
+          "error": "#a31f3d",
+          "surfaceContainerLow": "#e5dddf",
+          "surfaceContainer": "#ece5e7",
+          "surfaceContainerHigh": "#ded7d9",
+          "surfaceContainerHighest": "#d6ced1"
+        },
+        "dark": {
+          "primary": "#ad3375",
+          "onPrimary": "#ffffff",
+          "secondary": "#547c6d",
+          "background": "#080609",
+          "surface": "#120d11",
+          "outline": "#241d23",
+          "onSurface": "#ddd3d7",
+          "onSurfaceVariant": "#a1969e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#0f0b0f",
+          "surfaceContainer": "#120d11",
+          "surfaceContainerHigh": "#241f23",
+          "surfaceContainerHighest": "#2e292d"
+        },
+        "amoled": {
+          "primary": "#ad3375",
+          "onPrimary": "#ffffff",
+          "secondary": "#547c6d",
+          "background": "#000000",
+          "surface": "#080808",
+          "outline": "#241d23",
+          "onSurface": "#ddd3d7",
+          "onSurfaceVariant": "#a1969e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#050505",
+          "surfaceContainer": "#0c0c0c",
+          "surfaceContainerHigh": "#141414",
+          "surfaceContainerHighest": "#1c1c1c"
+        }
+      },
+      "appearance": {
+        "seed": 1,
+        "regions": {
+          "frame": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#66501f",
+                "#a8891f",
+                "#c9b276"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "buttons": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#66501f",
+                "#a8891f",
+                "#c9b276"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "containers": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#66501f",
+                "#a8891f",
+                "#c9b276"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          }
+        }
+      }
+    },
+    {
+      "id": "custom-posh-luxe-b",
+      "name": "Posh Luxe \u2014 Parisian Midnight",
+      "custom": true,
+      "variants": {
+        "light": {
+          "primary": "#6d1f40",
+          "onPrimary": "#ffffff",
+          "secondary": "#1e414a",
+          "background": "#d7dde1",
+          "surface": "#ebeff0",
+          "outline": "#232a35",
+          "onSurface": "#11141b",
+          "onSurfaceVariant": "#333d47",
+          "error": "#931c3c",
+          "surfaceContainerLow": "#e3e7ea",
+          "surfaceContainer": "#ebeff0",
+          "surfaceContainerHigh": "#dce0e1",
+          "surfaceContainerHighest": "#d3d7d9"
+        },
+        "dark": {
+          "primary": "#952a4e",
+          "onPrimary": "#ffffff",
+          "secondary": "#45707b",
+          "background": "#06080b",
+          "surface": "#0d1219",
+          "outline": "#1e242e",
+          "onSurface": "#d6d9dc",
+          "onSurfaceVariant": "#8d99a3",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#0b0f15",
+          "surfaceContainer": "#0d1219",
+          "surfaceContainerHigh": "#1f242b",
+          "surfaceContainerHighest": "#292e34"
+        },
+        "amoled": {
+          "primary": "#952a4e",
+          "onPrimary": "#ffffff",
+          "secondary": "#45707b",
+          "background": "#000000",
+          "surface": "#080808",
+          "outline": "#1e242e",
+          "onSurface": "#d6d9dc",
+          "onSurfaceVariant": "#8d99a3",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#050505",
+          "surfaceContainer": "#0c0c0c",
+          "surfaceContainerHigh": "#141414",
+          "surfaceContainerHighest": "#1c1c1c"
+        }
+      },
+      "appearance": {
+        "seed": 2,
+        "regions": {
+          "frame": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5c626a",
+                "#9aa1a8",
+                "#cfd3d6"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "buttons": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5c626a",
+                "#9aa1a8",
+                "#cfd3d6"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "containers": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5c626a",
+                "#9aa1a8",
+                "#cfd3d6"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          }
+        }
+      }
+    },
+    {
+      "id": "custom-posh-luxe-c",
+      "name": "Posh Luxe \u2014 Victorian Astral",
+      "custom": true,
+      "variants": {
+        "light": {
+          "primary": "#5f1a34",
+          "onPrimary": "#ffffff",
+          "secondary": "#274639",
+          "background": "#ded9cf",
+          "surface": "#efe9de",
+          "outline": "#26241f",
+          "onSurface": "#1a1713",
+          "onSurfaceVariant": "#413c35",
+          "error": "#7f1a33",
+          "surfaceContainerLow": "#e8e2d8",
+          "surfaceContainer": "#efe9de",
+          "surfaceContainerHigh": "#e0dad0",
+          "surfaceContainerHighest": "#d8d2c8"
+        },
+        "dark": {
+          "primary": "#842b45",
+          "onPrimary": "#ffffff",
+          "secondary": "#4d6d5a",
+          "background": "#060607",
+          "surface": "#111010",
+          "outline": "#24211d",
+          "onSurface": "#dcd7cf",
+          "onSurfaceVariant": "#9b968e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#0e0d0d",
+          "surfaceContainer": "#111010",
+          "surfaceContainerHigh": "#232221",
+          "surfaceContainerHighest": "#2d2c2b"
+        },
+        "amoled": {
+          "primary": "#842b45",
+          "onPrimary": "#ffffff",
+          "secondary": "#4d6d5a",
+          "background": "#000000",
+          "surface": "#080808",
+          "outline": "#24211d",
+          "onSurface": "#dcd7cf",
+          "onSurfaceVariant": "#9b968e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#050505",
+          "surfaceContainer": "#0c0c0c",
+          "surfaceContainerHigh": "#141414",
+          "surfaceContainerHighest": "#1c1c1c"
+        }
+      },
+      "appearance": {
+        "seed": 3,
+        "regions": {
+          "frame": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "buttons": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "containers": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          }
+        }
+      }
+    },
+    {
+      "id": "custom-posh-luxe-d",
+      "name": "Posh Luxe \u2014 Black Diamond",
+      "custom": true,
+      "variants": {
+        "light": {
+          "primary": "#52162b",
+          "onPrimary": "#ffffff",
+          "secondary": "#263a4a",
+          "background": "#d9dbde",
+          "surface": "#ececed",
+          "outline": "#1f1f23",
+          "onSurface": "#121214",
+          "onSurfaceVariant": "#3d3d44",
+          "error": "#6d1429",
+          "surfaceContainerLow": "#e4e5e7",
+          "surfaceContainer": "#ececed",
+          "surfaceContainerHigh": "#ddddde",
+          "surfaceContainerHighest": "#d4d4d5"
+        },
+        "dark": {
+          "primary": "#701f36",
+          "onPrimary": "#ffffff",
+          "secondary": "#51687a",
+          "background": "#050506",
+          "surface": "#0d0d0f",
+          "outline": "#1d1d20",
+          "onSurface": "#dcdcdc",
+          "onSurfaceVariant": "#8c9199",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#0b0b0c",
+          "surfaceContainer": "#0d0d0f",
+          "surfaceContainerHigh": "#202021",
+          "surfaceContainerHighest": "#2a2a2c"
+        },
+        "amoled": {
+          "primary": "#701f36",
+          "onPrimary": "#ffffff",
+          "secondary": "#51687a",
+          "background": "#000000",
+          "surface": "#080808",
+          "outline": "#1d1d20",
+          "onSurface": "#dcdcdc",
+          "onSurfaceVariant": "#8c9199",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#050505",
+          "surfaceContainer": "#0c0c0c",
+          "surfaceContainerHigh": "#141414",
+          "surfaceContainerHighest": "#1c1c1c"
+        }
+      },
+      "appearance": {
+        "seed": 4,
+        "regions": {
+          "frame": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5e636a",
+                "#949a9f",
+                "#c6c9cc"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "buttons": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5e636a",
+                "#949a9f",
+                "#c6c9cc"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "containers": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#5e636a",
+                "#949a9f",
+                "#c6c9cc"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          }
+        }
+      }
+    }
+  ]
+}

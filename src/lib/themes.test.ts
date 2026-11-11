@@ -7,10 +7,22 @@ import {
   resolveTheme,
   themeCssVariables,
 } from "./themes";
+import { contrastRatio } from "./deviantWheel";
+
+const CURATED_THEME_IDS = [
+  "deviant-noir",
+  "trevor-sunrise",
+  "chrysoprase",
+  "spectrolite",
+  "rose-gold",
+  "abalone",
+  "bismuth",
+] as const;
 
 describe("themes", () => {
   it("provides every built-in palette in all three variants", () => {
-    expect(BUILTIN_THEMES.length).toBeGreaterThanOrEqual(20);
+    // 20 standard + 7 curated Dollhouse Deviants presets + 87 wheel themes.
+    expect(BUILTIN_THEMES.length).toBeGreaterThanOrEqual(114);
     expect(new Set(BUILTIN_THEMES.map((theme) => theme.id)).size).toBe(BUILTIN_THEMES.length);
 
     for (const theme of BUILTIN_THEMES) {
@@ -18,6 +30,30 @@ describe("themes", () => {
         expect(theme.variants[variant]).toBeDefined();
       }
       expect(theme.variants.amoled.background).toBe("#000000");
+    }
+  });
+
+  it("includes every curated Dollhouse Deviants preset", () => {
+    for (const id of CURATED_THEME_IDS) {
+      const theme = BUILTIN_THEMES.find((candidate) => candidate.id === id);
+      expect(theme).toBeDefined();
+      expect(theme?.group).toBe("curated");
+    }
+  });
+
+  it("keeps primary text legible in every derived and curated theme", () => {
+    const checked = BUILTIN_THEMES.filter(
+      (theme) => theme.group === "curated" || theme.group?.startsWith("wheel-"),
+    );
+    expect(checked.length).toBe(94);
+    for (const theme of checked) {
+      for (const variant of ["light", "dark"] as const) {
+        const colors = theme.variants[variant];
+        expect(
+          contrastRatio(colors.primary, colors.onPrimary),
+          `${theme.id} ${variant} primary vs onPrimary`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 

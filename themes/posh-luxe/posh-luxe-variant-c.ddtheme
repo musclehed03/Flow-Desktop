@@ -1,0 +1,115 @@
+{
+  "_meta": {
+    "palette": "Posh Luxe (Posh/Mature App Palette)",
+    "source": "posh-mature-palette.css, origin/posh-mature-app-palette, commit 4927646",
+    "date": "2026-11-10",
+    "note": "Variant C only: Posh Luxe \u2014 Victorian Astral",
+    "metal": "1px pinstripe + one small ornament per variant only; gradient stops carry the metal ramp (darkest->brightest) at 45 deg (NE/sunrise light) for future pinstripe rendering; gradients disabled in this file.",
+    "error": "Error reds are derived (wine-rose family) \u2014 the palette defines no error token.",
+    "grayscale": "All meaning must also carry in pure grayscale (labels/borders, never color alone) per the Accessibility Suite SOP."
+  },
+  "format": "dollhouse-deviants-theme",
+  "version": 1,
+  "exportedAt": "2026-11-10T00:00:00.000Z",
+  "themes": [
+    {
+      "id": "custom-posh-luxe-c",
+      "name": "Posh Luxe \u2014 Victorian Astral",
+      "custom": true,
+      "variants": {
+        "light": {
+          "primary": "#5f1a34",
+          "onPrimary": "#ffffff",
+          "secondary": "#274639",
+          "background": "#ded9cf",
+          "surface": "#efe9de",
+          "outline": "#26241f",
+          "onSurface": "#1a1713",
+          "onSurfaceVariant": "#413c35",
+          "error": "#7f1a33",
+          "surfaceContainerLow": "#e8e2d8",
+          "surfaceContainer": "#efe9de",
+          "surfaceContainerHigh": "#e0dad0",
+          "surfaceContainerHighest": "#d8d2c8"
+        },
+        "dark": {
+          "primary": "#842b45",
+          "onPrimary": "#ffffff",
+          "secondary": "#4d6d5a",
+          "background": "#060607",
+          "surface": "#111010",
+          "outline": "#24211d",
+          "onSurface": "#dcd7cf",
+          "onSurfaceVariant": "#9b968e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#0e0d0d",
+          "surfaceContainer": "#111010",
+          "surfaceContainerHigh": "#232221",
+          "surfaceContainerHighest": "#2d2c2b"
+        },
+        "amoled": {
+          "primary": "#842b45",
+          "onPrimary": "#ffffff",
+          "secondary": "#4d6d5a",
+          "background": "#000000",
+          "surface": "#080808",
+          "outline": "#24211d",
+          "onSurface": "#dcd7cf",
+          "onSurfaceVariant": "#9b968e",
+          "error": "#e0788f",
+          "surfaceContainerLow": "#050505",
+          "surfaceContainer": "#0c0c0c",
+          "surfaceContainerHigh": "#141414",
+          "surfaceContainerHighest": "#1c1c1c"
+        }
+      },
+      "appearance": {
+        "seed": 3,
+        "regions": {
+          "frame": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "buttons": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          },
+          "containers": {
+            "gradient": {
+              "enabled": false,
+              "stops": [
+                "#59441f",
+                "#937742",
+                "#bfa674"
+              ],
+              "angle": 45,
+              "animation": "off",
+              "seconds": 12
+            },
+            "effect": "off"
+          }
+        }
+      }
+    }
+  ]
+}
