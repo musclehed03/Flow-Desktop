@@ -1,7 +1,5 @@
 import { Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
-import { useRef, useState } from "react";
 
-import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 import { Slider } from "../ui/Slider";
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -87,46 +85,28 @@ export function PlayerVolumeControl({
   className?: string;
   buttonClassName?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const controlRef = useDismissOnOutsideInteraction<HTMLDivElement>({
-    open,
-    onDismiss: () => setOpen(false),
-    restoreFocusRef: triggerRef,
-  });
   const silent = muted || volume === 0;
 
+  // The slider is always visible (fixes batch #5): hiding it until hover made
+  // volume/mute unfindable. The mute button still toggles; the slider is the
+  // level, always there to grab and — with the shared volume — always the one level.
   return (
     <div
-      ref={controlRef}
-      onPointerEnter={() => setOpen(true)}
-      onPointerLeave={() => {
-        if (!controlRef.current?.contains(document.activeElement)) setOpen(false);
-      }}
-      onFocusCapture={() => setOpen(true)}
-      className={cx("flex items-center rounded-full", open && "pr-2", className)}
+      className={cx("flex items-center rounded-full", className)}
       data-player-control="volume"
     >
       <button
-        ref={triggerRef}
         type="button"
         data-player-control="volume-mute"
         title={silent ? labels.unmute : labels.mute}
         aria-label={silent ? labels.unmute : labels.mute}
         aria-pressed={silent}
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(true);
-          onToggleMute();
-        }}
+        onClick={onToggleMute}
         className={cx("grid h-8 w-8 place-items-center rounded-full hover:bg-chrome-white/10", buttonClassName)}
       >
         {silent ? <VolumeX size={18} /> : volume < 0.55 ? <Volume1 size={18} /> : <Volume2 size={18} />}
       </button>
-      <div className={cx(
-        "overflow-hidden transition-[width,opacity]",
-        open ? "w-20 opacity-100" : "pointer-events-none w-0 opacity-0",
-      )}>
+      <div className="w-20 pr-2 opacity-100">
         <Slider
           aria-label={labels.volume}
           min={0}

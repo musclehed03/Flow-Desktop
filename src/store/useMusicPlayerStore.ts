@@ -88,8 +88,9 @@ const videoIdOf = (track: SongItem): string => track.videoId ?? track.id;
 const PERSIST_KEY = "flow_music_player";
 
 interface PersistedMusicConfig {
-  volume: number;
-  isMuted: boolean;
+  // Volume/mute deliberately NOT persisted here: they live in the shared
+  // PLAYER_VOLUME / PLAYER_MUTED settings so the music and video engines
+  // play at one level (fixes batch #5). Old stored values are ignored.
   eqEnabled: boolean;
   eqGains: number[];
   normalizationEnabled: boolean;
@@ -99,8 +100,6 @@ interface PersistedMusicConfig {
 }
 
 const DEFAULT_CONFIG: PersistedMusicConfig = {
-  volume: 1,
-  isMuted: false,
   eqEnabled: false,
   eqGains: Array(10).fill(0),
   normalizationEnabled: true,
@@ -117,7 +116,6 @@ const loadConfig = (): PersistedMusicConfig => {
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
-      volume: clamp01(parsed.volume ?? DEFAULT_CONFIG.volume),
       eqGains: normalizeGraphicGains(parsed.eqGains ?? DEFAULT_CONFIG.eqGains, 10),
     };
   } catch (error) {
@@ -143,8 +141,6 @@ const saveConfig = (get: () => MusicPlayerState) => {
   try {
     const s = get();
     const config: PersistedMusicConfig = {
-      volume: s.volume,
-      isMuted: s.isMuted,
       eqEnabled: s.eqEnabled,
       eqGains: s.eqGains,
       normalizationEnabled: s.normalizationEnabled,
@@ -355,6 +351,7 @@ interface MusicPlayerState {
   clearStreamError: () => void;
 
   setVolume: (volume: number) => void;
+  setMuted: (muted: boolean) => void;
   toggleMute: () => void;
   cycleRepeat: () => void;
   toggleShuffle: () => void;
@@ -428,8 +425,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   isBuffering: false,
   restoredPaused: false,
 
-  volume: initialConfig.volume,
-  isMuted: initialConfig.isMuted,
+  // First paint until the shared volume settings hydrate (see
+  // usePersistedPlayerVolume): one level for both engines, fixes batch #5.
+  volume: 1,
+  isMuted: false,
   loudnessDb: null,
   normalizationEnabled: getSettingValue(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION) === "true",
   eqEnabled: initialConfig.eqEnabled,
@@ -1028,6 +1027,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const isMuted = !get().isMuted;
     musicAudioEngine.setMuted(isMuted);
     set({ isMuted });
+    saveConfig(get);
+  },
+
+  setMuted: (muted) => {
+    musicAudioEngine.setMuted(muted);
+    set({ isMuted: muted });
     saveConfig(get);
   },
 

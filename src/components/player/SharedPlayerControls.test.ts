@@ -49,7 +49,7 @@ describe("shared player controls", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it("opens volume for focus and closes it on Escape", async () => {
+  it("shows the volume slider without hover or focus (fixes batch #5)", async () => {
     const view = await render(createElement(PlayerVolumeControl, {
       volume: 0.75,
       muted: false,
@@ -57,16 +57,23 @@ describe("shared player controls", () => {
       onVolumeChange: vi.fn(),
       labels: { mute: "Mute", unmute: "Unmute", volume: "Volume" },
     }));
-    const trigger = view.querySelector<HTMLButtonElement>('button[aria-label="Mute"]')!;
-
-    await act(async () => trigger.focus());
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    // No interaction at all: the slider must already be in the tree, and the
+    // mute button must be labelled for the current state.
     expect(view.querySelector<HTMLInputElement>('input[aria-label="Volume"]')).not.toBeNull();
+    expect(view.querySelector<HTMLButtonElement>('button[aria-label="Mute"]')).not.toBeNull();
+  });
 
-    await act(async () => document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    ));
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
+  it("toggles mute from the always-visible button", async () => {
+    const onToggleMute = vi.fn();
+    const view = await render(createElement(PlayerVolumeControl, {
+      volume: 0.75,
+      muted: false,
+      onToggleMute,
+      onVolumeChange: vi.fn(),
+      labels: { mute: "Mute", unmute: "Unmute", volume: "Volume" },
+    }));
+    const trigger = view.querySelector<HTMLButtonElement>('button[aria-label="Mute"]')!;
+    await act(async () => trigger.click());
+    expect(onToggleMute).toHaveBeenCalledOnce();
   });
 });

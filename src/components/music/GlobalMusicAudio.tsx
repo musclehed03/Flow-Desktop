@@ -21,6 +21,7 @@ import { musicListens, useMusicListenHistory } from "../../lib/useMusicListenHis
 import { useMusicQueuePersistence } from "../../lib/useMusicQueuePersistence";
 import { sleepTimerTakesEnd, tickSleepTimer, useSleepTimerDriver } from "../../lib/useSleepTimerDriver";
 import { useLyricsLookup } from "../../lib/lyrics/useLyrics";
+import { usePersistedPlayerVolume } from "../../lib/usePersistedPlayerVolume";
 
 /**
  * Wraps a media-element handler so only the element that is playing drives the
@@ -34,6 +35,11 @@ const fromActive =
   };
 
 export function GlobalMusicAudio() {
+  // One shared volume for both engines (fixes batch #5): hydrates the music
+  // store from the PLAYER_VOLUME / PLAYER_MUTED settings and mirrors changes
+  // both ways with the video store. Also mounted in the video player; the
+  // hook is idempotent and the mirror only writes while the two differ.
+  usePersistedPlayerVolume();
   const firstRef = useRef<HTMLAudioElement | null>(null);
   const secondRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = useMusicPlayerStore((s) => s.currentTrack);
