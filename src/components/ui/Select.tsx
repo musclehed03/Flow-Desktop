@@ -14,6 +14,8 @@ export interface SelectProps {
   onChange: (value: string) => void;
   options: SelectOption[];
   disabled?: boolean;
+  /** Id of the plain-language explainer this picker answers to, when there is one. */
+  ariaDescribedBy?: string;
   className?: string;
 }
 
@@ -23,7 +25,7 @@ function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
-export function Select({ value, onChange, options, disabled, className = '' }: SelectProps) {
+export function Select({ value, onChange, options, disabled, ariaDescribedBy, className = '' }: SelectProps) {
   const [anchor, setAnchor] = useState<(MenuAnchor & { width: number }) | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setAnchor(null), []);
@@ -61,6 +63,7 @@ export function Select({ value, onChange, options, disabled, className = '' }: S
         onClick={toggle}
         aria-haspopup="listbox"
         aria-expanded={anchor !== null}
+        aria-describedby={ariaDescribedBy}
         className="inline-flex h-10 w-full items-center justify-between gap-1.5 rounded-lg border border-chrome-neutral-800 bg-surface-container-high px-3 text-sm text-chrome-neutral-100 transition-colors duration-200 ease-out hover:bg-surface-container-highest focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="font-medium">{current?.label}</span>

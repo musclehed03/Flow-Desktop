@@ -186,11 +186,13 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between gap-3">
               <span className="flex min-w-0 flex-col">
                 <span className="text-sm text-chrome-neutral-200">{getString("eq_auto_preamp")}</span>
-                <span className="text-xs text-chrome-neutral-500">{getString("eq_auto_preamp_desc")}</span>
+                <span id="eq-dialog-auto_preamp-desc" className="text-xs text-chrome-neutral-500">{getString("eq_auto_preamp_desc")}</span>
               </span>
               <ToggleSwitch
                 checked={state.autoPreamp}
                 onChange={(autoPreamp) => update((s) => ({ ...s, autoPreamp }))}
+                label={getString("eq_auto_preamp")}
+                ariaDescribedBy="eq-dialog-auto_preamp-desc"
               />
             </div>
             {state.autoPreamp ? (
@@ -198,17 +200,23 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
                 {getString("eq_db_value", formatDb(eq.autoPreampDb))}
               </span>
             ) : (
-              <EqValueControl
-                value={active.curve.preamp}
-                min={EqLimits.MIN_PREAMP}
-                max={EqLimits.MAX_PREAMP}
-                step={0.5}
-                decimals={2}
-                unit={getString("eq_unit_db")}
-                ariaLabel={getString("eq_preamp")}
-                className="flex-1"
-                onCommit={(db) => update((s) => withManualPreamp(s, db))}
-              />
+              <>
+                <EqValueControl
+                  value={active.curve.preamp}
+                  min={EqLimits.MIN_PREAMP}
+                  max={EqLimits.MAX_PREAMP}
+                  step={0.5}
+                  decimals={2}
+                  unit={getString("eq_unit_db")}
+                  ariaLabel={getString("eq_preamp")}
+                  ariaDescribedBy="eq-dialog-preamp-desc"
+                  className="flex-1"
+                  onCommit={(db) => update((s) => withManualPreamp(s, db))}
+                />
+                <span id="eq-dialog-preamp-desc" className="text-xs text-chrome-neutral-500">
+                  {getString("eq_preamp_desc")}
+                </span>
+              </>
             )}
           </div>
 
@@ -222,8 +230,12 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
               decimals={2}
               unit={getString("eq_unit_db")}
               ariaLabel={getString("eq_bass_boost")}
+              ariaDescribedBy="eq-dialog-bass_boost-desc"
               onCommit={(db) => update((s) => withBassBoost(s, db))}
             />
+            <span id="eq-dialog-bass_boost-desc" className="text-xs text-chrome-neutral-500">
+              {getString("eq_bass_boost_desc")}
+            </span>
           </div>
         </section>
 

@@ -34,6 +34,7 @@ const TYPES: Record<string, EqFilterType> = {
   LPQ: "LOW_PASS",
   HP: "HIGH_PASS",
   HPQ: "HIGH_PASS",
+  NO: "NOTCH",
 };
 
 const tokens = (text: string): string[] => text.trim().split(/\s+/).filter(Boolean);

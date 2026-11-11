@@ -6,6 +6,8 @@ export interface EqNumberFieldProps {
   unit?: string;
   disabled?: boolean;
   ariaLabel: string;
+  /** Id of the plain-language explainer this field answers to, when there is one. */
+  ariaDescribedBy?: string;
   onCommit: (value: number) => void;
 }
 
@@ -13,7 +15,7 @@ export interface EqNumberFieldProps {
  * A number typed in full before it applies: committing on every keystroke would play "1", then
  * "10", then "100" Hz on the way to 1000.
  */
-export function EqNumberField({ value, decimals, unit, disabled, ariaLabel, onCommit }: EqNumberFieldProps) {
+export function EqNumberField({ value, decimals, unit, disabled, ariaLabel, ariaDescribedBy, onCommit }: EqNumberFieldProps) {
   const shown = value.toFixed(decimals);
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
@@ -32,6 +34,7 @@ export function EqNumberField({ value, decimals, unit, disabled, ariaLabel, onCo
         value={draft}
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         onFocus={(event) => event.target.select()}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}

@@ -23,6 +23,8 @@ export interface EqValueControlProps {
   decimals: number;
   unit?: string;
   ariaLabel: string;
+  /** Id of the plain-language explainer this value answers to, when there is one. */
+  ariaDescribedBy?: string;
   disabled?: boolean;
   orientation?: "horizontal" | "vertical";
   /** Map a value to the slider's scale (log for Q and frequency); linear by default. */
@@ -49,6 +51,7 @@ export function EqValueControl({
   decimals,
   unit,
   ariaLabel,
+  ariaDescribedBy,
   disabled,
   orientation = "horizontal",
   toSlider,
@@ -75,6 +78,7 @@ export function EqValueControl({
         unit={unit}
         disabled={disabled}
         ariaLabel={ariaLabel}
+        ariaDescribedBy={ariaDescribedBy}
         onCommit={commit}
       />
     );
@@ -90,6 +94,7 @@ export function EqValueControl({
           disabled={disabled || value >= max}
           onClick={() => commit(value + step)}
           aria-label={getString("eq_increase")}
+          aria-describedby={ariaDescribedBy}
           className={stepButton}
         >
           <Plus className="h-4 w-4" />
@@ -100,6 +105,7 @@ export function EqValueControl({
           disabled={disabled || value <= min}
           onClick={() => commit(value - step)}
           aria-label={getString("eq_decrease")}
+          aria-describedby={ariaDescribedBy}
           className={stepButton}
         >
           <Minus className="h-4 w-4" />
@@ -118,6 +124,7 @@ export function EqValueControl({
         value={toSlider ? toSlider(value) : value}
         onChange={(next) => commit(fromSlider ? fromSlider(next) : next)}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         disabled={disabled}
         className={vertical ? "" : "flex-1"}
       />

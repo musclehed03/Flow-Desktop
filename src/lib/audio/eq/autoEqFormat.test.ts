@@ -62,7 +62,7 @@ describe("AutoEqFormat", () => {
       "# headphone target",
       "Device: Speakers",
       "Channel: L",
-      "Filter 1: ON NO Fc 50 Hz Q 30",
+      "Filter 1: ON BP Fc 50 Hz Q 30",
       "Filter 2: ON PK Fc 500 Hz Gain 1 dB Q 1",
     ].join("\n");
 
@@ -71,6 +71,13 @@ describe("AutoEqFormat", () => {
     expect(result.curve.bands).toHaveLength(1);
     expect(result.skippedFilters).toBe(1);
     expect(result.ignoredLines).toBe(2);
+  });
+
+  it("reads a notch: EqualizerAPO's NO code is a supported shape now", () => {
+    // Q clamps to the 20 ceiling; a notch carries no gain.
+    expect(parseAutoEq("Filter 1: ON NO Fc 50 Hz Q 30")!.curve.bands[0]).toEqual(
+      band(50, 0, EqLimits.MAX_Q, "NOTCH"),
+    );
   });
 
   it("keeps the first twenty filters", () => {

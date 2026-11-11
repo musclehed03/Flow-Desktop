@@ -32,6 +32,16 @@ describe("EqFilterMath", () => {
     expect(Math.abs(db(band(5_000, 0, 0.707, "LOW_PASS"), 100))).toBeLessThan(0.05);
   });
 
+  it("a notch cuts only its own frequency to nothing", () => {
+    const notch = band(1_000, 0, 10, "NOTCH");
+    expect(db(notch, 1_000)).toBeLessThan(-20);
+    expect(Math.abs(db(notch, 100))).toBeLessThan(0.05);
+    expect(Math.abs(db(notch, 10_000))).toBeLessThan(0.05);
+    // A notch has no gain to be flat with, so it is never bypassed while enabled.
+    expect(isBypassed(notch, 48_000)).toBe(false);
+    expect(isBypassed(band(1_000, 0, 10, "NOTCH", false), 48_000)).toBe(true);
+  });
+
   it("flat, disabled and ultrasonic bands are bypassed", () => {
     expect(isBypassed(band(1_000, 0), 48_000)).toBe(true);
     expect(isBypassed(band(1_000, 3, 1.41, "PEAK", false), 48_000)).toBe(true);

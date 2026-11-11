@@ -30,7 +30,10 @@ function explain(key: StringKey, children: ReactNode) {
     <label className="block" data-tooltip-detail={getString(`${key}_desc` as StringKey)}>
       <span className="text-sm font-medium text-chrome-neutral-200">{getString(key)}</span>
       {children}
-      <span className="mt-1 block text-xs text-chrome-neutral-500">{getString(`${key}_desc` as StringKey)}</span>
+      {/* Visible here, and read aloud by the control via aria-describedby="{key}-desc". */}
+      <span id={`${key}-desc`} className="mt-1 block text-xs text-chrome-neutral-500">
+        {getString(`${key}_desc` as StringKey)}
+      </span>
     </label>
   );
 }
@@ -160,10 +163,14 @@ export function EqPanel({
                 decimals={2}
                 unit={getString("eq_unit_db")}
                 ariaLabel={getString("eq_bass_boost")}
+                ariaDescribedBy="eq_bass_boost-desc"
                 className="flex-1"
                 onCommit={(db) => update((s) => withBassBoost(s, db))}
               />
             </div>
+            <p id="eq_bass_boost-desc" className="text-xs text-chrome-neutral-500">
+              {getString("eq_bass_boost_desc")}
+            </p>
           </div>
 
           <button
@@ -196,6 +203,7 @@ export function EqPanel({
                   decimals={2}
                   unit="dB"
                   ariaLabel={getString("eq_preamp")}
+                  ariaDescribedBy="eq_preamp-desc"
                   onCommit={(preampDb) => updateDynamics({ preampDb: clamp(preampDb, -15, 15) })}
                 />
               </div>,
@@ -210,6 +218,7 @@ export function EqPanel({
                   step={0.01}
                   decimals={2}
                   ariaLabel={getString("eq_balance")}
+                  ariaDescribedBy="eq_balance-desc"
                   onCommit={(balance) => updateDynamics({ balance: clamp(balance, -1, 1) })}
                 />
               </div>,
@@ -217,12 +226,13 @@ export function EqPanel({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <span className="text-sm text-chrome-neutral-200">{getString("eq_compressor")}</span>
-                <p className="text-xs text-chrome-neutral-500">{getString("eq_compressor_desc")}</p>
+                <p id="eq_compressor-desc" className="text-xs text-chrome-neutral-500">{getString("eq_compressor_desc")}</p>
               </div>
               <ToggleSwitch
                 checked={dynamics.compressorEnabled}
                 onChange={(compressorEnabled) => updateDynamics({ compressorEnabled })}
                 label={getString("eq_compressor")}
+                ariaDescribedBy="eq_compressor-desc"
               />
             </div>
             {dynamics.compressorEnabled && (
@@ -238,6 +248,7 @@ export function EqPanel({
                       decimals={0}
                       unit="dB"
                       ariaLabel={getString("eq_threshold")}
+                  ariaDescribedBy="eq_threshold-desc"
                       onCommit={(compressorThreshold) => updateDynamics({ compressorThreshold: clamp(compressorThreshold, -60, 0) })}
                     />
                   </div>,
@@ -252,6 +263,7 @@ export function EqPanel({
                       step={0.5}
                       decimals={1}
                       ariaLabel={getString("eq_ratio")}
+                  ariaDescribedBy="eq_ratio-desc"
                       onCommit={(compressorRatio) => updateDynamics({ compressorRatio: clamp(compressorRatio, 1, 20) })}
                     />
                   </div>,
@@ -267,6 +279,7 @@ export function EqPanel({
                       decimals={3}
                       unit="s"
                       ariaLabel={getString("eq_attack")}
+                  ariaDescribedBy="eq_attack-desc"
                       onCommit={(compressorAttack) => updateDynamics({ compressorAttack: clamp(compressorAttack, 0, 1) })}
                     />
                   </div>,
@@ -282,6 +295,7 @@ export function EqPanel({
                       decimals={2}
                       unit="s"
                       ariaLabel={getString("eq_release")}
+                  ariaDescribedBy="eq_release-desc"
                       onCommit={(compressorRelease) => updateDynamics({ compressorRelease: clamp(compressorRelease, 0.01, 1) })}
                     />
                   </div>,
@@ -291,12 +305,13 @@ export function EqPanel({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <span className="text-sm text-chrome-neutral-200">{getString("eq_limiter")}</span>
-                <p className="text-xs text-chrome-neutral-500">{getString("eq_limiter_desc")}</p>
+                <p id="eq_limiter-desc" className="text-xs text-chrome-neutral-500">{getString("eq_limiter_desc")}</p>
               </div>
               <ToggleSwitch
                 checked={dynamics.limiterEnabled}
                 onChange={(limiterEnabled) => updateDynamics({ limiterEnabled })}
                 label={getString("eq_limiter")}
+                ariaDescribedBy="eq_limiter-desc"
               />
             </div>
           </section>

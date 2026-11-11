@@ -4,6 +4,7 @@ import { defaultQ, EQ_FILTER_TYPES, EqLimits, hasGain, type EqBand, type EqFilte
 import { getString, type StringKey } from "../../../lib/i18n/index";
 import { Select } from "../../ui/Select";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { EqShapeIcon, shapeDescriptionKey } from "./EqShape";
 import { EqValueControl } from "./EqValueControl";
 
 const TYPE_LABELS: Record<EqFilterType, StringKey> = {
@@ -12,7 +13,21 @@ const TYPE_LABELS: Record<EqFilterType, StringKey> = {
   HIGH_SHELF: "eq_type_high_shelf",
   LOW_PASS: "eq_type_low_pass",
   HIGH_PASS: "eq_type_high_pass",
+  NOTCH: "eq_type_notch",
 };
+
+/*
+  What each control does, in plain language, shown once above the bands and read aloud
+  by every band's controls (fixes batch #12): a screen reader on any frequency, gain,
+  Q or type control hears the explainer, and a sighted reader sees it without hunting.
+  The per-band shape line underneath each row says what THIS band's shape does.
+*/
+const LEGEND: { id: string; label: StringKey; desc: StringKey }[] = [
+  { id: "eq-band-legend-type", label: "eq_filter_type", desc: "eq_filter_type_desc" },
+  { id: "eq-band-legend-frequency", label: "eq_frequency", desc: "eq_frequency_desc" },
+  { id: "eq-band-legend-gain", label: "eq_gain", desc: "eq_gain_desc" },
+  { id: "eq-band-legend-q", label: "eq_q", desc: "eq_q_desc" },
+];
 
 // Q spans two decades, so its slider runs on a log scale: the middle is Q 1.4, not Q 10.
 const Q_STEPS = 1_000;
@@ -50,13 +65,23 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
 
   return (
     <div className="flex flex-col gap-2">
+      <dl className="flex flex-col gap-0.5 rounded-lg border border-chrome-neutral-800 px-3 py-2 text-xs text-chrome-neutral-500">
+        {LEGEND.map(({ id, label, desc }) => (
+          <div key={id} className="flex gap-2">
+            <dt className="w-20 shrink-0 font-medium text-chrome-neutral-400">{getString(label)}</dt>
+            <dd id={id}>{getString(desc)}</dd>
+          </div>
+        ))}
+      </dl>
       {bands.length === 0 ? (
         <p className="rounded-lg border border-dashed border-chrome-neutral-800 px-3 py-4 text-center text-sm text-chrome-neutral-500">
           {getString("eq_no_bands")}
         </p>
       ) : (
         <ul className="divide-y divide-chrome-neutral-800 rounded-lg border border-chrome-neutral-800">
-          {bands.map((band, index) => (
+          {bands.map((band, index) => {
+            const shapeDescId = `eq-band-${index}-shape-desc`;
+            return (
             <li
               key={index}
               onFocusCapture={() => onSelect(index)}
@@ -70,6 +95,7 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                 value={band.type}
                 options={typeOptions}
                 className="w-36"
+                ariaDescribedBy={`${shapeDescId} eq-band-legend-type`}
                 onChange={(value) => {
                   const type = value as EqFilterType;
                   onChange(index, { ...band, type, q: defaultQ(type), gain: hasGain(type) ? band.gain : 0 });
@@ -83,6 +109,7 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                 decimals={0}
                 unit={getString("eq_unit_hz")}
                 ariaLabel={getString("eq_frequency")}
+                ariaDescribedBy="eq-band-legend-frequency"
                 toSlider={freqToSlider}
                 fromSlider={sliderToFreq}
                 sliderMin={0}
@@ -99,6 +126,7 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                 unit={getString("eq_unit_db")}
                 disabled={!hasGain(band.type)}
                 ariaLabel={getString("eq_gain")}
+                ariaDescribedBy="eq-band-legend-gain"
                 onCommit={(gain) => onChange(index, { ...band, gain })}
               />
               <div className="flex min-w-[10rem] flex-1 items-center gap-2">
@@ -110,6 +138,7 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                   step={0.1}
                   decimals={2}
                   ariaLabel={getString("eq_q")}
+                  ariaDescribedBy="eq-band-legend-q"
                   toSlider={qToSlider}
                   fromSlider={sliderToQ}
                   sliderMin={0}
@@ -128,8 +157,16 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
               >
                 <Trash2 className="h-4 w-4" />
               </button>
+              {/* The shape, drawn and spelled out: what this band does to the sound. */}
+              <div className="flex w-full items-center gap-2 pl-7">
+                <EqShapeIcon band={band} />
+                <p id={shapeDescId} className="text-xs text-chrome-neutral-500">
+                  {getString(shapeDescriptionKey(band))}
+                </p>
+              </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       <button

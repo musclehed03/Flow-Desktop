@@ -2,9 +2,9 @@
  * The equalizer model shared with Flow for Android (`data/audio/eq/EqModels.kt`). The field names
  * and enum spellings are the JSON both apps store and sync, so they must not be renamed.
  */
-export type EqFilterType = "PEAK" | "LOW_SHELF" | "HIGH_SHELF" | "LOW_PASS" | "HIGH_PASS";
+export type EqFilterType = "PEAK" | "LOW_SHELF" | "HIGH_SHELF" | "LOW_PASS" | "HIGH_PASS" | "NOTCH";
 
-export const EQ_FILTER_TYPES: readonly EqFilterType[] = ["PEAK", "LOW_SHELF", "HIGH_SHELF", "LOW_PASS", "HIGH_PASS"];
+export const EQ_FILTER_TYPES: readonly EqFilterType[] = ["PEAK", "LOW_SHELF", "HIGH_SHELF", "LOW_PASS", "HIGH_PASS", "NOTCH"];
 
 /** The EqualizerAPO code each type is written with. */
 export const APO_CODES: Record<EqFilterType, string> = {
@@ -13,6 +13,7 @@ export const APO_CODES: Record<EqFilterType, string> = {
   HIGH_SHELF: "HSC",
   LOW_PASS: "LPQ",
   HIGH_PASS: "HPQ",
+  NOTCH: "NO",
 };
 
 export const hasGain = (type: EqFilterType): boolean =>
@@ -45,7 +46,7 @@ export const EqLimits = {
 } as const;
 
 export const defaultQ = (type: EqFilterType): number =>
-  type === "PEAK" ? EqLimits.DEFAULT_PEAK_Q : EqLimits.DEFAULT_SHELF_Q;
+  type === "PEAK" ? EqLimits.DEFAULT_PEAK_Q : type === "NOTCH" ? 10 : EqLimits.DEFAULT_SHELF_Q;
 
 export interface EqCurve {
   preamp: number;

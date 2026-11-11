@@ -8,6 +8,8 @@ export interface SliderProps {
   step?: number;
   onChange: (value: number) => void;
   'aria-label': string;
+  /** Id of the plain-language explainer this slider answers to, when there is one. */
+  'aria-describedby'?: string;
   disabled?: boolean;
   className?: string;
   orientation?: 'horizontal' | 'vertical';
@@ -27,6 +29,7 @@ export function Slider({
   className = '',
   orientation = 'horizontal',
   'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
 }: SliderProps) {
   const [pressed, setPressed] = useState(false);
   const expressive = useExpressiveSliders();
@@ -45,6 +48,7 @@ export function Slider({
       value={value}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       onChange={(event) => onChange(Number(event.target.value))}
       onPointerDown={() => setPressed(true)}
       onPointerUp={() => setPressed(false)}
