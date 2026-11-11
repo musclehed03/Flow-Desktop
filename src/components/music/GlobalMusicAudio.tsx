@@ -64,6 +64,9 @@ export function GlobalMusicAudio() {
     musicAudioEngine.setVolume(s.volume);
     musicAudioEngine.setMuted(s.isMuted);
     bindMusicAudioSettings();
+    // Closing the context here releases its PipeWire stream on unmount
+    // (StrictMode remounts included); the next play rebuilds it lazily.
+    return () => { void musicAudioEngine.dispose(); };
   }, []);
 
   useEffect(() => {

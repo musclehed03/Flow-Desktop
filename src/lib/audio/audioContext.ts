@@ -59,3 +59,20 @@ export function keepRunning(ctx: AudioContext, shouldRun: () => boolean): () => 
     devices?.removeEventListener?.("devicechange", recover);
   };
 }
+
+/**
+ * Suspends `ctx` after `delayMs` of idleness, so a context that is only needed while something
+ * plays stops holding its PipeWire stream open forever. The graph stays intact and resumes
+ * instantly; callers cancel the pending suspend (via the returned function) the moment
+ * playback resumes. The delay keeps a track change or a seek from churning the audio thread.
+ */
+export function suspendAfterIdle(
+  ctx: AudioContext,
+  shouldRun: () => boolean,
+  delayMs = 5_000,
+): () => void {
+  const timer = setTimeout(() => {
+    if (ctx.state === "running" && !shouldRun()) void ctx.suspend().catch(() => {});
+  }, delayMs);
+  return () => clearTimeout(timer);
+}

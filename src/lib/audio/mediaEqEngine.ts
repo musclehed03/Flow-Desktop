@@ -1,5 +1,5 @@
 import { logToBackend } from "../diagnostics";
-import { createAudioContext, keepRunning, resumeWithin } from "./audioContext";
+import { createAudioContext, keepRunning, resumeWithin, suspendAfterIdle } from "./audioContext";
 import { EQ_GRAPH_OFF, type EqGraphSpec } from "./eq/graphPlan";
 import { EqChain } from "./eqChain";
 import { probeMediaElementRouting } from "./webAudioProbe";
@@ -10,6 +10,20 @@ let routingWorks: Promise<boolean | null> | null = null;
 // WebAudio failed or delivered silence in this window: video plays from its elements alone.
 let unavailable = false;
 const routedElements = new Set<HTMLMediaElement>();
+/** Cancels the pending idle suspend when a video plays again. */
+let cancelIdleSuspend: (() => void) | null = null;
+
+/** Suspends the shared video context once no routed element is playing (fixes batch #4). */
+function armVideoIdleSuspend(): void {
+  if (cancelIdleSuspend || !sharedContext) return;
+  cancelIdleSuspend = suspendAfterIdle(sharedContext, () =>
+    [...routedElements].some((el) => !el.paused),
+  );
+}
+
+function cancelVideoIdleSuspend(): void {
+  if (cancelIdleSuspend) { cancelIdleSuspend(); cancelIdleSuspend = null; }
+}
 
 function videoContext(): AudioContext | null {
   if (!sharedContext) {
@@ -61,9 +75,13 @@ export class MediaEqEngine {
       // A routed element needs its context running; one not routed yet gets another chance,
       // since the self-test needs a context the webview lets run.
       el.addEventListener("play", () => {
+        cancelVideoIdleSuspend();
         if (routedElements.has(el) && sharedContext) void resumeWithin(sharedContext);
         else if (this.engaged) void this.route();
       });
+      // Nothing playing any more: let the shared context go idle (fixes batch #4).
+      el.addEventListener("pause", armVideoIdleSuspend);
+      el.addEventListener("ended", armVideoIdleSuspend);
     }
     if (this.engaged) void this.route();
   }
@@ -79,6 +97,7 @@ export class MediaEqEngine {
     this.setElements([]);
     this.chain?.output.disconnect();
     this.chain = null;
+    if (routedElements.size === 0) armVideoIdleSuspend();
   }
 
   private async route(): Promise<void> {

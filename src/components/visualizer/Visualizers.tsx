@@ -3,7 +3,7 @@ import { toggleMusicFullscreen } from "../../lib/musicPresentation";
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AudioLines, X, Maximize2, Brain, ListMusic, SlidersHorizontal, GripHorizontal, RotateCcw } from 'lucide-react';
-import { useVisualizerConfig, useVisualizerUi, openVisualizer, openVisualizerCustomizer } from '../../lib/useVisualizer';
+import { useVisualizerConfig, useVisualizerUi, openVisualizer, openVisualizerCustomizer, closeVisualizer } from '../../lib/useVisualizer';
 import { useBoolPref } from '../../lib/usePreference';
 import { SETTINGS } from '../../lib/settings/schema';
 import { VisualizerCanvas } from './VisualizerCanvas';
@@ -22,7 +22,7 @@ export function VisualizerToggle({ surface }: { surface: 'music' | 'video' }) {
   const { t } = useTranslation('settings');
   const open = useVisualizerUi((state) => state.open);
   return <button type="button" data-visualizer-toggle="true" data-player-control="visualizer" aria-label={t('visualizer.title')} title={t('visualizer.title')} aria-pressed={open}
-    onClick={() => { if (open) useVisualizerUi.setState({ open: false }); else void openVisualizer(surface); }}
+    onClick={() => { if (open) closeVisualizer(); else void openVisualizer(surface); }}
     className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant bg-surface-container text-on-surface"><AudioLines size={18} /></button>;
 }
 export function VisualizerArtwork({ children }: { children: ReactNode }) {
@@ -65,7 +65,7 @@ export function Visualizers() {
     if (music) useVisualizerUi.setState({ surface: 'music' });
     else if (video && config.enabled) void videoAnalyser().then((analyser) => useVisualizerUi.setState({ surface: 'video', analyser }));
   }, [music?.id, video?.id, config.enabled]);
-  const close = () => useVisualizerUi.setState({ open: false });
+  const close = () => closeVisualizer();
   useEffect(() => {
     if (!config.enabled || config.mode !== 'fullscreen') return;
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !open) { event.preventDefault(); event.stopImmediatePropagation(); saveConfig({ ...config, enabled: false }); } };

@@ -1,6 +1,6 @@
 import { loudnessFactor, MUSIC_MAX_CUT_DB } from "../loudness";
 import { IS_LINUX_RUNTIME, IS_MACOS_RUNTIME } from "../platform";
-import { createAudioContext, keepRunning, resumeWithin, webAudioSupported } from "./audioContext";
+import { createAudioContext, keepRunning, resumeWithin, suspendAfterIdle, webAudioSupported } from "./audioContext";
 import { fadeInGain, fadeOutGain, resetFade, scheduleFade, steppedFade } from "./crossfadeRamp";
 import { EQ_GRAPH_OFF, type EqGraphSpec } from "./eq/graphPlan";
 import { EqChain, RAMP_TIME_CONSTANT } from "./eqChain";
@@ -84,6 +84,10 @@ export class MusicAudioEngine {
   private graphReady = false;
   private webAudioFailed = false;
   private availabilityListeners = new Set<(available: boolean) => void>();
+  /** Elements already wired with play/pause listeners for the idle suspend. */
+  private watchedElements = new WeakSet<HTMLAudioElement>();
+  /** Cancels the pending idle suspend when playback resumes. */
+  private cancelIdleSuspend: (() => void) | null = null;
 
   private volume = 1;
   private muted = false;
@@ -110,6 +114,10 @@ export class MusicAudioEngine {
   /** Bind the two hidden <audio> elements. Safe to call again on HMR. */
   attach(elements: [HTMLAudioElement, HTMLAudioElement]): void {
     if (this.slots[0].el === elements[0] && this.slots[1].el === elements[1]) return;
+    // A re-bind abandons the previous elements: their sources and the old
+    // EQ/dynamics chain are disconnected here instead of staying wired into
+    // the live context forever (fixes batch #4).
+    this.teardownGraph();
     this.slots = [emptySlot(), emptySlot()];
     this.activeIndex = 0;
     this.fading = null;
@@ -119,12 +127,77 @@ export class MusicAudioEngine {
       el.preload = "auto";
       el.preservesPitch = true;
       this.slots[i as 0 | 1].el = el;
+      if (!this.watchedElements.has(el)) {
+        this.watchedElements.add(el);
+        el.addEventListener("play", this.onElementPlay);
+        el.addEventListener("pause", this.onElementIdle);
+        el.addEventListener("ended", this.onElementIdle);
+      }
     }
     this.graphReady = false;
     this.applySpeed();
     this.engageWhilePlaying();
     this.applyGain();
   }
+
+  /**
+   * Disconnects every node the graph built, so a re-bind or a dispose leaves nothing wired
+   * into the context. The context itself survives a re-bind; `dispose` closes it.
+   */
+  private teardownGraph(): void {
+    for (const slot of this.slots) {
+      slot.source?.disconnect();
+      slot.source = null;
+      slot.fadeGain?.disconnect();
+      slot.fadeGain = null;
+      slot.normGain = null;
+    }
+    this.chain?.output.disconnect();
+    this.chain = null;
+    this.preampGain?.disconnect();
+    this.preampGain = null;
+    this.balanceNode?.disconnect();
+    this.balanceNode = null;
+    this.compressor?.disconnect();
+    this.compressor = null;
+    this.limiter?.disconnect();
+    this.limiter = null;
+    this.volGain?.disconnect();
+    this.volGain = null;
+    this.analyser?.disconnect();
+    this.analyser = null;
+    this.graphReady = false;
+  }
+
+  /** Closes the audio context and drops the graph; the next play rebuilds it lazily. */
+  async dispose(): Promise<void> {
+    this.teardownGraph();
+    if (this.cancelIdleSuspend) { this.cancelIdleSuspend(); this.cancelIdleSuspend = null; }
+    const ctx = this.ctx;
+    this.ctx = null;
+    if (ctx) {
+      try {
+        await ctx.close();
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+
+  /** Playback resumed: cancel any pending idle suspend and wake the context. */
+  private onElementPlay = (): void => {
+    if (this.cancelIdleSuspend) { this.cancelIdleSuspend(); this.cancelIdleSuspend = null; }
+    if (this.ctx && this.graphReady) void resumeWithin(this.ctx);
+  };
+
+  /** Nothing playing: suspend the context shortly, so its PipeWire stream goes idle. */
+  private onElementIdle = (): void => {
+    if (this.cancelIdleSuspend || !this.ctx || !this.graphReady) return;
+    this.cancelIdleSuspend = suspendAfterIdle(
+      this.ctx,
+      () => this.slots.some((slot) => slot.el && !slot.el.paused) || this.fading !== null,
+    );
+  };
 
   /** The element currently playing — the one whose events the player follows. */
   getActiveElement(): HTMLAudioElement | null {
