@@ -81,7 +81,7 @@ export const AlbumsLibrary: React.FC = () => {
 
   return (
     <div className="flex-1 overflow-y-auto px-8 py-6">
-      <div className="space-y-6 pb-20">
+      <div className="space-y-6 pb-28">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">

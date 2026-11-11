@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Brain, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SensorySettings } from "./SensorySettings";
+import { APP_TITLEBAR_HEIGHT } from "../../lib/platform";
 import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
 
 const DEVIANT_CONSTRAINTS = { minWidth: 190, minHeight: 48, maxWidth: 280, maxHeight: 64, margin: 12 } as const;
@@ -11,9 +12,13 @@ export function DeviantControls() {
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // Parks top-right under the title bar (fixes batch #17): the old bottom-right
+  // spot sat on the music dock's right end and, on narrower windows, on the
+  // Pencil edit icon of a custom theme's card — the last row of page content.
+  // The dock lane below is kept clear by the surface clamp instead.
   const surface = useSurfaceLayout("deviant-controls", () => ({
     x: Math.max(12, window.innerWidth - 232),
-    y: Math.max(12, window.innerHeight - 112),
+    y: APP_TITLEBAR_HEIGHT + 12,
     width: 220,
     height: 52,
   }), DEVIANT_CONSTRAINTS, true);

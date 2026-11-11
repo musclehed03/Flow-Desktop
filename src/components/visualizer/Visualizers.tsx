@@ -13,6 +13,7 @@ import { PlayerTransportControls, PlayerVolumeControl } from '../player/SharedPl
 import { Slider } from '../ui/Slider';
 import { requestVideoSeek } from '../../lib/playerEvents';
 import { useSurfaceLayout } from '../../lib/useSurfaceLayout';
+import { SURFACE_DOCK_KEEP_OUT } from '../../lib/surfaceLayout';
 
 const VISUALIZER_CONSTRAINTS = { minWidth: 280, minHeight: 140, margin: 12 } as const;
 
@@ -58,7 +59,7 @@ export function Visualizers() {
   const videoFullscreen = usePlayerStore((state) => state.isVideoFullscreen);
   const opener = useRef<HTMLElement | null>(null);
   const miniSurface = useSurfaceLayout('visualizer-mini', () => ({
-    x: Math.max(12, window.innerWidth - 332), y: Math.max(12, window.innerHeight - 284), width: 320, height: 216,
+    x: Math.max(12, window.innerWidth - 332), y: Math.max(12, window.innerHeight - SURFACE_DOCK_KEEP_OUT - 216), width: 320, height: 216,
   }), VISUALIZER_CONSTRAINTS);
   opener.current = openerElement;
   useEffect(() => {

@@ -197,7 +197,7 @@ export const Channel: React.FC<ChannelProps> = ({ onPlay, onAddToQueue }) => {
   const items = feed.feed?.items ?? [];
 
   return (
-    <div className="relative flex-grow bg-background pb-24">
+    <div className="relative flex-grow bg-background pb-28">
       <ChannelHero channelInfo={details} onOpenAbout={details.aboutToken ? () => setAboutOpen(true) : undefined} />
 
       <ChannelTabs

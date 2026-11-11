@@ -46,7 +46,7 @@ type MediaMenuProps = {
 };
 
 
-export function MediaMenu({ anchor, onClose, actions, header, note, className = "z-50" }: MediaMenuProps) {
+export function MediaMenu({ anchor, onClose, actions, header, note, className = "z-[600]" }: MediaMenuProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tiles = actions.filter((action) => action.group === "quick").slice(0, MAX_TILES);
   const groups = GROUP_ORDER

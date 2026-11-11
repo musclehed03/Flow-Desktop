@@ -102,7 +102,7 @@ export const Diagnostics: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 pb-20 bg-[var(--color-background)]">
+    <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 pb-28 bg-[var(--color-background)]">
       <div className="border-b border-[var(--color-outline-variant)] pb-4">
         <div className="flex items-center gap-3">
           <div>

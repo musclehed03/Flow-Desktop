@@ -38,8 +38,8 @@ async function renderSlider(props: Partial<Parameters<typeof TypedSlider>[0]> = 
       }),
     ),
   );
-  const text = host.querySelector("input[type='text']")!;
-  const range = host.querySelector("input[type='range']")!;
+  const text = host.querySelector<HTMLInputElement>("input[type='text']")!;
+  const range = host.querySelector<HTMLInputElement>("input[type='range']")!;
   return { root, host, onCommit, text, range };
 }
 
