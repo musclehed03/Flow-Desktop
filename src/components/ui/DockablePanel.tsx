@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { ChevronsDownUp, ChevronsUpDown, GripHorizontal, PanelLeft, PanelRight, PictureInPicture2, RotateCcw, Undo2, X } from "lucide-react";
 import { getString } from "../../lib/i18n/index";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 import {
   clampPanelLayout,
   movePanelLayout,
@@ -46,7 +47,6 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
   const [, saveLayouts] = usePreference(SETTINGS.EDITOR_PANEL_LAYOUTS);
   const [layout, setLayout] = useState(() => readPanelLayout(getSettingValue(SETTINGS.EDITOR_PANEL_LAYOUTS), panelId, viewport()));
   const layoutRef = useRef(layout);
-  const panelRef = useRef<HTMLElement>(null);
   layoutRef.current = layout;
 
   const persist = useCallback((next: PanelLayout) => {
@@ -61,10 +61,24 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
     queueMicrotask(() => openerRef.current?.focus());
   }, [onClose, openerRef]);
 
+  // Click-off dismiss (fixes batch #18), floating panels only: a click or focus
+  // move outside a floating panel closes it, so the X is never the only way
+  // out. A docked panel is part of the layout, not a popover — it stays put
+  // while the page behind it is worked, and keeps its own Escape handling.
+  const panelRef = useDismissOnOutsideInteraction<HTMLElement>({
+    open: layout.placement === "floating",
+    onDismiss: close,
+    additionalRefs: [openerRef],
+    restoreFocusRef: openerRef,
+  });
+
   useEffect(() => {
     panelRef.current?.querySelector<HTMLElement>("[data-panel-initial-focus]")?.focus();
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // Floating Escape is owned by the dismiss hook above; this one covers
+      // docked panels only, so the two never fire on the same keypress.
+      if (layoutRef.current.placement === "floating") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       close();

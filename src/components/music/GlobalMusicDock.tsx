@@ -74,6 +74,7 @@ export function GlobalMusicDock() {
 
   const [popover, setPopover] = useState<null | "eq" | "vol">(null);
   const volumeTriggerRef = useRef<HTMLElement | null>(null);
+  const eqTriggerRef = useRef<HTMLElement | null>(null);
   const menu = useMusicContextMenu(Boolean(currentTrack));
   const menuActions = useNowPlayingMenuActions(currentTrack);
 
@@ -304,6 +305,7 @@ export function GlobalMusicDock() {
                     </HapticButton>
 
                     <HapticButton
+                      ref={(el) => { eqTriggerRef.current = el; }}
                       onClick={() => setPopover((p) => (p === "eq" ? null : "eq"))}
                       aria-label={getString("music_equalizer")}
                       aria-pressed={popover === "eq"}
@@ -332,6 +334,7 @@ export function GlobalMusicDock() {
                 open={popover === "eq"}
                 onClose={() => setPopover(null)}
                 placement="top"
+                triggerRef={eqTriggerRef}
               />
             </div>
             <div className="absolute bottom-full right-2 mb-3">

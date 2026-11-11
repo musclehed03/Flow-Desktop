@@ -65,6 +65,7 @@ export function MusicOverlay() {
   const [eqOpen, setEqOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const volumeTriggerRef = useRef<HTMLElement | null>(null);
+  const eqTriggerRef = useRef<HTMLElement | null>(null);
   const [lyricsExpanded, setLyricsExpanded] = useState(false);
   const wide = useMediaQuery(WIDE_QUERY);
   const [paneVisible, setPaneVisible] = useBoolPref(SETTINGS.MUSIC_SIDE_PANE_VISIBLE);
@@ -278,6 +279,7 @@ export function MusicOverlay() {
             <VisualizerToggle surface="music" />
 
             <HapticButton
+              ref={(el) => { eqTriggerRef.current = el; }}
               onClick={() => setEqOpen((v) => !v)}
               aria-label={getString("music_equalizer")}
               aria-pressed={eqOpen}
@@ -288,7 +290,7 @@ export function MusicOverlay() {
 
             {/* EQ opens BELOW the top bar so it stays in frame */}
             <div className="absolute right-0 top-full mt-2">
-              <EqPanel open={eqOpen} onClose={() => setEqOpen(false)} placement="bottom" />
+              <EqPanel open={eqOpen} onClose={() => setEqOpen(false)} placement="bottom" triggerRef={eqTriggerRef} />
             </div>
           </div>
         </div>

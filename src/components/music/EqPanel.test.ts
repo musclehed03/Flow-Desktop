@@ -44,3 +44,19 @@ it("reveals the compressor controls when the compressor is switched on", async (
   expect(document.querySelector(`[aria-label="${getString("eq_release")}"]`)).not.toBeNull();
   await act(async () => root.unmount());
 });
+
+it("closes on a click outside it, not on a click inside it (fixes batch #18)", async () => {
+  useMusicPlayerStore.setState({ audioProcessing: defaultAudioProcessingConfig(), eqEnabled: false });
+  const onClose = vi.fn();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(EqPanel, { open: true, onClose })));
+  // A click on a control inside the panel leaves it open.
+  const preamp = document.querySelector(`[aria-label="${getString("eq_preamp")}"]`)!;
+  await act(async () => { preamp.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+  expect(onClose).not.toHaveBeenCalled();
+  // A click anywhere else — back to the library, the queue — closes it.
+  await act(async () => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+  expect(onClose).toHaveBeenCalledTimes(1);
+  await act(async () => root.unmount());
+});

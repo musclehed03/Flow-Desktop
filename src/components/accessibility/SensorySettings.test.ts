@@ -55,7 +55,10 @@ it('keeps settings, importer and quick controls operable across all 128 sensory 
       expect(related).not.toBeNull();
       expect(related?.querySelectorAll('button')).toHaveLength(3);
       related?.querySelectorAll('button').forEach((button) => expect(button.getAttribute('aria-label')).toBeTruthy());
-      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+      // A real Escape targets the focused element — the sidebar focuses its
+      // close button on open — and bubbles to the document dismiss listener.
+      const focused = document.activeElement ?? related?.querySelector('button');
+      await act(async () => focused?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
       expect(useRelatedSnapshot.getState().open).toBe(false);
       const switches = host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
       expect(switches.length).toBeGreaterThan(4);

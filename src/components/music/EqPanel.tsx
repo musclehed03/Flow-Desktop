@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, SlidersHorizontal, X } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 import { EqLimits } from "../../lib/audio/eq/models";
 import { withBassBoost } from "../../lib/audio/eq/stateOps";
@@ -49,10 +51,13 @@ export function EqPanel({
   open,
   onClose,
   placement = "top",
+  triggerRef,
 }: {
   open: boolean;
   onClose: () => void;
   placement?: "top" | "bottom";
+  /** The button that opens the panel: clicks on it toggle, never dismiss-then-reopen. */
+  triggerRef?: RefObject<HTMLElement | null>;
 }) {
   const eq = useEqualizer();
   const available = useMusicEqAvailable();
@@ -85,6 +90,17 @@ export function EqPanel({
     useUiStore.getState().showToast({ message: getString("eq_device_saved", output.label), variant: "success" });
   };
 
+  // Click-off dismiss (fixes batch #18): a click or focus move outside the
+  // panel — back to the library, the queue, anywhere — closes it, so the X is
+  // never the only way out. The toggle that opened it is exempt, or its click
+  // would close the panel and immediately open it again.
+  const panelRef = useDismissOnOutsideInteraction<HTMLDivElement>({
+    open,
+    onDismiss: onClose,
+    additionalRefs: triggerRef ? [triggerRef] : [],
+    restoreFocusRef: triggerRef,
+  });
+
   const fromY = placement === "top" ? 10 : -10;
   const selectedId = eq.active.presetId;
 
@@ -92,6 +108,7 @@ export function EqPanel({
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={panelRef}
           key="eq-panel"
           initial={{ opacity: 0, y: fromY, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
