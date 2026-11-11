@@ -28,6 +28,20 @@ export interface MusicStation {
 export const geniusEnabled = () => getSettingValue(SETTINGS.GENIUS_DJ_ENABLED) === "true";
 export const discoveryLevel = (): DiscoveryLevel => getSettingValue(SETTINGS.RADIO_DISCOVERY_LEVEL) as DiscoveryLevel;
 export const targetNovelty = () => !geniusEnabled() || discoveryLevel() === "moderate" ? undefined : discoveryLevel() === "less" ? 0.10 : 0.65;
+/**
+ * Whether a station tops up through the Genius DJ lane instead of the
+ * upstream radio session. The lane only changes the music when its novelty
+ * ranking is engaged (discovery "less" or "more"), or when the station needs
+ * its own fetch (Daily Mix / genre). A plain track or artist station at the
+ * default "moderate" discovery uses the upstream session, which keeps its
+ * anchor reseed, pool, and per-artist cap — the Genius lane at "moderate" is
+ * a no-op rank on top of a fetch with none of those.
+ */
+export const geniusLaneFor = (station: MusicStation | null): boolean => {
+  if (!geniusEnabled()) return false;
+  if (targetNovelty() !== undefined) return true;
+  return station?.type === "mix" || station?.type === "genre";
+};
 export const trackStation = (seed: SongItem): MusicStation => ({ type: "track", seed, continuation: null, playlistId: null });
 export const songId = (song: SongItem) => song.videoId ?? song.id;
 export function belongsToSeedArtist(song: SongItem, station: MusicStation): boolean {
@@ -47,6 +61,19 @@ export async function fetchStationPage(station: MusicStation, last: SongItem): P
     const page = await getMusicMoodGenre(station.browseId, station.params ?? undefined, station.genreContinuation ?? undefined);
     return { songs: page.items.filter((item): item is SongItem & { type: "song" } => item.type === "song"),
       station: { ...station, genreContinuation: page.continuation, genreTurn: false } };
+  }
+  // A fresh track station has no playlist yet: ask for the seed's own queue
+  // first — it names the site's automix for the seed — then continue with
+  // that playlist id and its params, mirroring radioSession's seed fetch.
+  // (Guessing `RDAMVM<seed>` skips the site's own automix params.)
+  if (!station.continuation && !station.playlistId) {
+    const seedQueue = await getMusicWatchQueue(songId(last)).catch(() => null);
+    const automix = seedQueue?.radioPlaylistId;
+    const page = await getMusicWatchQueue(songId(last),
+      automix ?? `RDAMVM${songId(last)}`,
+      automix ? (seedQueue?.radioParams ?? undefined) : undefined);
+    return { songs: page.items, station: { ...station, continuation: page.continuation,
+      playlistId: page.radioPlaylistId ?? automix ?? station.playlistId, genreTurn: true } };
   }
   const page = station.continuation ? await getMusicQueueContinuation(station.continuation)
     : await getMusicWatchQueue(songId(last), station.playlistId ?? `RDAMVM${songId(last)}`);

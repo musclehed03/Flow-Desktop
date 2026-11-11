@@ -1,14 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
-import { getPlaylistDetails } from "./api/youtube";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getPlaylistDetails, getVideoMetadata } from "./api/youtube";
 import {
   formatVideoCountText,
   getStoredPlaylistById,
   isProtectedPlaylistId,
   normalizePlaylist,
   resolvePlaylistTitle,
+  updateStoredPlaylistTracks,
   type StoredPlaylist,
 } from "./playlistLibrary";
-import type { VideoSummary } from "../types/video";
+import { appendUniqueVideos, loadRemainingPlaylistVideos } from "./playlistPages";
+import {
+  applyVideoMetadata,
+  ENRICHMENT_CHUNK_DELAY_MS,
+  ENRICHMENT_CHUNK_SIZE,
+  ENRICHMENT_TRACK_LIMIT,
+  needsEnrichment,
+} from "./playlistEnrichment";
+import { recentlyCheckedIds, rememberChecks } from "./playlistMetadataChecks";
+import type { VideoMetadata, VideoSummary } from "../types/video";
 
 export interface PlaylistDetailsMeta {
   id: string;
@@ -28,6 +38,11 @@ export function usePlaylistDetails(playlistId: string | undefined) {
   const [storedPlaylist, setStoredPlaylist] = useState<StoredPlaylist | null>(null);
   const [meta, setMeta] = useState<PlaylistDetailsMeta | null>(null);
   const [videos, setVideos] = useState<VideoSummary[]>([]);
+  // The next page of a playlist read from YouTube; a saved playlist shows its own tracks.
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+  const pagingRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!playlistId) {
@@ -38,6 +53,10 @@ export function usePlaylistDetails(playlistId: string | undefined) {
 
     setLoading(true);
     setError(null);
+    setNextPageToken(null);
+    setLoadMoreFailed(false);
+    // Cleared so enrichment never pairs the old list with the new playlist.
+    setVideos([]);
 
     try {
       const stored = await getStoredPlaylistById(playlistId);
@@ -50,6 +69,7 @@ export function usePlaylistDetails(playlistId: string | undefined) {
       let remoteDescription: string | null = null;
       let remoteCount: number | null = null;
       let remoteViewCountText: string | null = null;
+      let remoteNextPageToken: string | null = null;
 
       if (!isProtectedPlaylistId(playlistId)) {
         try {
@@ -60,6 +80,7 @@ export function usePlaylistDetails(playlistId: string | undefined) {
           remoteDescription = details.description ?? null;
           remoteCount = details.videoCount ?? remoteVideos.length;
           remoteViewCountText = details.viewCountText ?? null;
+          remoteNextPageToken = details.nextPageToken ?? null;
         } catch (fetchError) {
           console.warn("Failed to fetch remote playlist details", fetchError);
           if (!normalizedStored) {
@@ -72,10 +93,10 @@ export function usePlaylistDetails(playlistId: string | undefined) {
         ? normalizedStored.tracks
         : remoteVideos;
 
-      const videoCount = resolvedVideos.length
-        || remoteCount
-        || normalizedStored?.videoCount
-        || 0;
+      const usesRemote = !normalizedStored?.tracks.length;
+      const videoCount = usesRemote && remoteCount
+        ? Math.max(remoteCount, resolvedVideos.length)
+        : resolvedVideos.length || remoteCount || normalizedStored?.videoCount || 0;
 
       const thumbnailUrl = normalizedStored?.thumbnailUrl
         ?? resolvedVideos[0]?.thumbnailUrl
@@ -96,6 +117,7 @@ export function usePlaylistDetails(playlistId: string | undefined) {
         : "Updated recently";
 
       setVideos(resolvedVideos);
+      setNextPageToken(usesRemote ? remoteNextPageToken : null);
       const resolvedOwner = !isUnknownOwner(remoteChannel)
         ? remoteChannel
         : resolvedVideos[0]?.channelName ?? remoteChannel;
@@ -127,6 +149,112 @@ export function usePlaylistDetails(playlistId: string | undefined) {
     void load();
   }, [load]);
 
+  const loadMore = useCallback(async () => {
+    if (!playlistId || !nextPageToken || pagingRef.current) return;
+    pagingRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreFailed(false);
+    try {
+      const page = await getPlaylistDetails(playlistId, nextPageToken);
+      setVideos((current) => appendUniqueVideos(current, page.videos ?? []));
+      setNextPageToken(page.nextPageToken ?? null);
+    } catch (pageError) {
+      console.warn("Failed to load the next playlist page", pageError);
+      setLoadMoreFailed(true);
+    } finally {
+      pagingRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [playlistId, nextPageToken]);
+
+  /** Every video of the playlist, reading the pages not loaded yet. */
+  const loadAllVideos = useCallback(async (): Promise<VideoSummary[]> => {
+    if (!playlistId || !nextPageToken || pagingRef.current) return videos;
+    pagingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const all = await loadRemainingPlaylistVideos(playlistId, videos, nextPageToken);
+      setVideos(all);
+      setNextPageToken(null);
+      return all;
+    } finally {
+      pagingRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [playlistId, nextPageToken, videos]);
+
+  // Per playlist, since this hook outlives a switch; a pass stops once its playlist leaves the screen.
+  // Tracks this visit has dealt with, looked up or skipped, and how many lookups it has made.
+  const consideredTracks = useRef(new Set<string>());
+  const lookupsThisVisit = useRef(0);
+  const enrichmentRunning = useRef<string | null>(null);
+  const activePlaylistId = useRef(playlistId);
+  const latestVideos = useRef(videos);
+  latestVideos.current = videos;
+  useEffect(() => {
+    activePlaylistId.current = playlistId;
+    consideredTracks.current = new Set();
+    lookupsThisVisit.current = 0;
+    return () => {
+      activePlaylistId.current = undefined;
+    };
+  }, [playlistId]);
+
+  const enrichTracks = useCallback((id: string, tracks: VideoSummary[]) => {
+    // The visit's budget: at most ENRICHMENT_TRACK_LIMIT lookups, however many passes it takes.
+    const budget = ENRICHMENT_TRACK_LIMIT - lookupsThisVisit.current;
+    if (budget <= 0 || enrichmentRunning.current === id) return;
+    const candidates = tracks.filter((track) => needsEnrichment(track) && !consideredTracks.current.has(track.id));
+    if (candidates.length === 0) return;
+    enrichmentRunning.current = id;
+    let lookedUp = 0;
+
+    void (async () => {
+      try {
+        const checked = await recentlyCheckedIds();
+        for (const track of candidates) {
+          if (checked.has(track.id)) consideredTracks.current.add(track.id);
+        }
+        const targets = candidates.filter((track) => !checked.has(track.id)).slice(0, budget);
+        for (const track of targets) consideredTracks.current.add(track.id);
+        lookupsThisVisit.current += targets.length;
+        lookedUp = targets.length;
+
+        for (let start = 0; start < targets.length; start += ENRICHMENT_CHUNK_SIZE) {
+          if (activePlaylistId.current !== id) return;
+          const chunk = targets.slice(start, start + ENRICHMENT_CHUNK_SIZE);
+          const refreshed = new Map<string, VideoMetadata>();
+          for (const track of chunk) {
+            try {
+              refreshed.set(track.id, await getVideoMetadata(track.id));
+            } catch {
+              // Private or removed videos are expected in old playlists.
+            }
+          }
+          if (refreshed.size > 0) {
+            setVideos((previous) => applyVideoMetadata(previous, refreshed));
+            // Applied to what's stored now, so a reorder or removal meanwhile survives.
+            await updateStoredPlaylistTracks(id, (stored) => applyVideoMetadata(stored, refreshed));
+          }
+          // Failed or still incomplete: leave it alone for a while instead of on every visit.
+          const enriched = applyVideoMetadata(chunk, refreshed);
+          await rememberChecks(enriched.filter(needsEnrichment).map((track) => track.id));
+          await new Promise((resolve) => setTimeout(resolve, ENRICHMENT_CHUNK_DELAY_MS));
+        }
+      } catch (enrichError) {
+        console.warn("Failed to save enriched playlist tracks", enrichError);
+      } finally {
+        if (enrichmentRunning.current === id) enrichmentRunning.current = null;
+      }
+      // Pages loaded while the pass ran are looked at now, within what is left of the budget.
+      if (lookedUp > 0 && activePlaylistId.current === id) enrichTracks(id, latestVideos.current);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (playlistId && storedPlaylist?.id === playlistId) enrichTracks(playlistId, videos);
+  }, [videos, playlistId, storedPlaylist?.id, enrichTracks]);
+
   return {
     loading,
     error,
@@ -135,6 +263,11 @@ export function usePlaylistDetails(playlistId: string | undefined) {
     videos,
     setVideos,
     reload: load,
+    hasMore: nextPageToken !== null,
+    loadingMore,
+    loadMoreFailed,
+    loadMore,
+    loadAllVideos,
   };
 }
 

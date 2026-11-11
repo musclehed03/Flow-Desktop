@@ -7,7 +7,7 @@ vi.mock("./api/env", () => ({ isTauriEnv: async () => true }));
 const { getName } = vi.hoisted(() => ({ getName: vi.fn() }));
 vi.mock("@tauri-apps/api/app", () => ({
   getName,
-  getVersion: async () => "0.1.0-beta2",
+  getVersion: async () => "0.1.0-beta3",
   getIdentifier: async () => "io.github.aedev.flow.desktop",
   getTauriVersion: async () => "2",
   getBundleType: async () => "test",
@@ -25,7 +25,7 @@ describe("tuned platform display names", () => {
       name: `Flow-Tube: Dollhouse Deviants Tuned (${platform})`, version: base.version, identifier: base.identifier,
     });
     expect(base.identifier).toBe("io.github.aedev.flow.desktop");
-    expect(base.version).toBe("0.1.0-beta2");
+    expect(base.version).toBe("0.1.0-beta3");
   });
   it("keeps the upstream name unchanged for untuned metadata", async () => {
     vi.resetModules();

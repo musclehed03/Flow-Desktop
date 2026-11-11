@@ -119,7 +119,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
         shouldShowControls ? "opacity-100" : "opacity-0",
       )}
     >
-      <div className="pointer-events-auto" onClick={(event) => event.stopPropagation()}>
+      <div className="pointer-events-auto" data-drag-ignore="true" onClick={(event) => event.stopPropagation()}>
         {/* Progress bar */}
         <div
           ref={trackRef} role="slider" tabIndex={0} aria-label={sensoryText('sensory.player.seek')}

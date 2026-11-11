@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { Copy, Trash2, Bug, RefreshCw, FolderOpen, Save } from "lucide-react";
+import { Copy, Trash2, Bug, RefreshCw, FolderOpen, Save, UserRoundX } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { useDiagnostics } from "../lib/useDiagnostics";
-import { revealLogsFolder } from "../lib/api/diagnostics";
+import { resetVisitorIdentity, revealLogsFolder } from "../lib/api/diagnostics";
 import { writeBackupFile } from "../lib/api/files";
 import { openExternal } from "../lib/openExternal";
 import { confirmAction, pickSaveFile } from "../lib/dialogs";
@@ -65,10 +65,31 @@ export const Diagnostics: React.FC = () => {
     }
   };
 
-  const handleClear = async () => {
-    if (!(await confirmAction(getString("diagnostics_clear_confirm"), getString("diagnostics_clear")))) {
-      return;
+  const handleResetIdentity = async () => {
+    const confirmed = await confirmAction({
+      title: getString("diagnostics_identity_reset_title"),
+      message: getString("diagnostics_identity_reset_body"),
+      icon: UserRoundX,
+      confirmLabel: getString("reset"),
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await resetVisitorIdentity();
+      showToast({ message: getString("diagnostics_identity_reset_done"), variant: "success" });
+    } catch {
+      showToast({ message: getString("diagnostics_identity_reset_failed"), variant: "error" });
     }
+  };
+
+  const handleClear = async () => {
+    const confirmed = await confirmAction({
+      title: getString("diagnostics_clear_confirm_title"),
+      message: getString("diagnostics_clear_confirm_body"),
+      confirmLabel: getString("clear"),
+      destructive: true,
+    });
+    if (!confirmed) return;
     setBusy(true);
     try {
       await clear();
@@ -124,10 +145,21 @@ export const Diagnostics: React.FC = () => {
         </Button>
       </div>
 
+      <div className="max-w-2xl space-y-3 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-chrome-neutral-500">
+          {getString("diagnostics_identity_heading")}
+        </h3>
+        <p className="text-sm text-chrome-neutral-400">{getString("diagnostics_identity_description")}</p>
+        <Button variant="secondary" size="sm" onClick={() => void handleResetIdentity()}>
+          <UserRoundX size={14} />
+          {getString("diagnostics_identity_reset")}
+        </Button>
+      </div>
+
       {logsDir && (
         <p className="text-xs text-chrome-neutral-500">
           {getString("diagnostics_folder_label")}{" "}
-          <code className="rounded bg-chrome-black/40 px-1.5 py-0.5 font-mono text-chrome-neutral-400">
+          <code className="select-text rounded bg-chrome-black/40 px-1.5 py-0.5 font-mono text-chrome-neutral-400">
             {logsDir}
           </code>
         </p>
@@ -145,7 +177,7 @@ export const Diagnostics: React.FC = () => {
           ) : error ? (
             <p className="text-sm text-chrome-red-400">{error}</p>
           ) : hasLogs ? (
-            <pre className="whitespace-pre font-mono text-xs leading-relaxed text-chrome-neutral-300">
+            <pre className="select-text whitespace-pre font-mono text-xs leading-relaxed text-chrome-neutral-300">
               {text}
             </pre>
           ) : (

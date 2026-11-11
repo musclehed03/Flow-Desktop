@@ -5,7 +5,7 @@ export type QueueRepeatMode = "none" | "one" | "all";
 export interface QueuePosition {
   queue: SongItem[];
   currentIndex: number;
-  isShuffle: boolean;
+  isShuffle?: boolean;
   repeatMode: QueueRepeatMode;
   playedIds?: readonly string[];
 }
@@ -23,12 +23,18 @@ let shuffleNext: { from: number; to: number } | null = null;
 
 /**
  * The queue index that plays after the current one, or -1 when none does.
- * Repeat-one replays what is already loaded, so it has no next track.
+ * Shuffle rearranges the queue itself, so the next track is always the
+ * following entry. Repeat-one, and repeat-all over a single song, replay what
+ * is already loaded, so they have no next track to warm.
+ *
+ * A caller that passes `playedIds` (the genius/radio lane) additionally skips
+ * tracks the session already played: shuffle picks an unplayed one at random,
+ * and a plain queue steps past played entries instead of warming them again.
  */
 export function upcomingIndex({ queue, currentIndex, isShuffle, repeatMode, playedIds }: QueuePosition): number {
   if (queue.length === 0 || currentIndex < 0 || repeatMode === "one") return -1;
-  if (isShuffle && queue.length > 1) {
-    const candidates = playedIds && repeatMode !== "all"
+  if (isShuffle && playedIds && queue.length > 1) {
+    const candidates = repeatMode !== "all"
       ? queue.map((song, index) => ({ song, index })).filter(({ song, index }) => index !== currentIndex && !playedIds.includes(song.videoId ?? song.id)).map(({ index }) => index)
       : null;
     if (candidates && candidates.length === 0) return -1;
@@ -45,7 +51,7 @@ export function upcomingIndex({ queue, currentIndex, isShuffle, repeatMode, play
     while (nextIndex < queue.length && playedIds.includes(queue[nextIndex]!.videoId ?? queue[nextIndex]!.id)) nextIndex++;
   }
   if (nextIndex < queue.length) return nextIndex;
-  return repeatMode === "all" ? 0 : -1;
+  return repeatMode === "all" && currentIndex !== 0 ? 0 : -1;
 }
 
 /** Forget shuffle's pending pick, for when the queue is torn down. */

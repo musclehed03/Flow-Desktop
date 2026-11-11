@@ -1,16 +1,27 @@
 use crate::api::innertube::InnertubeClient;
 use crate::api::innertube::core::botguard::generate_po_token;
 use crate::api::innertube::core::clients;
+use crate::api::innertube::core::gate_tracker::gated_last;
+use crate::api::innertube::core::playback_session::{
+    new_cpn, take_reload_token, with_session_params,
+};
 use crate::api::innertube::core::player_js;
 use crate::api::innertube::core::player_requests::{PlaybackPriority, PlayerFlights};
-use crate::api::innertube::core::utils::{
-    collect_related_content_items, dedupe_related_content_items,
-    extract_channel_id_from_video_renderer, extract_text_from_value, thumbnail_url_from_array,
+use crate::api::innertube::core::remote_decoder;
+use crate::api::innertube::core::utils::watch_next_body;
+use crate::api::innertube::extractors::playability::{
+    LadderReport, Refusal, check_playability_status, ends_the_ladder, is_better_report,
+    is_bot_wall, map_playability_error,
 };
+use crate::api::innertube::extractors::watch_next;
+use crate::api::innertube::json::loudness::loudness_db;
+use crate::api::innertube::json::text::text_of;
+use crate::api::innertube::json::thumbnail::thumbnail_url_from_array;
+use crate::api::innertube::json::xtags::decode_xtags;
 use crate::errors::{AppError, AppResult};
 use crate::models::video::{
-    AudioTrack, CaptionTrack, RelatedContentItem, SabrStreamInfo, StreamInfo, StreamVariant,
-    VideoBasics, VideoChapter, VideoDetails,
+    AudioTrack, CaptionTrack, RelatedPage, SabrStreamInfo, StreamInfo, StreamVariant, VideoBasics,
+    VideoDetails,
 };
 use crate::streaming::sabr::engine::decode_b64_loose;
 use crate::streaming::sabr::selector::{CodecSupport, SabrFormat, select_formats};
@@ -40,7 +51,6 @@ const PLAYER_RESPONSE_CACHE_CAPACITY: usize = 12;
 
 /// How long video details wait for the `next` response (likes, views, publish
 /// date) before returning without them.
-const WATCH_NEXT_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Web clients mint a PO token and solve `n` before their SABR session can
 /// start, so they get the longer budget Flow for Android gives them.
@@ -62,12 +72,26 @@ const PLAYER_CLIENT_LADDER: &[&clients::YouTubeClient] = &[
     &clients::VISIONOS,
     &clients::MWEB,
     &clients::WEB,
+    // Past the walls the gated clients below stop at a minute, and the source
+    // for label and kids videos the app clients refuse (Flow for Android #921, #1292).
+    &clients::TV_TIZEN,
     &clients::ANDROID_VR_1_65_10,
     &clients::ANDROID_VR,
     &clients::ANDROID_VR_NO_AUTH,
     &clients::ANDROID_VR_1_43_32,
     &clients::ANDROID,
 ];
+
+/// A direct ladder that tops out below this height likely has its higher rungs
+/// served only over SABR, so the web clients are asked too (Flow for Android's
+/// `SabrRoutingPolicy`).
+const SABR_UPGRADE_FLOOR: u64 = 720;
+/// The longest a portrait or square upload runs and is still made a Short.
+const SHORT_FRAME_MAX_SECONDS: u64 = 180;
+/// How long a playable direct answer waits on that upgrade before it is used
+/// as it is: the upgrade mints a token and may fetch the player script first.
+const SABR_UPGRADE_BUDGET: Duration = Duration::from_secs(3);
+const SABR_UPGRADE_CLIENTS: &[&clients::YouTubeClient] = &[&clients::MWEB, &clients::WEB];
 
 /// Clients asked for a live broadcast's HLS/DASH manifest when the winning
 /// client returned none. A live stream plays from its manifest, so this only
@@ -143,211 +167,6 @@ fn invalidate_player_response(video_id: &str) {
     }
 }
 
-fn parse_timestamp(s: &str) -> Option<u64> {
-    let cleaned: String = s
-        .chars()
-        .filter(|&c| c.is_ascii_digit() || c == ':')
-        .collect();
-
-    let parts: Vec<&str> = cleaned.split(':').collect();
-    if parts.len() < 2 || parts.len() > 3 {
-        return None;
-    }
-
-    for part in &parts {
-        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
-            return None;
-        }
-    }
-
-    if parts.len() == 2 {
-        let minutes = parts[0].parse::<u64>().ok()?;
-        let seconds = parts[1].parse::<u64>().ok()?;
-        if seconds < 60 {
-            return Some(minutes * 60 + seconds);
-        }
-    } else if parts.len() == 3 {
-        let hours = parts[0].parse::<u64>().ok()?;
-        let minutes = parts[1].parse::<u64>().ok()?;
-        let seconds = parts[2].parse::<u64>().ok()?;
-        if minutes < 60 && seconds < 60 {
-            return Some(hours * 3600 + minutes * 60 + seconds);
-        }
-    }
-    None
-}
-
-fn parse_chapters_from_description(description: &str, duration_seconds: u64) -> Vec<VideoChapter> {
-    let mut temp_chapters = Vec::new();
-
-    for line in description.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let words: Vec<&str> = line.split_whitespace().collect();
-        if words.is_empty() {
-            continue;
-        }
-
-        let mut found_ts = None;
-        let mut ts_index = 0;
-        for (idx, word) in words.iter().enumerate() {
-            let cleaned: String = word
-                .chars()
-                .filter(|&c| c.is_ascii_digit() || c == ':')
-                .collect();
-
-            if !cleaned.is_empty() && cleaned.contains(':') {
-                if let Some(secs) = parse_timestamp(&cleaned) {
-                    found_ts = Some(secs);
-                    ts_index = idx;
-                    break;
-                }
-            }
-        }
-
-        if let Some(start_seconds) = found_ts {
-            let mut title_words = Vec::new();
-            for (idx, &word) in words.iter().enumerate() {
-                if idx == ts_index {
-                    continue;
-                }
-                if word == "-" || word == "–" || word == "|" || word == ":" || word == "—" {
-                    continue;
-                }
-                title_words.push(word);
-            }
-
-            let mut title = title_words.join(" ");
-            title = title
-                .trim_matches(|c: char| {
-                    c == '('
-                        || c == ')'
-                        || c == '['
-                        || c == ']'
-                        || c == '-'
-                        || c == '–'
-                        || c == ':'
-                        || c == ' '
-                })
-                .to_string();
-
-            if !title.is_empty() {
-                temp_chapters.push((start_seconds, title));
-            } else {
-                temp_chapters.push((
-                    start_seconds,
-                    format!("Chapter {}", temp_chapters.len() + 1),
-                ));
-            }
-        }
-    }
-
-    if temp_chapters.is_empty() {
-        return Vec::new();
-    }
-
-    temp_chapters.sort_by_key(|c| c.0);
-    temp_chapters.dedup_by_key(|c| c.0);
-
-    if temp_chapters[0].0 > 10 {
-        temp_chapters.insert(0, (0, "Intro".to_string()));
-    } else {
-        temp_chapters[0].0 = 0;
-    }
-
-    let mut chapters = Vec::new();
-    let num_chapters = temp_chapters.len();
-    for i in 0..num_chapters {
-        let start_seconds = temp_chapters[i].0;
-        let title = temp_chapters[i].1.clone();
-
-        let end_seconds = if i < num_chapters - 1 {
-            temp_chapters[i + 1].0
-        } else {
-            duration_seconds
-        };
-
-        if end_seconds > start_seconds {
-            chapters.push(VideoChapter {
-                title,
-                start_seconds,
-                end_seconds,
-            });
-        }
-    }
-
-    chapters
-}
-
-fn parse_chapters_from_marker_map(
-    res: &serde_json::Value,
-    duration_seconds: u64,
-) -> Option<Vec<VideoChapter>> {
-    let chapters_arr = res["markerMap"]["chapters"]["chapters"].as_array()?;
-    if chapters_arr.is_empty() {
-        return None;
-    }
-
-    let mut temp_chapters = Vec::new();
-    for chap in chapters_arr {
-        let chapter_renderer = &chap["chapterRenderer"];
-        if chapter_renderer.is_null() {
-            continue;
-        }
-
-        let title = if let Some(t) = extract_text_from_value(&chapter_renderer["title"]) {
-            t
-        } else if let Some(t) = chapter_renderer["title"]["simpleText"].as_str() {
-            t.to_string()
-        } else {
-            continue;
-        };
-
-        let start_millis = chapter_renderer["timeRangeStartMillis"].as_u64()?;
-        let start_seconds = start_millis / 1000;
-
-        temp_chapters.push((start_seconds, title));
-    }
-
-    if temp_chapters.is_empty() {
-        return None;
-    }
-
-    temp_chapters.sort_by_key(|c| c.0);
-    temp_chapters.dedup_by_key(|c| c.0);
-
-    if temp_chapters[0].0 > 10 {
-        temp_chapters.insert(0, (0, "Intro".to_string()));
-    } else {
-        temp_chapters[0].0 = 0;
-    }
-
-    let mut chapters = Vec::new();
-    let num_chapters = temp_chapters.len();
-    for i in 0..num_chapters {
-        let start_seconds = temp_chapters[i].0;
-        let title = temp_chapters[i].1.clone();
-        let end_seconds = if i < num_chapters - 1 {
-            temp_chapters[i + 1].0
-        } else {
-            duration_seconds
-        };
-
-        if end_seconds > start_seconds {
-            chapters.push(VideoChapter {
-                title,
-                start_seconds,
-                end_seconds,
-            });
-        }
-    }
-
-    Some(chapters)
-}
-
 fn check_needs_reload(val: &Value) -> bool {
     if let Some(status) = val["playabilityStatus"]["status"].as_str() {
         if status
@@ -368,118 +187,6 @@ fn check_needs_reload(val: &Value) -> bool {
     false
 }
 
-/// Collects the human-readable reason from a playability status, combining the
-/// top-level `reason` with the `errorScreen` subreason — YouTube puts the
-/// specific detail there (e.g. "This video may be inappropriate for some users.")
-/// while `reason` stays terse ("Sign in to confirm your age").
-fn combined_playability_reason(playability: &Value) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(reason) = playability["reason"].as_str() {
-        if !reason.is_empty() {
-            parts.push(reason.to_string());
-        }
-    }
-    let subreason = &playability["errorScreen"]["playerErrorMessageRenderer"]["subreason"];
-    if let Some(text) = subreason["simpleText"].as_str() {
-        parts.push(text.to_string());
-    }
-    if let Some(runs) = subreason["runs"].as_array() {
-        for run in runs {
-            if let Some(text) = run["text"].as_str() {
-                parts.push(text.to_string());
-            }
-        }
-    }
-    if parts.is_empty() {
-        "Unknown content availability error".to_string()
-    } else {
-        parts.join(" — ")
-    }
-}
-
-pub(crate) fn map_playability_error(playability: &Value) -> AppError {
-    let status = playability["status"].as_str().unwrap_or("UNKNOWN");
-    let reason_text = combined_playability_reason(playability);
-    let normalized_reason = reason_text.to_ascii_lowercase();
-
-    if normalized_reason.contains("inappropriate for some users")
-        || normalized_reason.contains("confirm your age")
-        || normalized_reason.contains("verify your age")
-        || normalized_reason.contains("age-restricted")
-        || normalized_reason.contains("age restricted")
-    {
-        return AppError::AgeRestricted(
-            "This age-restricted video cannot be watched anonymously".into(),
-        );
-    }
-
-    if status.eq_ignore_ascii_case("login_required") {
-        if normalized_reason.contains("private") {
-            return AppError::PrivateContent("This video is private".into());
-        }
-
-        if normalized_reason.contains("bot") {
-            return AppError::BotCheckRequired(format!(
-                "YouTube blocked anonymous watch access: {}: \"{}\"",
-                status, reason_text
-            ));
-        }
-    }
-
-    if status.eq_ignore_ascii_case("unplayable") || status.eq_ignore_ascii_case("error") {
-        if normalized_reason.contains("music premium") {
-            return AppError::MusicPremium("This video is a YouTube Music Premium video".into());
-        }
-
-        if normalized_reason.contains("payment") {
-            return AppError::PaidContent("This video is a paid video".into());
-        }
-
-        if normalized_reason.contains("members") {
-            return AppError::PaidContent(
-                "This video is only available for channel members".into(),
-            );
-        }
-
-        if normalized_reason.contains("country") {
-            return AppError::GeographicRestriction(
-                "This video is not available in the current region".into(),
-            );
-        }
-
-        if normalized_reason.contains("closed") || normalized_reason.contains("terminated") {
-            return AppError::AccountTerminated(reason_text.clone());
-        }
-    }
-
-    AppError::ContentNotAvailable(format!("Got error {}: \"{}\"", status, reason_text))
-}
-
-fn is_definitive_restriction(error: &AppError) -> bool {
-    matches!(
-        error,
-        AppError::AgeRestricted(_)
-            | AppError::PrivateContent(_)
-            | AppError::PaidContent(_)
-            | AppError::GeographicRestriction(_)
-            | AppError::MusicPremium(_)
-            | AppError::AccountTerminated(_)
-            | AppError::BotCheckRequired(_)
-    )
-}
-
-fn check_playability_status(playability_status: &Value) -> AppResult<()> {
-    let Some(status) = playability_status["status"].as_str() else {
-        return Ok(());
-    };
-
-    if status.eq_ignore_ascii_case("ok") {
-        return Ok(());
-    }
-
-    Err(map_playability_error(playability_status))
-}
-
 fn validate_stream_url(stream_url: &str, video_id: &str) -> AppResult<String> {
     let parsed_url = reqwest::Url::parse(stream_url).map_err(|error| {
         AppError::Extractor(format!(
@@ -489,7 +196,8 @@ fn validate_stream_url(stream_url: &str, video_id: &str) -> AppResult<String> {
 
     let has_throttling_parameter = parsed_url
         .query_pairs()
-        .any(|(key, value)| key == "n" && !value.is_empty());
+        .any(|(key, value)| key == "n" && !value.is_empty())
+        && !remote_decoder::was_solved(stream_url);
 
     if has_throttling_parameter {
         return Err(AppError::Extractor(format!(
@@ -562,6 +270,43 @@ fn extract_stream_url_from_format(format: &Value, video_id: &str) -> AppResult<O
     }
 
     validate_stream_url(&base_url, video_id).map(Some)
+}
+
+/// The tallest video format a response lists, URL or not: a SABR answer lists
+/// its formats without URLs.
+fn max_video_height(streaming_data: &Value) -> u64 {
+    ["formats", "adaptiveFormats"]
+        .iter()
+        .filter_map(|key| streaming_data[*key].as_array())
+        .flatten()
+        .filter(|format| {
+            format["mimeType"]
+                .as_str()
+                .is_some_and(|mime| mime.starts_with("video/"))
+        })
+        .filter_map(quality_height)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Whether a video is a Short, from its frame: every upload of three minutes or
+/// less that is portrait or square is made a Short, and `VISIONOS` says nothing
+/// else about it. `None` when no video format gives its size.
+fn is_short_by_frame(streaming_data: &Value, duration_seconds: Option<u64>) -> Option<bool> {
+    let (width, height) = ["formats", "adaptiveFormats"]
+        .iter()
+        .filter_map(|key| streaming_data[*key].as_array())
+        .flatten()
+        .filter(|format| {
+            format["mimeType"]
+                .as_str()
+                .is_some_and(|mime| mime.starts_with("video/"))
+        })
+        .find_map(|format| Some((format["width"].as_u64()?, format["height"].as_u64()?)))?;
+    if height < width {
+        return Some(false);
+    }
+    duration_seconds.map(|seconds| seconds <= SHORT_FRAME_MAX_SECONDS)
 }
 
 fn quality_height(format: &Value) -> Option<u64> {
@@ -760,8 +505,7 @@ fn collect_caption_tracks(response: &Value) -> Vec<CaptionTrack> {
         };
         let language_code = track["languageCode"].as_str().unwrap_or("und").to_string();
         native_language_codes.insert(language_code.clone());
-        let label =
-            extract_text_from_value(&track["name"]).unwrap_or_else(|| language_code.clone());
+        let label = text_of(&track["name"]).unwrap_or_else(|| language_code.clone());
         let vss_id = track["vssId"].as_str().unwrap_or_default();
         let is_auto_generated = vss_id.starts_with("a.")
             || track["kind"]
@@ -778,12 +522,24 @@ fn collect_caption_tracks(response: &Value) -> Vec<CaptionTrack> {
             language_code,
             url,
             is_auto_generated,
+            is_translation: false,
         });
     }
 
-    let translatable_track = tracks.iter().find(|track| {
-        track["isTranslatable"].as_bool().unwrap_or(false) && track["baseUrl"].as_str().is_some()
-    });
+    // Translate from an authored track when there is one: a translation of the
+    // speech-recognition track carries every recognition error into the target.
+    let translatable_track = tracks
+        .iter()
+        .filter(|track| {
+            track["isTranslatable"].as_bool().unwrap_or(false)
+                && track["baseUrl"].as_str().is_some()
+        })
+        .min_by_key(|track| {
+            track["kind"].as_str() == Some("asr")
+                || track["vssId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("a."))
+        });
 
     if let Some(track) = translatable_track {
         let base_url = track["baseUrl"].as_str().unwrap_or_default();
@@ -801,15 +557,16 @@ fn collect_caption_tracks(response: &Value) -> Vec<CaptionTrack> {
                 let Some(url) = caption_url(base_url, Some(language_code)) else {
                     continue;
                 };
-                let label = extract_text_from_value(&language["languageName"])
-                    .unwrap_or_else(|| language_code.to_string());
+                let label =
+                    text_of(&language["languageName"]).unwrap_or_else(|| language_code.to_string());
 
                 captions.push(CaptionTrack {
                     id: format!("caption-translated-{language_code}"),
-                    label: format!("{label} (auto-translated)"),
+                    label,
                     language_code: language_code.to_string(),
                     url,
                     is_auto_generated: true,
+                    is_translation: true,
                 });
             }
         }
@@ -832,22 +589,55 @@ struct AudioCandidate {
     /// `audioIsDefault` as the response stated it, if it stated anything at all.
     declared_default: Option<bool>,
     is_auto_dubbed: bool,
+    /// The dynamic-range compressed copy (`xtags` `drc=1` or `isDrc`).
+    is_drc: bool,
     has_xtags: bool,
 }
 
 impl AudioCandidate {
     /// Preference order between two formats that share an identity key, best last.
     ///
-    /// The plain twin outranks the `xtags` one regardless of bitrate: googlevideo
-    /// refuses sustained playback on the tagged variants, so a higher bitrate there
-    /// buys a stream that dies partway in.
-    fn rank(&self) -> (bool, bool, bool, u64) {
+    /// The normal copy outranks its DRC twin, whose bitrate differs by a few
+    /// bytes a second, so bitrate alone picked the loudness-flattened one;
+    /// with Stable volume on, the DRC twin is the one asked for. A
+    /// plain twin then outranks a tagged one: googlevideo refused sustained
+    /// playback on some tagged variants, so a higher bitrate there bought a
+    /// stream that died partway in.
+    fn rank(&self, stable_volume: bool) -> (bool, bool, bool, bool, u64) {
         (
-            !self.has_xtags,
+            self.is_drc == stable_volume,
             self.declared_default.unwrap_or(false),
             !self.is_auto_dubbed,
+            !self.has_xtags,
             self.track.bitrate.unwrap_or(0),
         )
+    }
+}
+
+/// How much louder than the site's target the video plays, for normalising
+/// volume across videos.
+fn stream_loudness_db(player: &Value, streaming_data: &Value) -> Option<f64> {
+    let audio_format = streaming_data["adaptiveFormats"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|format| {
+            format["mimeType"]
+                .as_str()
+                .is_some_and(|mime| mime.starts_with("audio/"))
+                && format["loudnessDb"].is_number()
+        })
+        .unwrap_or(&Value::Null);
+    loudness_db(&player["playerConfig"]["audioConfig"], audio_format)
+}
+
+/// The `audio_track_type` an `xtags` `acont` names, when it names one.
+fn track_type_from_acont(acont: &str) -> Option<&'static str> {
+    match acont {
+        "original" => Some("original"),
+        "dubbed" => Some("dubbed"),
+        "dubbed-auto" => Some("dubbed-auto"),
+        _ => None,
     }
 }
 
@@ -856,6 +646,20 @@ impl AudioCandidate {
 /// Public so `tests/audio_tracks.rs` can exercise the duplicate-resolution rules
 /// against real response shapes; nothing outside extraction calls it.
 pub fn collect_audio_tracks(streaming_data: &Value, user_agent: &str) -> Vec<AudioTrack> {
+    collect_audio_tracks_preferring(
+        streaming_data,
+        user_agent,
+        super::audio_preference::prefers_stable_volume(),
+    )
+}
+
+/// [`collect_audio_tracks`] with the stable-volume preference given, not read
+/// from the setting.
+pub fn collect_audio_tracks_preferring(
+    streaming_data: &Value,
+    user_agent: &str,
+    stable_volume: bool,
+) -> Vec<AudioTrack> {
     let mut candidates_by_key: HashMap<String, AudioCandidate> = HashMap::new();
 
     if let Some(adaptive_formats) = streaming_data["adaptiveFormats"].as_array() {
@@ -900,9 +704,14 @@ pub fn collect_audio_tracks(streaming_data: &Value, user_agent: &str) -> Vec<Aud
             // it positionally meant the flag could be silently dropped when a later
             // duplicate replaced the entry holding it, leaving no default at all.
             let declared_default = audio_track["audioIsDefault"].as_bool();
-            let has_xtags = format["xtags"]
-                .as_str()
-                .is_some_and(|value| !value.is_empty());
+            let raw_xtags = format["xtags"].as_str().filter(|value| !value.is_empty());
+            let has_xtags = raw_xtags.is_some();
+            let xtags = raw_xtags.map(decode_xtags).unwrap_or_default();
+            let is_drc = format["isDrc"].as_bool().unwrap_or(false)
+                || xtags.get("drc").is_some_and(|value| value == "1");
+            let tagged_type = xtags
+                .get("acont")
+                .and_then(|acont| track_type_from_acont(acont));
             let is_default = declared_default.unwrap_or(false);
             let mime_type = format["mimeType"].as_str().map(ToOwned::to_owned);
             let track_key = audio_track_identity_key(
@@ -917,7 +726,9 @@ pub fn collect_audio_tracks(streaming_data: &Value, user_agent: &str) -> Vec<Aud
                     label,
                     language_code,
                     audio_track_type: Some(
-                        if is_default { "original" } else { "alternate" }.to_string(),
+                        tagged_type
+                            .unwrap_or(if is_default { "original" } else { "alternate" })
+                            .to_string(),
                     ),
                     local_url,
                     mime_type,
@@ -934,11 +745,13 @@ pub fn collect_audio_tracks(streaming_data: &Value, user_agent: &str) -> Vec<Aud
                 },
                 declared_default,
                 is_auto_dubbed,
+                is_drc,
                 has_xtags,
             };
 
             match candidates_by_key.get(&track_key) {
-                Some(existing) if existing.rank() >= candidate.rank() => {}
+                Some(existing) if existing.rank(stable_volume) >= candidate.rank(stable_volume) => {
+                }
                 _ => {
                     candidates_by_key.insert(track_key, candidate);
                 }
@@ -947,7 +760,7 @@ pub fn collect_audio_tracks(streaming_data: &Value, user_agent: &str) -> Vec<Aud
     }
 
     let mut candidates: Vec<AudioCandidate> = candidates_by_key.into_values().collect();
-    candidates.sort_by(|a, b| b.rank().cmp(&a.rank()));
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.rank(stable_volume)));
 
     // Many responses never flag a default at all — VISIONOS omits `audioTrack`
     // entirely on videos with no dubs. Promote the best candidate rather than
@@ -1122,17 +935,6 @@ fn extract_duration_seconds_from_player_response(response: &Value) -> Option<u64
                 .and_then(|value| value.parse::<u64>().ok())
                 .map(|duration_ms| duration_ms / 1000)
         })
-}
-
-fn clean_like_count_from_accessibility(text: &str) -> String {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    for w in words {
-        let cleaned_word = w.trim_matches(|c: char| !c.is_alphanumeric() && c != ',' && c != '.');
-        if cleaned_word.chars().any(|c| c.is_ascii_digit()) {
-            return cleaned_word.to_string();
-        }
-    }
-    text.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -1326,28 +1128,10 @@ enum ClientOutcome {
     Won(PlayerAttempt),
     /// A non-OK playability status, kept so the most specific restriction can be
     /// reported once the ladder is exhausted.
-    Refused(Value),
+    Refused(Refusal),
     /// No answer, or an `OK` with nothing fetchable (ciphered-only formats, an
     /// unsolvable `n`, a missing PO token).
     Unusable,
-}
-
-/// Whether a refusal should be what the user is told once every client has
-/// failed. A definitive restriction always is, and so is `ERROR`, the status
-/// the server gives a video that does not exist: every client agrees on it, and
-/// without it the user would only see a generic extraction failure.
-pub(crate) fn is_reportable_refusal(playability: &Value) -> bool {
-    is_definitive_restriction(&map_playability_error(playability))
-        || playability["status"]
-            .as_str()
-            .is_some_and(|status| status.eq_ignore_ascii_case("ERROR"))
-}
-
-pub(crate) fn is_bot_wall(playability: &Value) -> bool {
-    matches!(
-        map_playability_error(playability),
-        AppError::BotCheckRequired(_)
-    )
 }
 
 /// Whether a direct-URL response carries a stream the proxy can fetch as is:
@@ -1360,13 +1144,191 @@ fn has_playable_direct_streams(streaming_data: &Value, video_id: &str) -> bool {
         .any(|variant| variant.is_playable && (variant.has_audio || has_separate_audio))
 }
 
+/// How long googlevideo holds a response's streams behind its pre-roll: an
+/// answer with a start ad is refused on every byte until about 0.8 of the ad's
+/// skip offset has passed, at most 8 seconds (measured by Flow for Android on
+/// `TV_TIZEN`).
+fn preroll_wait(ad_placements: &Value) -> Duration {
+    const MAX_MS: u64 = 8_000;
+    ad_placements
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|placement| &placement["adPlacementRenderer"])
+        .filter(|renderer| {
+            renderer["config"]["adPlacementConfig"]["kind"] == "AD_PLACEMENT_KIND_START"
+        })
+        .map(|renderer| {
+            let offset = &renderer["renderer"]["instreamVideoAdRenderer"]["skipOffsetMilliseconds"];
+            offset
+                .as_u64()
+                .or_else(|| offset.as_str().and_then(|value| value.parse().ok()))
+                .map_or(MAX_MS, |ms| ms * 4 / 5)
+        })
+        .max()
+        .map_or(Duration::ZERO, |ms| Duration::from_millis(ms.min(MAX_MS)))
+}
+
+/// Rewrite every format of `response` into a URL googlevideo serves: signed
+/// formats get their solved signature, and every URL its `n` solved, both by the
+/// remote decoder. A format either step could not solve is left as it was, which
+/// the stream collector then skips.
+async fn solve_formats(response: &mut Value, player: &remote_decoder::DecoderPlayer) {
+    let streaming = &mut response["streamingData"];
+    let formats = || {
+        ["formats", "adaptiveFormats"]
+            .iter()
+            .filter_map(|key| streaming[*key].as_array())
+            .flatten()
+    };
+    let signatures: Vec<String> = formats()
+        .filter_map(signed_format)
+        .map(|cipher| cipher.signature)
+        .collect();
+    let solved_signatures =
+        remote_decoder::decode(player, remote_decoder::Challenge::Signature, &signatures).await;
+    let urls: Vec<Option<String>> = formats()
+        .map(|format| match signed_format(format) {
+            Some(cipher) => solved_signatures
+                .get(&cipher.signature)
+                .and_then(|signature| cipher.signed_url(signature)),
+            None => format["url"].as_str().map(ToOwned::to_owned),
+        })
+        .collect();
+    let challenges: Vec<String> = urls
+        .iter()
+        .flatten()
+        .filter_map(|url| query_param(url, "n"))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let solved_n = remote_decoder::decode(player, remote_decoder::Challenge::N, &challenges).await;
+
+    let mut urls = urls.into_iter();
+    for key in ["formats", "adaptiveFormats"] {
+        let Some(formats) = streaming[key].as_array_mut() else {
+            continue;
+        };
+        for format in formats {
+            let Some(url) = urls.next().flatten() else {
+                continue;
+            };
+            let Some(url) = with_solved_n(&url, &solved_n) else {
+                continue;
+            };
+            format["url"] = Value::String(url);
+            if let Some(object) = format.as_object_mut() {
+                object.remove("signatureCipher");
+                object.remove("cipher");
+            }
+        }
+    }
+}
+
+struct SignedFormat {
+    base_url: String,
+    signature: String,
+    parameter: String,
+}
+
+impl SignedFormat {
+    fn signed_url(&self, signature: &str) -> Option<String> {
+        let mut url = reqwest::Url::parse(&self.base_url).ok()?;
+        url.query_pairs_mut()
+            .append_pair(&self.parameter, signature);
+        Some(url.into())
+    }
+}
+
+fn signed_format(format: &Value) -> Option<SignedFormat> {
+    let cipher = format["signatureCipher"]
+        .as_str()
+        .or_else(|| format["cipher"].as_str())?;
+    let parsed = reqwest::Url::parse(&format!("https://example.invalid/?{cipher}")).ok()?;
+    let mut base_url = None;
+    let mut signature = None;
+    let mut parameter = None;
+    for (key, value) in parsed.query_pairs() {
+        match key.as_ref() {
+            "url" => base_url = Some(value.into_owned()),
+            "s" => signature = Some(value.into_owned()),
+            "sp" => parameter = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+    Some(SignedFormat {
+        base_url: base_url?,
+        signature: signature?,
+        parameter: parameter.unwrap_or_else(|| "signature".to_string()),
+    })
+}
+
+fn query_param(url: &str, key: &str) -> Option<String> {
+    reqwest::Url::parse(url)
+        .ok()?
+        .query_pairs()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value.into_owned())
+}
+
+/// `url` with its `n` swapped for the solved one, and remembered as solved. A
+/// URL without `n` is returned as is; None when its `n` was not solved, since
+/// googlevideo throttles it.
+fn with_solved_n(url: &str, solved_n: &HashMap<String, String>) -> Option<String> {
+    let mut parsed = reqwest::Url::parse(url).ok()?;
+    let pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    if !pairs.iter().any(|(key, _)| key == "n") {
+        return Some(url.to_string());
+    }
+    let mut query = parsed.query_pairs_mut();
+    query.clear();
+    for (key, value) in pairs {
+        if key == "n" {
+            query.append_pair("n", solved_n.get(&value)?);
+        } else {
+            query.append_pair(&key, &value);
+        }
+    }
+    drop(query);
+    remote_decoder::note_solved_url(parsed.as_str());
+    Some(parsed.into())
+}
+
+/// Whether a response is a live or just-ended stream played from its manifest:
+/// it says it is live or post-live DVR, carries live streamability, or offers a
+/// manifest with no adaptive formats beside it. Clients such as `VISIONOS` also
+/// send an HLS manifest for plain videos, which keep their adaptive formats.
 fn has_live_manifest(response: &Value) -> bool {
     let streaming_data = &response["streamingData"];
+    let has_manifest = streaming_data["hlsManifestUrl"].is_string()
+        || streaming_data["dashManifestUrl"].is_string();
+    let says_live = is_live_response(response);
+    let no_adaptive = streaming_data["adaptiveFormats"]
+        .as_array()
+        .is_none_or(Vec::is_empty);
+    has_manifest && (says_live || no_adaptive)
+}
+
+/// A broadcast on air right now, whichever field this client reports that in.
+fn is_on_air(response: &Value) -> bool {
     response["videoDetails"]["isLive"]
         .as_bool()
         .unwrap_or(false)
-        && (streaming_data["hlsManifestUrl"].is_string()
-            || streaming_data["dashManifestUrl"].is_string())
+        || response["microformat"]["playerMicroformatRenderer"]["liveBroadcastDetails"]["isLiveNow"]
+            .as_bool()
+            .unwrap_or(false)
+}
+
+/// A response to play as live: on air, or just ended and still served as live.
+fn is_live_response(response: &Value) -> bool {
+    is_on_air(response)
+        || response["videoDetails"]["isPostLiveDvr"]
+            .as_bool()
+            .unwrap_or(false)
+        || response["playabilityStatus"]["liveStreamability"].is_object()
 }
 
 impl InnertubeClient {
@@ -1382,7 +1344,7 @@ impl InnertubeClient {
         deferred_restriction: &mut Option<AppError>,
         refresh: bool,
     ) -> Option<PlayerAttempt> {
-        static FLIGHTS: OnceLock<PlayerFlights<(Option<PlayerAttempt>, Option<Value>)>> =
+        static FLIGHTS: OnceLock<PlayerFlights<(Option<PlayerAttempt>, Option<LadderReport>)>> =
             OnceLock::new();
         // A refresh replaces URLs that already failed, so it must never be
         // answered by a normal walk that started before them.
@@ -1416,16 +1378,57 @@ impl InnertubeClient {
                         &mut restriction,
                     )
                     .await;
+                let attempt = match attempt {
+                    Some(direct) => Some(self.upgrade_to_sabr(video_id, direct).await),
+                    None => None,
+                };
                 if let Some(attempt) = attempt.as_ref() {
                     store_player_attempt(video_id, attempt);
                 }
                 (attempt, restriction)
             })
             .await;
-        if let Some(playability) = outcome.1.as_ref() {
-            *deferred_restriction = Some(map_playability_error(playability));
+        if let Some(report) = outcome.1.as_ref() {
+            *deferred_restriction = Some(report.to_error());
         }
         outcome.0.clone()
+    }
+
+    /// `direct`, or a web SABR answer for the same video when `direct` tops out
+    /// below [`SABR_UPGRADE_FLOOR`] and the SABR answer is taller. The web
+    /// clients are asked within [`SABR_UPGRADE_BUDGET`] and under the same
+    /// visitor, never a fresh one: a video that already plays is not worth a new
+    /// identity.
+    async fn upgrade_to_sabr(&self, video_id: &str, direct: PlayerAttempt) -> PlayerAttempt {
+        if direct.client.is_web_sabr() || is_live_response(&direct.response) {
+            return direct;
+        }
+        let direct_height = max_video_height(&direct.response["streamingData"]);
+        if direct_height >= SABR_UPGRADE_FLOOR {
+            return direct;
+        }
+        let visitor_data = direct.visitor_data.clone();
+        let upgrade = tokio::time::timeout(SABR_UPGRADE_BUDGET, async {
+            for client in gated_last(SABR_UPGRADE_CLIENTS.iter().copied(), |client| client.name) {
+                if let ClientOutcome::Won(attempt) = self
+                    .attempt_client(video_id, client, visitor_data.as_deref())
+                    .await
+                {
+                    return Some(attempt);
+                }
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten();
+        match upgrade {
+            Some(sabr) if max_video_height(&sabr.response["streamingData"]) > direct_height => {
+                info!(video_id = %video_id, direct = direct.client.name, sabr = sabr.client.name, direct_height, "Direct ladder capped; using SABR");
+                sabr
+            }
+            _ => direct,
+        }
     }
 
     /// Walk `ladder` in order, returning the first client that answers with
@@ -1443,24 +1446,29 @@ impl InnertubeClient {
         video_id: &str,
         ladder: &[&'static clients::YouTubeClient],
         visitor_data: Option<String>,
-        deferred_restriction: &mut Option<Value>,
+        deferred_restriction: &mut Option<LadderReport>,
     ) -> Option<PlayerAttempt> {
         let mut visitor_data = visitor_data;
         let mut identity_refreshed = false;
-        for client in ladder {
+        let mut fresh_identity_walled = false;
+        for client in gated_last(ladder.iter().copied(), |client| client.name) {
             let mut outcome = self
                 .attempt_client(video_id, client, visitor_data.as_deref())
                 .await;
             if !identity_refreshed
-                && matches!(&outcome, ClientOutcome::Refused(playability) if is_bot_wall(playability))
+                && matches!(&outcome, ClientOutcome::Refused(refusal) if is_bot_wall(&refusal.playability))
             {
                 identity_refreshed = true;
-                if let Some(fresh) = self.refresh_visitor_data().await {
+                if let Some(fresh) = self.refresh_visitor_data(visitor_data.as_deref()).await {
                     info!(video_id = %video_id, client = client.name, "Bot wall; retrying under a fresh visitor identity");
                     visitor_data = Some(fresh);
                     outcome = self
                         .attempt_client(video_id, client, visitor_data.as_deref())
                         .await;
+                    fresh_identity_walled = matches!(
+                        &outcome,
+                        ClientOutcome::Refused(refusal) if is_bot_wall(&refusal.playability)
+                    );
                 }
             }
 
@@ -1469,24 +1477,26 @@ impl InnertubeClient {
                     info!(video_id = %video_id, client = client.name, version = client.version, "Player ladder resolved");
                     return Some(attempt);
                 }
-                ClientOutcome::Refused(playability) => {
-                    let mapped = map_playability_error(&playability);
+                ClientOutcome::Refused(refusal) => {
                     warn!(
                         video_id = %video_id,
                         client = client.name,
                         version = client.version,
-                        reason = %mapped,
+                        reason = %map_playability_error(&refusal.playability),
                         "Player client refused, trying the next one"
                     );
-                    if is_reportable_refusal(&playability) {
-                        // Region, privacy, membership, age and removal are
-                        // properties of the video, so every later client would
-                        // refuse it the same way. A bot wall is per client.
-                        let content_level = !is_bot_wall(&playability);
-                        deferred_restriction.get_or_insert(playability);
-                        if content_level {
-                            return None;
-                        }
+                    let ends = ends_the_ladder(&refusal);
+                    if is_better_report(
+                        deferred_restriction.as_ref().map(|report| &report.refusal),
+                        &refusal,
+                    ) {
+                        *deferred_restriction = Some(LadderReport {
+                            refusal,
+                            fresh_identity_walled,
+                        });
+                    }
+                    if ends {
+                        return None;
                     }
                 }
                 ClientOutcome::Unusable => {}
@@ -1503,7 +1513,7 @@ impl InnertubeClient {
         client: &'static clients::YouTubeClient,
         visitor_data: Option<&str>,
     ) -> ClientOutcome {
-        let web_client = client.accepts_web_po_token();
+        let web_client = client.is_web_sabr();
         // Web clients are only served with a BotGuard token on the request, bound
         // to the video id as Flow for Android binds it. Every other family is
         // attested by a runtime Flow cannot run, and a BotGuard token on those is
@@ -1518,8 +1528,25 @@ impl InnertubeClient {
             None
         };
 
+        let decoder_player = if client.remote_signed {
+            let Some(player) = remote_decoder::latest_player().await else {
+                debug!(video_id = %video_id, client = client.name, "Remote decoder off or unreachable; skipping");
+                return ClientOutcome::Unusable;
+            };
+            Some(player)
+        } else {
+            None
+        };
+        let cpn = web_client.then(new_cpn);
         let mut response = match self
-            .request_player(video_id, client, visitor_data, po_token.as_deref(), None)
+            .request_player(
+                video_id,
+                client,
+                visitor_data,
+                po_token.as_deref(),
+                None,
+                cpn.as_deref(),
+            )
             .await
         {
             Some(value) => value,
@@ -1527,7 +1554,14 @@ impl InnertubeClient {
             // the whole first budget.
             None if std::ptr::eq(client, PLAYER_CLIENT_LADDER[0]) => {
                 match self
-                    .request_player(video_id, client, visitor_data, po_token.as_deref(), None)
+                    .request_player(
+                        video_id,
+                        client,
+                        visitor_data,
+                        po_token.as_deref(),
+                        None,
+                        cpn.as_deref(),
+                    )
                     .await
                 {
                     Some(value) => value,
@@ -1548,6 +1582,7 @@ impl InnertubeClient {
                     visitor_data,
                     po_token.as_deref(),
                     Some(&referer),
+                    cpn.as_deref(),
                 )
                 .await
             {
@@ -1560,13 +1595,17 @@ impl InnertubeClient {
             .as_str()
             .unwrap_or_default();
         if !status.eq_ignore_ascii_case("OK") {
-            return ClientOutcome::Refused(response["playabilityStatus"].clone());
+            return ClientOutcome::Refused(Refusal::of(&response));
+        }
+
+        if let Some(player) = decoder_player.as_ref() {
+            solve_formats(&mut response, player).await;
         }
 
         let playable = if has_live_manifest(&response) {
             true
         } else if web_client {
-            self.prepare_sabr_endpoint(video_id, client, &mut response)
+            self.prepare_sabr_endpoint(video_id, client, &mut response, cpn.as_deref())
                 .await
         } else {
             has_playable_direct_streams(&response["streamingData"], video_id)
@@ -1574,6 +1613,11 @@ impl InnertubeClient {
         if !playable {
             warn!(video_id = %video_id, client = client.name, "Player client answered OK with nothing Flow can fetch");
             return ClientOutcome::Unusable;
+        }
+        let preroll = preroll_wait(&response["adPlacements"]);
+        if !preroll.is_zero() {
+            debug!(video_id = %video_id, client = client.name, ?preroll, "Waiting out the pre-roll before the streams are served");
+            tokio::time::sleep(preroll).await;
         }
 
         ClientOutcome::Won(PlayerAttempt {
@@ -1592,6 +1636,7 @@ impl InnertubeClient {
         video_id: &str,
         client: &clients::YouTubeClient,
         response: &mut Value,
+        cpn: Option<&str>,
     ) -> bool {
         let streaming_data = &response["streamingData"];
         let Some(server_url) = extract_server_abr_url(streaming_data) else {
@@ -1611,6 +1656,7 @@ impl InnertubeClient {
             warn!(video_id = %video_id, client = client.name, "Could not solve n for the SABR endpoint");
             return false;
         };
+        let solved = cpn.map_or_else(|| solved.clone(), |cpn| with_session_params(&solved, cpn));
         response["streamingData"]["serverAbrStreamingUrl"] = Value::String(solved);
         true
     }
@@ -1624,47 +1670,59 @@ impl InnertubeClient {
         visitor_data: Option<&str>,
         po_token: Option<&str>,
         referer: Option<&str>,
+        cpn: Option<&str>,
     ) -> Option<Value> {
-        let mut context = client.player_context(visitor_data, po_token, None);
-        if client.is_embedded {
-            context["thirdParty"] = serde_json::json!({
-                "embedUrl": format!("https://www.youtube.com/watch?v={video_id}")
-            });
-        }
-
-        let mut payload = serde_json::json!({
-            "context": context,
-            "videoId": video_id,
-            "contentCheckOk": true,
-            "racyCheckOk": true,
-        });
+        let mut payload = client.player_body(video_id, visitor_data, po_token);
         if client.use_signature_timestamp {
-            let timestamp = player_js::signature_timestamp()
-                .await
-                .unwrap_or(clients::DEFAULT_SIGNATURE_TIMESTAMP);
-            payload["playbackContext"] = serde_json::json!({
-                "contentPlaybackContext": {
-                    "referer": referer.unwrap_or("https://www.youtube.com"),
-                    "signatureTimestamp": timestamp,
-                    "html5Preference": "HTML5_PREF_WANTS"
-                }
+            // A remote-signed client's signatures are solved against the
+            // decoder's player, so the request must name that player's timestamp.
+            let remote_timestamp = if client.remote_signed {
+                remote_decoder::latest_player()
+                    .await
+                    .and_then(|player| player.signature_timestamp)
+            } else {
+                None
+            };
+            let timestamp = match remote_timestamp {
+                Some(timestamp) => timestamp,
+                None => player_js::signature_timestamp()
+                    .await
+                    .unwrap_or(clients::DEFAULT_SIGNATURE_TIMESTAMP),
+            };
+            let watch_url = format!("https://www.youtube.com/watch?v={video_id}");
+            let mut content = serde_json::json!({
+                "referer": referer.unwrap_or(if client.is_web_sabr() {
+                    &watch_url
+                } else {
+                    "https://www.youtube.com"
+                }),
+                "signatureTimestamp": timestamp,
+                "html5Preference": "HTML5_PREF_WANTS"
             });
+            // The web player's own context, which a SABR session is checked against.
+            if client.is_web_sabr() {
+                content["vis"] = serde_json::json!(0);
+                content["splay"] = serde_json::json!(false);
+                content["lactMilliseconds"] = serde_json::json!("-1");
+            }
+            payload["playbackContext"] = serde_json::json!({ "contentPlaybackContext": content });
+            if client.is_web_sabr()
+                && let Some(token) = take_reload_token(video_id)
+            {
+                payload["playbackContext"]["reloadPlaybackContext"] =
+                    serde_json::json!({ "reloadPlaybackParams": { "token": token } });
+            }
         }
-        if let Some(referer) = referer {
-            payload["custom_referer"] = serde_json::json!(referer);
+        if let Some(cpn) = cpn {
+            payload["cpn"] = serde_json::json!(cpn);
         }
 
-        let budget = if client.accepts_web_po_token() {
+        let budget = if client.is_web_sabr() || client.remote_signed {
             WEB_PLAYER_TIMEOUT
         } else {
             PER_CLIENT_TIMEOUT
         };
-        match tokio::time::timeout(
-            budget,
-            self.post_innertube_for_playback("player", client, &mut payload),
-        )
-        .await
-        {
+        match tokio::time::timeout(budget, self.post_player(client, &mut payload, referer)).await {
             Ok(Ok(value)) => Some(value),
             Ok(Err(error)) => {
                 warn!(video_id = %video_id, client = client.name, %error, "Player request failed");
@@ -1696,7 +1754,7 @@ impl InnertubeClient {
         let _priority = playback_priority().start_metadata().await;
         let visitor_data = self.fetch_visitor_data().await;
         let mut payload = serde_json::json!({
-            "context": clients::VISIONOS.context(visitor_data.as_deref(), None),
+            "context": clients::VISIONOS.context_in(visitor_data.as_deref(), None, "en"),
             "videoId": video_id,
             "contentCheckOk": true,
             "racyCheckOk": true,
@@ -1710,11 +1768,13 @@ impl InnertubeClient {
 
         check_playability_status(&response["playabilityStatus"])?;
         let details = &response["videoDetails"];
+        let duration_seconds = details["lengthSeconds"]
+            .as_str()
+            .and_then(|seconds| seconds.parse().ok());
         Ok(VideoBasics {
             channel_id: details["channelId"].as_str().map(ToOwned::to_owned),
-            duration_seconds: details["lengthSeconds"]
-                .as_str()
-                .and_then(|seconds| seconds.parse().ok()),
+            duration_seconds,
+            is_short: is_short_by_frame(&response["streamingData"], duration_seconds),
         })
     }
 
@@ -1755,201 +1815,108 @@ impl InnertubeClient {
             .as_str()
             .unwrap_or(video_id_trimmed)
             .to_string();
-        let title = details["title"].as_str().unwrap_or_default().to_string();
-        let mut channel_name = details["author"].as_str().unwrap_or_default().to_string();
-        let description = details["shortDescription"].as_str().map(|s| s.to_string());
-
-        let thumbnail_url = thumbnail_url_from_array(&details["thumbnail"]["thumbnails"]);
-
         let duration_seconds = extract_duration_seconds_from_player_response(&res);
-        let mut channel_id = details["channelId"].as_str().map(|s| s.to_string());
+        // Views, likes, dates and the owner block are optional: a deep link waits
+        // on this call before it starts playback, so a slow or failed watch answer
+        // leaves them out instead of failing the details.
+        let next = self.watch_next(&id).await.ok();
+        let next = next.as_deref().unwrap_or(&Value::Null);
+        let primary = watch_next::primary(next);
+        let owner = watch_next::owner(next);
 
-        let mut like_count_text = None;
-        let mut view_count_text = None;
-        let mut published_text = None;
-
-        let mut next_payload = serde_json::json!({
-            "videoId": &id
-        });
-        // Likes, views and the publish date are optional; a deep link waits on
-        // this whole call before it can start playback, so it is bounded and
-        // kept off the connection the feed fan-out saturates.
-        if let Ok(Ok(next_res)) = tokio::time::timeout(
-            WATCH_NEXT_TIMEOUT,
-            self.post_innertube_for_playback("next", &clients::WEB, &mut next_payload),
-        )
-        .await
+        // The TV client's details carry neither title, author nor description;
+        // the watch answer fills them in.
+        let description = details["shortDescription"]
+            .as_str()
+            .map(ToString::to_string)
+            .or_else(|| watch_next::description(next));
+        let (mut chapters, auto_chapters) =
+            watch_next::chapters(next, duration_seconds.unwrap_or(0));
+        if chapters.is_empty()
+            && let Some(description) = description.as_deref()
         {
-            let mut primary_info = &serde_json::Value::Null;
-            let mut secondary_info = &serde_json::Value::Null;
-            if let Some(contents) =
-                next_res["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
-                    .as_array()
-            {
-                for c in contents {
-                    if c.get("videoPrimaryInfoRenderer").is_some() {
-                        primary_info = &c["videoPrimaryInfoRenderer"];
-                    }
-                    if c.get("videoSecondaryInfoRenderer").is_some() {
-                        secondary_info = &c["videoSecondaryInfoRenderer"];
-                    }
-                }
-            }
-
-            if !secondary_info.is_null() {
-                let owner = &secondary_info["owner"]["videoOwnerRenderer"];
-                if channel_name.is_empty() {
-                    if let Some(owner_name) = extract_text_from_value(&owner["title"]) {
-                        channel_name = owner_name;
-                    }
-                }
-
-                if channel_id.is_none() {
-                    channel_id = owner["navigationEndpoint"]["browseEndpoint"]["browseId"]
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .or_else(|| extract_channel_id_from_video_renderer(owner));
-                }
-            }
-
-            if !primary_info.is_null() {
-                // Extract views
-                if let Some(views) =
-                    primary_info["viewCount"]["videoViewCountRenderer"]["viewCount"]["simpleText"]
-                        .as_str()
-                        .or_else(|| {
-                            primary_info["viewCount"]["videoViewCountRenderer"]["viewCount"]["runs"]
-                                [0]["text"]
-                                .as_str()
-                        })
-                        .or_else(|| {
-                            primary_info["viewCount"]["videoViewCountRenderer"]["shortViewCount"]
-                            ["simpleText"]
-                            .as_str()
-                        })
-                        .or_else(|| {
-                            primary_info["viewCount"]["videoViewCountRenderer"]["shortViewCount"]
-                            ["runs"][0]["text"]
-                            .as_str()
-                        })
-                {
-                    view_count_text = Some(views.to_string());
-                }
-
-                // Extract published text
-                if let Some(pub_date) = primary_info["dateText"]["simpleText"]
-                    .as_str()
-                    .or_else(|| primary_info["dateText"]["runs"][0]["text"].as_str())
-                    .or_else(|| primary_info["relativeDateText"]["simpleText"].as_str())
-                    .or_else(|| primary_info["relativeDateText"]["runs"][0]["text"].as_str())
-                {
-                    published_text = Some(pub_date.to_string());
-                }
-
-                // Extract like count
-                if let Some(top_level_buttons) =
-                    primary_info["videoActions"]["menuRenderer"]["topLevelButtons"].as_array()
-                {
-                    for btn in top_level_buttons {
-                        if let Some(view_model) = btn.get("segmentedLikeDislikeButtonViewModel") {
-                            let button_vm = &view_model["likeButtonViewModel"]["likeButtonViewModel"]
-                                ["toggleButtonViewModel"]["toggleButtonViewModel"]["defaultButtonViewModel"]
-                                ["buttonViewModel"];
-                            if let Some(title) = button_vm["title"]["runs"][0]["text"]
-                                .as_str()
-                                .or_else(|| button_vm["title"]["simpleText"].as_str())
-                            {
-                                like_count_text = Some(title.to_string());
-                            } else if let Some(acc_text) = button_vm["accessibilityText"].as_str() {
-                                like_count_text =
-                                    Some(clean_like_count_from_accessibility(acc_text));
-                            }
-                        }
-                        if like_count_text.is_none() {
-                            if let Some(renderer) = btn.get("segmentedLikeDislikeButtonRenderer") {
-                                let toggle_btn = &renderer["likeButton"]["toggleButtonRenderer"];
-                                if !toggle_btn.is_null() {
-                                    if let Some(label) = toggle_btn["accessibilityData"]
-                                        ["accessibilityData"]["label"]
-                                        .as_str()
-                                        .or_else(|| toggle_btn["accessibility"]["label"].as_str())
-                                        .or_else(|| {
-                                            toggle_btn["defaultText"]["accessibility"]
-                                                ["accessibilityData"]["label"]
-                                                .as_str()
-                                        })
-                                    {
-                                        like_count_text =
-                                            Some(clean_like_count_from_accessibility(label));
-                                    } else if let Some(text) = toggle_btn["defaultText"]["runs"][0]
-                                        ["text"]
-                                        .as_str()
-                                        .or_else(|| {
-                                            toggle_btn["defaultText"]["simpleText"].as_str()
-                                        })
-                                    {
-                                        like_count_text = Some(text.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            chapters = watch_next::description_chapters(description, duration_seconds.unwrap_or(0));
         }
 
-        let duration_secs = duration_seconds.unwrap_or(0);
-        let chapters = parse_chapters_from_marker_map(&res, duration_secs).unwrap_or_else(|| {
-            if let Some(ref desc) = description {
-                parse_chapters_from_description(desc, duration_secs)
-            } else {
-                Vec::new()
-            }
-        });
-
+        let description_rich = watch_next::description_rich(next, description.as_deref(), &id);
         Ok(VideoDetails {
-            id,
-            title,
-            channel_name,
-            channel_id,
+            title: details["title"]
+                .as_str()
+                .filter(|title| !title.is_empty())
+                .map(ToOwned::to_owned)
+                .or(primary.title)
+                .unwrap_or_default(),
+            channel_name: details["author"]
+                .as_str()
+                .filter(|author| !author.is_empty())
+                .map(ToOwned::to_owned)
+                .or(owner.name)
+                .unwrap_or_default(),
+            channel_id: details["channelId"]
+                .as_str()
+                .map(ToOwned::to_owned)
+                .or(owner.channel_id),
             description,
-            thumbnail_url,
+            thumbnail_url: thumbnail_url_from_array(&details["thumbnail"]["thumbnails"]),
             duration_seconds,
-            like_count_text,
-            view_count_text,
-            published_text,
+            like_count_text: primary.like_count_text,
+            view_count_text: primary.view_count_text,
+            published_text: primary
+                .published_text
+                .or_else(|| primary.relative_published_text.clone()),
+            relative_published_text: primary.relative_published_text,
             chapters,
-            is_live: res["videoDetails"]["isLive"].as_bool().unwrap_or(false),
+            auto_chapters,
+            heatmap: watch_next::heatmap(next),
+            is_live: is_on_air(&res),
+            category: res["microformat"]["playerMicroformatRenderer"]["category"]
+                .as_str()
+                .map(str::to_string),
+            channel_avatar_url: owner.avatar_url,
+            subscriber_count_text: owner.subscriber_count_text,
+            channel_badge: owner.badge.map(ToOwned::to_owned),
+            collaborators: owner.collaborators,
+            hashtags: primary.hashtags,
+            badges: primary.badges,
+            autoplay_video_id: watch_next::autoplay_video_id(next),
+            has_chat_replay: watch_next::chat_seed(next).is_some_and(|(_, replay)| replay),
+            description_rich,
+            description_extras: watch_next::description_extras(next),
+            id,
         })
     }
 
-    pub async fn get_related_videos(&self, video_id: &str) -> AppResult<Vec<RelatedContentItem>> {
+    pub async fn get_related_videos(&self, video_id: &str) -> AppResult<RelatedPage> {
         let video_id_trimmed = video_id.trim();
         if video_id_trimmed.is_empty() {
             return Err(AppError::Validation("Video ID cannot be empty".into()));
         }
+        let next = self.watch_next(video_id_trimmed).await?;
+        Ok(watch_next::related_page(&next))
+    }
 
-        let mut payload = serde_json::json!({
-            "videoId": video_id_trimmed
-        });
-
-        let next_res = self
+    /// The related lane of a video that is not being watched, for the home
+    /// feed. A cached watch answer is used when there is one, but this never
+    /// fills the cache or takes a playback connection: feeds ask for many
+    /// videos, and would push out the one on screen.
+    pub async fn get_feed_related_videos(&self, video_id: &str) -> AppResult<RelatedPage> {
+        if let Some(next) = watch_next::cached(video_id) {
+            return Ok(watch_next::related_page(&next));
+        }
+        let mut payload = watch_next_body(video_id);
+        let next = self
             .post_innertube("next", &clients::WEB, &mut payload)
             .await?;
-        let mut related = Vec::new();
-        collect_related_content_items(
-            &next_res["contents"]["twoColumnWatchNextResults"]["secondaryResults"],
-            &mut related,
-        );
+        Ok(watch_next::related_page(&next))
+    }
 
-        if related.is_empty() {
-            collect_related_content_items(
-                &next_res["contents"]["twoColumnWatchNextResults"]["autoplay"],
-                &mut related,
-            );
-        }
-
-        Ok(dedupe_related_content_items(related))
+    /// The related lane's next page.
+    pub async fn get_more_related_videos(&self, continuation: &str) -> AppResult<RelatedPage> {
+        let mut payload = serde_json::json!({ "continuation": continuation });
+        let next = self
+            .post_innertube("next", &clients::WEB, &mut payload)
+            .await?;
+        Ok(watch_next::related_page(&next))
     }
 
     pub async fn get_stream_info(&self, video_id: &str, refresh: bool) -> AppResult<StreamInfo> {
@@ -1965,17 +1932,17 @@ impl InnertubeClient {
         let attempt = self
             .resolve_player_attempt(video_id_trimmed, &mut deferred_restriction, refresh)
             .await;
-        let mut visitor_data_for_sabr = attempt
+        let visitor_data_for_sabr = attempt
             .as_ref()
             .and_then(|attempt| attempt.visitor_data.clone());
 
-        let mut winning_client = attempt
+        let winning_client = attempt
             .as_ref()
             .map_or(&clients::VISIONOS, |attempt| attempt.client);
-        let mut po_token_used = attempt
+        let po_token_used = attempt
             .as_ref()
             .and_then(|attempt| attempt.po_token.clone());
-        let mut res = match attempt {
+        let res = match attempt {
             Some(attempt) => Ok(attempt.response),
             None => Err(deferred_restriction.take().unwrap_or_else(|| {
                 AppError::Extractor(format!(
@@ -1983,41 +1950,6 @@ impl InnertubeClient {
                 ))
             })),
         };
-
-        let res_is_ok = matches!(&res, Ok(value)
-            if value["playabilityStatus"]["status"]
-                .as_str()
-                .map(|status| status.eq_ignore_ascii_case("OK"))
-                .unwrap_or(false));
-        if !res_is_ok && std::env::var("FLOW_INPAGE_RECOVERY").is_ok() {
-            if let Some(mut web_res) =
-                crate::api::innertube::core::webview_player::fetch_player_response_in_page(
-                    video_id_trimmed,
-                )
-                .await
-            {
-                let web_ok = web_res["playabilityStatus"]["status"]
-                    .as_str()
-                    .is_some_and(|status| status.eq_ignore_ascii_case("OK"));
-                if web_ok
-                    && self
-                        .prepare_sabr_endpoint(video_id_trimmed, &clients::WEB, &mut web_res)
-                        .await
-                {
-                    info!(video_id = %video_id_trimmed, "Recovered bot-walled video via in-page WebView (WEB/SABR)");
-                    // The SABR session presents the WEB response's own visitor data.
-                    if let Some(web_visitor) = web_res["responseContext"]["visitorData"]
-                        .as_str()
-                        .filter(|value| !value.is_empty())
-                    {
-                        visitor_data_for_sabr = Some(web_visitor.to_string());
-                    }
-                    po_token_used = generate_po_token(video_id_trimmed).await;
-                    winning_client = &clients::WEB;
-                    res = Ok(web_res);
-                }
-            }
-        }
 
         let res = res?;
         let playability = &res["playabilityStatus"];
@@ -2038,7 +1970,10 @@ impl InnertubeClient {
             )));
         }
 
-        let is_live = res["videoDetails"]["isLive"].as_bool().unwrap_or(false);
+        // The manifest may come from another client below, and googlevideo wants
+        // it fetched as that client. The direct streams stay the winner's.
+        let mut manifest_client = winning_client;
+        let is_live = is_live_response(&res);
         let mut hls_manifest_url = streaming_data["hlsManifestUrl"]
             .as_str()
             .map(ToOwned::to_owned);
@@ -2051,7 +1986,7 @@ impl InnertubeClient {
         // A restriction seen here is discarded: the video already resolved, so a
         // missing manifest is not the reason to fail it.
         if is_live && hls_manifest_url.is_none() {
-            let mut discarded: Option<Value> = None;
+            let mut discarded: Option<LadderReport> = None;
             if let Some(live) = self
                 .try_player_ladder(
                     video_id_trimmed,
@@ -2063,10 +1998,12 @@ impl InnertubeClient {
             {
                 if let Some(hls) = live.response["streamingData"]["hlsManifestUrl"].as_str() {
                     hls_manifest_url = Some(hls.to_string());
+                    manifest_client = live.client;
                 }
                 if dash_manifest_url.is_none() {
                     if let Some(dash) = live.response["streamingData"]["dashManifestUrl"].as_str() {
                         dash_manifest_url = Some(dash.to_string());
+                        manifest_client = live.client;
                     }
                 }
             }
@@ -2127,7 +2064,7 @@ impl InnertubeClient {
             .unwrap_or(21600); // Default 6 hours
 
         // Return expiration time and user-agent string joined by | delimiter
-        let composite_expires_at = format!("{}|{}", expires_in_seconds, winning_client.user_agent);
+        let composite_expires_at = format!("{}|{}", expires_in_seconds, manifest_client.user_agent);
 
         // Offer every dubbed language alongside the original. VISIONOS serves these
         // as direct URLs googlevideo streams in full — the earlier iPadOS-sourced
@@ -2165,6 +2102,8 @@ impl InnertubeClient {
             hls_manifest_url,
             dash_manifest_url,
             is_live,
+            loudness_db: stream_loudness_db(&res, streaming_data),
+            storyboard: super::storyboard::parse_storyboard(&res, duration_seconds),
             sabr,
             sabr_descriptor,
         })
@@ -2195,11 +2134,7 @@ mod sabr_live_smoke {
             .try_init();
         let video_id =
             std::env::var("FLOW_SABR_VIDEO").unwrap_or_else(|_| "3RmOvxilbPM".to_string());
-        let client = InnertubeClient {
-            client: reqwest::Client::new(),
-            playback_client: reqwest::Client::new(),
-            visitor_data: std::sync::RwLock::new(None),
-        };
+        let client = InnertubeClient::new();
 
         let visitor_data = client.fetch_visitor_data().await;
         let po_token = match visitor_data.as_deref() {
@@ -2214,17 +2149,10 @@ mod sabr_live_smoke {
             po_token.is_some()
         );
 
-        let mut payload = serde_json::json!({
-            "context": clients::IPADOS.player_context(
-                visitor_data.as_deref(),
-                po_token.as_deref(),
-                None,
-            ),
-            "videoId": video_id,
-            "contentCheckOk": true,
-            "racyCheckOk": true,
-            "playbackContext": { "contentPlaybackContext": { "signatureTimestamp": 19550 } }
-        });
+        let mut payload =
+            clients::IPADOS.player_body(&video_id, visitor_data.as_deref(), po_token.as_deref());
+        payload["playbackContext"] =
+            serde_json::json!({ "contentPlaybackContext": { "signatureTimestamp": 19550 } });
         let res = client
             .post_innertube("player", &clients::IPADOS, &mut payload)
             .await
@@ -2382,31 +2310,29 @@ mod sabr_client_probe {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    /// Builds the context straight from the registry, so the probe measures the
+    /// Builds the body straight from the registry, so the probe measures the
     /// same identity the app actually sends rather than a copy of it.
     ///
-    /// `pot` is passed through `player_context`, which drops it for any client
-    /// whose attestation platform a BotGuard token is not valid for — so a run
+    /// `pot` is passed through `player_body`, which drops it for any client
+    /// whose attestation platform a web PO token is not valid for, so a run
     /// with `send_pot = true` on an iOS/Android client is the control case
     /// showing that omitting the token changes nothing for them.
-    fn context_for(
+    fn body_for(
+        video_id: &str,
         client: &clients::YouTubeClient,
         visitor: Option<String>,
         pot: Option<String>,
     ) -> Value {
-        let mut ctx = client.player_context(visitor.as_deref(), pot.as_deref(), None);
+        let mut body = client.player_body(video_id, visitor.as_deref(), pot.as_deref());
         if let Some(timestamp) = client.signature_timestamp() {
-            ctx["playbackContext"] = serde_json::json!({
+            body["playbackContext"] = serde_json::json!({
                 "contentPlaybackContext": { "signatureTimestamp": timestamp }
             });
         }
-        ctx
+        body
     }
 
-    async fn raw_player(video_id: &str, c: &clients::YouTubeClient, ctx: Value) -> Option<Value> {
-        let payload = serde_json::json!({
-            "context": ctx, "videoId": video_id, "contentCheckOk": true, "racyCheckOk": true,
-        });
+    async fn raw_player(c: &clients::YouTubeClient, payload: Value) -> Option<Value> {
         let r = reqwest::Client::new()
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
             .header(reqwest::header::USER_AGENT, c.user_agent)
@@ -2431,11 +2357,7 @@ mod sabr_client_probe {
             .try_init();
         let video_id =
             std::env::var("FLOW_SABR_VIDEO").unwrap_or_else(|_| "3RmOvxilbPM".to_string());
-        let client = InnertubeClient {
-            client: reqwest::Client::new(),
-            playback_client: reqwest::Client::new(),
-            visitor_data: std::sync::RwLock::new(None),
-        };
+        let client = InnertubeClient::new();
         // Allow injecting an externally-minted pot+visitor (e.g. from bgutils-js)
         // to test whether a *fresh, valid* pot sustains where the stale sidecar's
         // does not: FLOW_VISITOR=… FLOW_POT=… cargo test … sabr_client_probe …
@@ -2484,13 +2406,10 @@ mod sabr_client_probe {
                 send_pot,
                 send_pot && c.accepts_web_po_token()
             );
-            let ctx = context_for(c, visitor_data.clone(), use_pot.clone());
-            let res = match raw_player(&video_id, c, ctx).await {
-                Some(v) => v,
-                None => {
-                    println!("  player request FAILED\n");
-                    continue;
-                }
+            let body = body_for(&video_id, c, visitor_data.clone(), use_pot.clone());
+            let Some(res) = raw_player(c, body).await else {
+                println!("  player request FAILED\n");
+                continue;
             };
             let status = res["playabilityStatus"]["status"].as_str().unwrap_or("?");
             if !status.eq_ignore_ascii_case("OK") {
@@ -2624,110 +2543,6 @@ mod sabr_client_probe {
 }
 
 #[cfg(test)]
-mod playability_classification {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn age_gate_reason_is_age_restricted() {
-        // The WEB/ANDROID clients report age gating via a terse `reason`.
-        let playability = json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "Sign in to confirm your age",
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::AgeRestricted(_)
-        ));
-    }
-
-    #[test]
-    fn age_gate_subreason_is_age_restricted() {
-        // Some responses keep `reason` generic and put the detail in the
-        // errorScreen subreason — the classifier must read both.
-        let playability = json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "Sign in to confirm you’re not a bot",
-            "errorScreen": {
-                "playerErrorMessageRenderer": {
-                    "subreason": {
-                        "runs": [
-                            { "text": "This video may be inappropriate for some users." }
-                        ]
-                    }
-                }
-            }
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::AgeRestricted(_)
-        ));
-    }
-
-    #[test]
-    fn private_video_is_private_content() {
-        let playability = json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "This video is private.",
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::PrivateContent(_)
-        ));
-    }
-
-    #[test]
-    fn bot_wall_is_bot_check_required() {
-        let playability = json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "Sign in to confirm you’re not a bot",
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::BotCheckRequired(_)
-        ));
-    }
-
-    #[test]
-    fn music_premium_is_classified() {
-        let playability = json!({
-            "status": "UNPLAYABLE",
-            "reason": "This video is only available to Music Premium members",
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::MusicPremium(_)
-        ));
-    }
-
-    #[test]
-    fn unknown_reason_falls_back_to_content_not_available() {
-        let playability = json!({
-            "status": "UNPLAYABLE",
-            "reason": "Video unavailable",
-        });
-        assert!(matches!(
-            map_playability_error(&playability),
-            AppError::ContentNotAvailable(_)
-        ));
-    }
-
-    #[test]
-    fn restrictions_are_definitive_but_extraction_is_not() {
-        assert!(is_definitive_restriction(&AppError::AgeRestricted(
-            "x".into()
-        )));
-        assert!(is_definitive_restriction(&AppError::GeographicRestriction(
-            "x".into()
-        )));
-        assert!(!is_definitive_restriction(&AppError::ContentNotAvailable(
-            "x".into()
-        )));
-        assert!(!is_definitive_restriction(&AppError::Extractor("x".into())));
-    }
-}
-
-#[cfg(test)]
 mod ladder_decisions {
     use super::*;
     use serde_json::json;
@@ -2742,38 +2557,6 @@ mod ladder_decisions {
             format["url"] = json!(url);
         }
         format
-    }
-
-    #[test]
-    fn only_a_bot_check_counts_as_a_bot_wall() {
-        assert!(is_bot_wall(&json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "Sign in to confirm you’re not a bot",
-        })));
-        assert!(!is_bot_wall(&json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "This video is private.",
-        })));
-        assert!(!is_bot_wall(&json!({
-            "status": "UNPLAYABLE",
-            "reason": "The page needs to be reloaded.",
-        })));
-    }
-
-    #[test]
-    fn a_missing_video_is_reported_but_a_generic_refusal_is_not() {
-        assert!(is_reportable_refusal(&json!({
-            "status": "ERROR",
-            "reason": "This video is unavailable",
-        })));
-        assert!(is_reportable_refusal(&json!({
-            "status": "LOGIN_REQUIRED",
-            "reason": "This video is private.",
-        })));
-        assert!(!is_reportable_refusal(&json!({
-            "status": "UNPLAYABLE",
-            "reason": "The page needs to be reloaded.",
-        })));
     }
 
     #[test]
@@ -2819,12 +2602,48 @@ mod ladder_decisions {
     }
 
     #[test]
-    fn a_live_manifest_needs_the_live_flag() {
-        let manifest = json!({ "streamingData": { "hlsManifestUrl": "https://manifest" } });
-        assert!(!has_live_manifest(&manifest));
-        let mut live = manifest.clone();
+    fn a_just_ended_stream_plays_as_live_but_is_not_on_air() {
+        let dvr = json!({ "videoDetails": { "isPostLiveDvr": true } });
+        assert!(is_live_response(&dvr));
+        assert!(!is_on_air(&dvr));
+        let streamability = json!({ "playabilityStatus": { "liveStreamability": {} } });
+        assert!(is_live_response(&streamability));
+        assert!(!is_on_air(&streamability));
+    }
+
+    #[test]
+    fn either_field_means_on_air() {
+        assert!(is_on_air(&json!({ "videoDetails": { "isLive": true } })));
+        assert!(is_on_air(
+            &json!({ "microformat": { "playerMicroformatRenderer": {
+            "liveBroadcastDetails": { "isLiveNow": true }
+        } } })
+        ));
+        assert!(!is_on_air(
+            &json!({ "microformat": { "playerMicroformatRenderer": {
+            "liveBroadcastDetails": { "isLiveNow": false }
+        } } })
+        ));
+    }
+
+    #[test]
+    fn a_manifest_beside_adaptive_formats_needs_a_live_signal() {
+        let vod = json!({ "streamingData": {
+            "hlsManifestUrl": "https://manifest",
+            "adaptiveFormats": [adaptive("video/mp4; codecs=\"avc1\"", None)]
+        } });
+        assert!(
+            !has_live_manifest(&vod),
+            "VISIONOS sends HLS for plain videos too"
+        );
+        let mut live = vod.clone();
         live["videoDetails"] = json!({ "isLive": true });
         assert!(has_live_manifest(&live));
+        let mut dvr = vod.clone();
+        dvr["videoDetails"] = json!({ "isPostLiveDvr": true });
+        assert!(has_live_manifest(&dvr));
+        let manifest_only = json!({ "streamingData": { "hlsManifestUrl": "https://manifest" } });
+        assert!(has_live_manifest(&manifest_only));
     }
 }
 
@@ -2842,11 +2661,7 @@ mod ladder_live {
     }
 
     fn fresh_client() -> InnertubeClient {
-        InnertubeClient {
-            client: reqwest::Client::new(),
-            playback_client: reqwest::Client::new(),
-            visitor_data: std::sync::RwLock::new(None),
-        }
+        InnertubeClient::new()
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2885,8 +2700,8 @@ mod ladder_live {
                 .await;
             let verdict = match &outcome {
                 ClientOutcome::Won(_) => "playable".to_string(),
-                ClientOutcome::Refused(playability) => {
-                    format!("refused: {}", map_playability_error(playability))
+                ClientOutcome::Refused(refusal) => {
+                    format!("refused: {}", map_playability_error(&refusal.playability))
                 }
                 ClientOutcome::Unusable => "unusable".to_string(),
             };
@@ -2934,5 +2749,114 @@ mod ladder_live {
             engine.cancel();
             assert!(first.is_ok(), "{} SABR must deliver media", candidate.name);
         }
+    }
+}
+
+#[cfg(test)]
+mod remote_signing {
+    use super::*;
+    use serde_json::json;
+
+    fn start_ad(skip_offset: &Value) -> Value {
+        json!({ "adPlacementRenderer": {
+            "config": { "adPlacementConfig": { "kind": "AD_PLACEMENT_KIND_START" } },
+            "renderer": { "instreamVideoAdRenderer": { "skipOffsetMilliseconds": skip_offset } }
+        }})
+    }
+
+    #[test]
+    fn a_start_ad_holds_the_streams_for_most_of_its_skip_offset() {
+        assert_eq!(
+            preroll_wait(&json!([start_ad(&json!(5000))])),
+            Duration::from_millis(4000)
+        );
+        assert_eq!(
+            preroll_wait(&json!([start_ad(&json!("5000"))])),
+            Duration::from_millis(4000)
+        );
+        assert_eq!(
+            preroll_wait(&json!([start_ad(&json!(60000))])),
+            Duration::from_secs(8)
+        );
+        // An unskippable ad says no offset, so the full cap applies.
+        assert_eq!(
+            preroll_wait(&json!([start_ad(&Value::Null)])),
+            Duration::from_secs(8)
+        );
+    }
+
+    #[test]
+    fn the_tallest_video_format_counts_with_or_without_a_url() {
+        let streaming = json!({
+            "formats": [{ "mimeType": "video/mp4", "height": 360, "url": "https://a" }],
+            "adaptiveFormats": [
+                { "mimeType": "video/webm", "height": 1080 },
+                { "mimeType": "audio/webm", "height": 4320 }
+            ]
+        });
+        assert_eq!(max_video_height(&streaming), 1080);
+        assert_eq!(max_video_height(&Value::Null), 0);
+    }
+
+    #[test]
+    fn a_short_is_portrait_or_square_and_three_minutes_at_most() {
+        let frame = |width: u64, height: u64| {
+            json!({ "adaptiveFormats": [
+                { "mimeType": "audio/mp4" },
+                { "mimeType": "video/mp4", "width": width, "height": height }
+            ]})
+        };
+        assert_eq!(is_short_by_frame(&frame(1080, 1920), Some(170)), Some(true));
+        assert_eq!(is_short_by_frame(&frame(720, 720), Some(45)), Some(true));
+        assert_eq!(is_short_by_frame(&frame(1920, 1080), Some(45)), Some(false));
+        assert_eq!(
+            is_short_by_frame(&frame(1080, 1920), Some(181)),
+            Some(false)
+        );
+        assert_eq!(is_short_by_frame(&frame(1080, 1920), None), None);
+        assert_eq!(is_short_by_frame(&Value::Null, Some(45)), None);
+    }
+
+    #[test]
+    fn only_start_ads_hold_the_streams() {
+        let mid_roll = json!({ "adPlacementRenderer": {
+            "config": { "adPlacementConfig": { "kind": "AD_PLACEMENT_KIND_MILLISECONDS" } }
+        }});
+        assert_eq!(preroll_wait(&json!([mid_roll])), Duration::ZERO);
+        assert_eq!(preroll_wait(&Value::Null), Duration::ZERO);
+    }
+
+    #[test]
+    fn a_signed_format_becomes_a_url_with_its_signature_and_solved_n() {
+        let format = json!({
+            "signatureCipher": "s=SIGNED&sp=sig&url=https%3A%2F%2Frr1.googlevideo.com%2Fvideoplayback%3Fitag%3D251%26n%3Draw%26expire%3D9"
+        });
+        let cipher = signed_format(&format).expect("cipher parses");
+        assert_eq!(cipher.signature, "SIGNED");
+        assert_eq!(cipher.parameter, "sig");
+        let signed = cipher.signed_url("plain").expect("base URL parses");
+        let solved_n = HashMap::from([("raw".to_string(), "solved".to_string())]);
+        let url = with_solved_n(&signed, &solved_n).expect("n was solved");
+        assert_eq!(
+            url,
+            "https://rr1.googlevideo.com/videoplayback?itag=251&n=solved&expire=9&sig=plain"
+        );
+        assert!(remote_decoder::was_solved(&url));
+    }
+
+    #[test]
+    fn a_url_whose_n_was_not_solved_is_left_alone() {
+        let url = "https://rr1.googlevideo.com/videoplayback?n=raw";
+        assert!(with_solved_n(url, &HashMap::new()).is_none());
+        let plain = "https://rr1.googlevideo.com/videoplayback?itag=18";
+        assert_eq!(
+            with_solved_n(plain, &HashMap::new()).as_deref(),
+            Some(plain)
+        );
+        let format = json!({ "signatureCipher": "s=SIGNED&url=https%3A%2F%2Frr1.googlevideo.com%2Fvideoplayback" });
+        assert_eq!(
+            signed_format(&format).expect("cipher parses").parameter,
+            "signature"
+        );
     }
 }

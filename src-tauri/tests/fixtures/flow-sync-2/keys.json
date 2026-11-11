@@ -1,0 +1,83 @@
+{
+  "members": [
+    {
+      "name": "A",
+      "sigSeed": "919acbeb95b6bdfc95f4de6759c6332512aa64f994874ba590d67f865f8a08ed",
+      "kemSecret": "802f8499ae55f9121ad9e6bcf872b35152d4d4bcf3947bc93602078362832b33",
+      "sigPublic": "8233fc236a84d925353f366b5d7ec5b3e577380e0e82089233b512cc88ae6781",
+      "kemPublic": "edf836ab45257134c12d6e0e66255fa3fbbfa97156061c35e5a41155af38b336",
+      "did": "d8576f2de42861ceb8030cc722b4c669"
+    },
+    {
+      "name": "B",
+      "sigSeed": "851220f067582da002c28f7a80b74da6eb35f088ddb070bd51ad230cc1ad296b",
+      "kemSecret": "567825e1043aeef435c1cb905500a64b7ff9666d2f3f0f6521427be4acbb11dd",
+      "sigPublic": "468141a98e966691692736cb199946437e695c11280bd48defeb4f53cd85f50a",
+      "kemPublic": "537c559dbbc9e5acf38e18a3b141fbea26027d07ef94cd8c000203be44700e6b",
+      "did": "894e311b2b2058e3bcc2ef3bde8ec864"
+    },
+    {
+      "name": "C",
+      "sigSeed": "b1bf0820f6f55e71d4e2ff59f07a500e8756bfebb1950996aa93df532d23d0d6",
+      "kemSecret": "ff0114796b064b9c34417130378efebba47cc150cb7caf59e8321722ac5c7c34",
+      "sigPublic": "3eff57af13e98d7b07afc42b3192a00b564ef50d9c3a004f0abecfdb60b73166",
+      "kemPublic": "6e6890cb9d9770d114a93fe78f6f5d7fc69dc5b2bce2395409675a722b79d050",
+      "did": "addf195306ed8f3c4d02642d8b6ebd6a"
+    }
+  ],
+  "epoch": {
+    "key": "c655b5c864e9cec9eaaa5697801ddc656c20f80926247805c9a981f278ea8482",
+    "group": "669a44456c08e4a12e4ceb3538860317",
+    "epoch": 3,
+    "commitment": "ddd0fe08552c3cfc5ce46e83bc24998f0a56e94c2b910ab6e6561f5ece8aa216",
+    "purposes": {
+      "roster": "35108183d7d5c185c2032c62931420932254a4674efa700c0c0812a2aaf36e3c",
+      "changes": "3a507ba94827c06a1f866e5e3a1827c3ec51359abc89123a567e225e5a8a2dfe",
+      "snapshot": "2642abb45d90a2c9e9e7348d69045de0ed0f673d88558b55c602e5da2203f83d",
+      "ack": "ffca81a454964ace1c484081daab1a296942b0d9551f53d90c825759fb1743fb",
+      "live": "6bce630e6995dd73fcb420045dbde0e591f6fa283d9fb27d5786c7ff10beeb3f",
+      "lan": "beea959bd09d911e2d909565cebb4980d45aa665c6ce470cdd1db313c30bbc82",
+      "chain": "55456cb32f0bb6491f49fd01d51d40ea34aa72ec2c30275b81bbaa82f50a21f8",
+      "store": "5d0928fc8ef84269d9bbfbd4098f3b3559b86ac6317cdd135937d3c18ab750b7"
+    }
+  },
+  "wrap": {
+    "kemSecret": "567825e1043aeef435c1cb905500a64b7ff9666d2f3f0f6521427be4acbb11dd",
+    "kemPublic": "537c559dbbc9e5acf38e18a3b141fbea26027d07ef94cd8c000203be44700e6b",
+    "group": "669a44456c08e4a12e4ceb3538860317",
+    "epoch": 3,
+    "did": "894e311b2b2058e3bcc2ef3bde8ec864",
+    "key": "c655b5c864e9cec9eaaa5697801ddc656c20f80926247805c9a981f278ea8482",
+    "ikmE": "13ded7a772c28d24eb3c696bf1d68fa1e3980db347c145439a663be005788d4a",
+    "wrap": "1f8f05efdb97ec917e5e74b875c1fa508b387df7612e4877d787612086fff2711e75e0c11cc040340e37c7ad542d8517f0f4fb28ef977125b8163640d759b6c5b1551ed715dcdb0733e3cbc58734e3f8",
+    "negatives": [
+      {
+        "name": "wrong-epoch",
+        "epoch": 2,
+        "did": "894e311b2b2058e3bcc2ef3bde8ec864",
+        "error": "decrypt"
+      },
+      {
+        "name": "wrong-member",
+        "epoch": 3,
+        "did": "d8576f2de42861ceb8030cc722b4c669",
+        "error": "decrypt"
+      }
+    ]
+  },
+  "chain": {
+    "key": "d500eca318c9be36678211e053a712a47693a17a34ea7b511ee816f6b2fc499f",
+    "group": "669a44456c08e4a12e4ceb3538860317",
+    "epoch": 1,
+    "previousKey": "8128e933453fa0274765a77c7e2d1771524aaacbc321a7c8bbc31dd812e27094",
+    "salt": "0f9dda3758c07abfe5c0bada7e35233bfef5c5f8d284a0c54ee6506a081e5103",
+    "box": "0f9dda3758c07abfe5c0bada7e35233bfef5c5f8d284a0c54ee6506a081e5103f9400f469f82e44caf7a50721d3992e5007c5e2762ed61226ad70ddb95d7450a032afa5e93561de41036cdd59b3e8d463e93d2b47e0417d913810c26988fd54879fad82dad1e5853835e8b08b0ab888b"
+  },
+  "paths": {
+    "epoch": 3,
+    "commitment": "ddd0fe08552c3cfc5ce46e83bc24998f0a56e94c2b910ab6e6561f5ece8aa216",
+    "did": "894e311b2b2058e3bcc2ef3bde8ec864",
+    "wrap": "keys/00000003/ddd0fe08552c3cfc/894e311b2b2058e3bcc2ef3bde8ec864.k",
+    "chain": "keys/00000003/ddd0fe08552c3cfc/chain.k"
+  }
+}

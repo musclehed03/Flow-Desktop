@@ -1,27 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDownToLine,
+  ArrowLeftRight,
   Camera,
   Check,
+  Info,
   Loader2,
   MonitorSmartphone,
   QrCode,
   RotateCcw,
   Send,
   ShieldCheck,
+  UserRound,
   X,
 } from "lucide-react";
 
+import { CameraScanner } from "../components/sync/CameraScanner";
+import { LinkedDevicesSection } from "../components/sync/linked/LinkedDevicesSection";
 import { CopyConnectionData, NotConnectingHint } from "../components/sync/PairingHelp";
+import { IconChip, SectionHeader, Spinner, VerificationCode } from "../components/sync/SyncParts";
 import { Button } from "../components/ui/Button";
 import { ToggleSwitch } from "../components/ui/ToggleSwitch";
 import { useSyncStore } from "../store/useSyncStore";
-import { SYNC_COLLECTIONS, type ManifestInfo, type StatInfo } from "../lib/api/sync";
+import {
+  SYNC_COLLECTIONS,
+  type ManifestInfo,
+  type StatInfo,
+  type WithheldInfo,
+  type WithheldReason,
+} from "../lib/api/sync";
 import { getString, type StringKey } from "../lib/i18n/index";
 import { looksLikeAddress, syncErrorMessage } from "../lib/syncErrors";
+import type { Profile } from "../lib/api/profiles";
+import { profileDisplayName } from "../lib/profiles/display";
+import { profileErrorMessage } from "../lib/profiles/profileErrors";
+import { useProfilesStore } from "../store/useProfilesStore";
 
 // --------------------------------------------------------------------------------------------
 // Collection display strings (resolved from i18n — no hardcoded copy in the view)
@@ -59,37 +74,6 @@ const SCREEN_MOTION = {
 // Shared small pieces
 // --------------------------------------------------------------------------------------------
 
-function Spinner({ className = "" }: { className?: string }) {
-  return <Loader2 className={`animate-spin ${className}`} />;
-}
-
-/** Sleek neutral icon chip used in the section headers (clinical, never colored). */
-function IconChip({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-chrome-neutral-200">
-      {children}
-    </div>
-  );
-}
-
-/** The 6-digit verification code, rendered as massive spaced monospace digits. */
-function VerificationCode({ sas, size = "lg" }: { sas: string; size?: "lg" | "md" }) {
-  return (
-    <div className="flex flex-col items-center">
-      <span className="mb-3 text-xs font-semibold uppercase tracking-widest text-chrome-neutral-500">
-        {getString("sync_verification_code")}
-      </span>
-      <span
-        className={`font-mono font-bold text-chrome-neutral-100 tracking-[0.3em] ${
-          size === "lg" ? "text-5xl" : "text-3xl"
-        }`}
-      >
-        {sas}
-      </span>
-    </div>
-  );
-}
-
 function StatsTable({ stats }: { stats: StatInfo[] }) {
   const meaningful = stats.filter((s) => s.added + s.updated + s.tombstoned > 0 || s.skipped > 0);
   if (meaningful.length === 0) {
@@ -110,56 +94,6 @@ function StatsTable({ stats }: { stats: StatInfo[] }) {
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-// --------------------------------------------------------------------------------------------
-// Camera scanner
-// --------------------------------------------------------------------------------------------
-
-function CameraScanner({ onResult, onClose }: { onResult: (text: string) => void; onClose: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const controlsRef = useRef<IScannerControls | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const reader = new BrowserQRCodeReader();
-    (async () => {
-      try {
-        const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, (result) => {
-          if (result && !cancelled) {
-            controlsRef.current?.stop();
-            onResult(result.getText());
-          }
-        });
-        if (cancelled) controls.stop();
-        else controlsRef.current = controls;
-      } catch {
-        if (!cancelled) setError(getString("sync_camera_error"));
-      }
-    })();
-    return () => {
-      cancelled = true;
-      controlsRef.current?.stop();
-    };
-  }, [onResult]);
-
-  return (
-    <div className="mt-6 space-y-3">
-      <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-chrome-neutral-800 bg-chrome-black">
-        <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
-        <div className="pointer-events-none absolute inset-6 rounded-lg border-2 border-chrome-white/70" />
-      </div>
-      {error && <p className="text-sm text-chrome-red-400">{error}</p>}
-      <button
-        type="button"
-        onClick={onClose}
-        className="flex w-full items-center justify-center gap-2 rounded-full bg-surface-container-high py-2.5 text-sm font-medium text-chrome-neutral-200 transition-colors hover:bg-surface-container-highest"
-      >
-        <X className="h-4 w-4" /> {getString("sync_stop_camera")}
-      </button>
     </div>
   );
 }
@@ -213,7 +147,7 @@ function SetupState() {
   const canConnect = !busy && paste.trim().length > 0;
 
   return (
-    <div className="mx-auto mt-10 max-w-5xl">
+    <div className="mt-6">
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {/* LEFT — Send */}
       <div className="flex flex-col rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-6">
@@ -365,7 +299,7 @@ function PairingState() {
   const expired = remaining <= 0;
 
   return (
-    <div className="mx-auto mt-12 flex max-w-xl flex-col items-center justify-center text-center">
+    <div className="mx-auto mt-6 flex max-w-xl flex-col items-center justify-center text-center">
       <h2 className="text-2xl font-bold tracking-tight text-chrome-neutral-100">
         {hostInfo.receive ? getString("sync_pair_receive_title") : getString("sync_pair_scan_title")}
       </h2>
@@ -414,7 +348,7 @@ function ConsentScreen() {
   const manifests: ManifestInfo[] = status.manifests ?? [];
 
   return (
-    <div className="mx-auto mt-12 flex max-w-md flex-col items-center gap-6 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-8">
+    <div className="mx-auto mt-6 flex max-w-md flex-col items-center gap-6 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-8">
       <IconChip>
         <ShieldCheck className="h-5 w-5" />
       </IconChip>
@@ -471,7 +405,7 @@ function ConsentScreen() {
 
 function CenteredCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto mt-12 flex max-w-md flex-col items-center gap-5 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-8 text-center">
+    <div className="mx-auto mt-6 flex max-w-md flex-col items-center gap-5 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-8 text-center">
       {children}
     </div>
   );
@@ -493,7 +427,7 @@ function SendingVerifyScreen() {
     return <ProgressScreen label={getString("sync_syncing")} />;
   }
   return (
-    <div className="mx-auto mt-12 flex max-w-xl flex-col items-center justify-center text-center">
+    <div className="mx-auto mt-6 flex max-w-xl flex-col items-center justify-center text-center">
       <h2 className="text-2xl font-bold tracking-tight text-chrome-neutral-100">
         {getString("sync_verify_title")}
       </h2>
@@ -511,22 +445,44 @@ function SendingVerifyScreen() {
   );
 }
 
+const WITHHELD_STRINGS: Record<WithheldReason, StringKey> = {
+  peerNewer: "sync_withheld_peer_newer",
+  peerOlder: "sync_withheld_peer_older",
+  keyLanguage: "sync_withheld_key_language",
+};
+
+function WithheldNotes({ withheld }: { withheld: WithheldInfo[] }) {
+  return (
+    <ul className="flex w-full flex-col gap-2 text-left">
+      {withheld.map((item) => (
+        <li
+          key={item.collection}
+          className="flex items-start gap-2 rounded-lg border border-chrome-neutral-800 bg-surface-container-low px-3 py-2.5 text-sm text-chrome-neutral-300"
+        >
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-chrome-neutral-400" />
+          <span>{getString(WITHHELD_STRINGS[item.reason], collectionTitle(item.collection))}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function CompletedScreen() {
   const { status, reset } = useSyncStore();
-  const isClient = status.role === "client";
   return (
     <CenteredCard>
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-chrome-green-500/15 text-chrome-green-400">
         <Check className="h-6 w-6" />
       </div>
       <h2 className="text-base font-medium text-chrome-neutral-100">{getString("sync_complete_title")}</h2>
-      {isClient && status.stats ? (
+      {status.direction === "received" && status.stats ? (
         <div className="w-full text-left">
           <StatsTable stats={status.stats} />
         </div>
       ) : (
         <p className="text-sm text-chrome-neutral-400">{getString("sync_complete_sent")}</p>
       )}
+      {status.withheld && status.withheld.length > 0 && <WithheldNotes withheld={status.withheld} />}
       <button
         type="button"
         onClick={() => void reset()}
@@ -556,14 +512,52 @@ function MessageScreen({ icon, title, message }: { icon: React.ReactNode; title:
 // Page
 // --------------------------------------------------------------------------------------------
 
+/** A one-time transfer (FLOW-SYNC/1) carries no profile and syncs Default only, so other profiles offer
+ * the switch; Linked devices above sync any profile. */
+function DefaultOnlyScreen({ defaultProfile }: { defaultProfile: Profile }) {
+  const switchTo = useProfilesStore((state) => state.switchTo);
+  const switching = useProfilesStore((state) => state.switchingTo !== null);
+  const [error, setError] = useState<string | null>(null);
+  const name = profileDisplayName(defaultProfile);
+  const onSwitch = () => {
+    setError(null);
+    switchTo(defaultProfile).catch((reason: unknown) => setError(profileErrorMessage(reason, "profiles_switch_failed")));
+  };
+  return (
+    <CenteredCard>
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-high text-chrome-neutral-300">
+        <UserRound className="h-6 w-6" />
+      </div>
+      <h2 className="text-base font-medium text-chrome-neutral-100">{getString("sync_default_only_title", name)}</h2>
+      <p className="text-sm text-chrome-neutral-400">{getString("sync_default_only_body")}</p>
+      {error && <p className="text-sm text-chrome-red-400">{error}</p>}
+      <Button variant="primary" onClick={onSwitch} disabled={switching} className="px-6">
+        {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {getString("sync_default_only_action", name)}
+      </Button>
+    </CenteredCard>
+  );
+}
+
 export default function Sync() {
   const { status, error, init } = useSyncStore();
+  const profiles = useProfilesStore((state) => state.view);
+  const loadProfiles = useProfilesStore((state) => state.load);
 
   useEffect(() => {
     void init();
-  }, [init]);
+    void loadProfiles();
+  }, [init, loadProfiles]);
+
+  const defaultProfile =
+    profiles && profiles.activeId !== profiles.defaultId
+      ? profiles.profiles.find((profile) => profile.id === profiles.defaultId)
+      : undefined;
 
   const { screenKey, body } = useMemo(() => {
+    if (defaultProfile) {
+      return { screenKey: "defaultOnly", body: <DefaultOnlyScreen defaultProfile={defaultProfile} /> };
+    }
     switch (status.phase) {
       case "hosting":
         return { screenKey: "pairing", body: <PairingState /> };
@@ -613,7 +607,7 @@ export default function Sync() {
       default:
         return { screenKey: "setup", body: <SetupState /> };
     }
-  }, [status, error]);
+  }, [status, error, defaultProfile]);
 
   return (
     <div className="w-full px-6 py-8">
@@ -627,17 +621,25 @@ export default function Sync() {
         </div>
       </header>
 
-      {error && status.phase === "idle" && (
-        <div className="mx-auto mt-4 flex max-w-5xl items-center gap-2 rounded-xl border border-chrome-red-900/50 bg-chrome-red-950/30 px-4 py-3 text-sm text-chrome-red-400">
-          {error}
-        </div>
-      )}
+      <LinkedDevicesSection />
 
-      <AnimatePresence mode="wait">
-        <motion.div key={screenKey} {...SCREEN_MOTION}>
-          {body}
-        </motion.div>
-      </AnimatePresence>
+      <section className="mx-auto mt-12 max-w-5xl">
+        <SectionHeader
+          icon={<ArrowLeftRight className="h-5 w-5" />}
+          title={getString("sync_one_time_title")}
+          subtitle={getString("sync_one_time_subtitle")}
+        />
+        {error && status.phase === "idle" && (
+          <div className="flex items-center gap-2 rounded-xl border border-chrome-red-900/50 bg-chrome-red-950/30 px-4 py-3 text-sm text-chrome-red-400">
+            {error}
+          </div>
+        )}
+        <AnimatePresence mode="wait">
+          <motion.div key={screenKey} {...SCREEN_MOTION}>
+            {body}
+          </motion.div>
+        </AnimatePresence>
+      </section>
     </div>
   );
 }

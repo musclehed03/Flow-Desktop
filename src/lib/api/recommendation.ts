@@ -1,7 +1,9 @@
+import type { MusicTasteProfile } from "../../types/music";
 import type { VideoSummary } from "../../types/video";
 import { isDeepFlowCurrentlyActive } from "../deepFlow";
 import { isTauriEnv } from "./env";
 import { invokeBackend } from "./errors";
+import { profileStorage } from "../storage/profileStorage";
 
 export interface PersonaDetails {
   name: string;
@@ -10,44 +12,14 @@ export interface PersonaDetails {
   icon: string;
 }
 
-export interface FeedQuotas {
-  maturity: "cold_start" | "maturing" | "mature" | string;
-  totalInteractions: number;
-  subscriptionPercent: number;
-  discoveryPercent: number;
-  viralPercent: number;
-  subscriptionLimit: number;
-  discoveryLimit: number;
-  viralLimit: number;
-}
+/** Below this a topic is a trace of evidence still adding up, not an interest to show. */
+export const INTEREST_MIN_WEIGHT = 0.03;
 
-const MOCK_FEED_QUOTAS: FeedQuotas = {
-  maturity: "mature",
-  totalInteractions: 168,
-  subscriptionPercent: 10 / 35,
-  discoveryPercent: 15 / 35,
-  viralPercent: 10 / 35,
-  subscriptionLimit: 10,
-  discoveryLimit: 15,
-  viralLimit: 10,
-};
-
-export async function rankVideos(
-  candidates: VideoSummary[],
-  userSubs: string[],
-): Promise<VideoSummary[]> {
-  if (!(await isTauriEnv())) {
-    console.warn("Tauri not detected. Returning candidates with mock ranking.");
-    return [...candidates].sort(() => 0.5 - Math.random());
-  }
-  return invokeBackend<VideoSummary[]>("rank_videos", { candidates, userSubs });
-}
-
-export async function getFeedQuotas(): Promise<FeedQuotas> {
-  if (!(await isTauriEnv())) {
-    return MOCK_FEED_QUOTAS;
-  }
-  return invokeBackend<FeedQuotas>("get_feed_quotas");
+/** The topics of a taste vector strong enough to be interests. */
+export function interestTopics(topics: Record<string, number> | undefined): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(topics ?? {}).filter(([, weight]) => weight >= INTEREST_MIN_WEIGHT),
+  );
 }
 
 export interface RecommendationEvent {
@@ -99,6 +71,33 @@ export async function logInteraction(
   });
 }
 
+/** What the player reports about the video it is playing; see `report_watch_progress`. */
+export interface WatchReport {
+  videoId: string;
+  title: string;
+  channelName: string;
+  channelId: string;
+  description: string | null;
+  isLive: boolean;
+  isMusic: boolean;
+  category: string | null;
+  position: number;
+  duration: number;
+  playedDelta: number;
+}
+
+/** Feeds the backend watch session. It turns a whole viewing into one click and one watch or skip. */
+export async function reportWatchProgress(report: WatchReport): Promise<void> {
+  if (isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  return invokeBackend<void>("report_watch_progress", { report });
+}
+
+/** `natural` is a video that played to its end; any other end waits briefly for the video to resume. */
+export async function endWatchSession(report: WatchReport, natural: boolean): Promise<void> {
+  if (isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  return invokeBackend<void>("end_watch_session", { report, natural });
+}
+
 export async function markNotInterested(
   videoId: string,
   title: string,
@@ -127,6 +126,18 @@ export async function markNotInterested(
   });
 }
 
+/** Cards seen beside a video, kept only for "Hide videos you've already seen". */
+export async function recordSeenVideos(ids: string[]): Promise<void> {
+  if (isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  return invokeBackend<void>("record_seen_videos", { ids });
+}
+
+/** Which of these videos were already seen in a recommendation list. */
+export async function seenVideoIdsAmong(ids: string[]): Promise<string[]> {
+  if (!(await isTauriEnv())) return [];
+  return invokeBackend<string[]>("seen_video_ids_among", { ids });
+}
+
 export async function recordFeedImpressions(
   videos: VideoSummary[],
 ): Promise<void> {
@@ -141,8 +152,8 @@ export async function recordFeedImpressions(
 export async function completeOnboarding(preferred: string[]): Promise<void> {
   if (!(await isTauriEnv())) {
     console.warn("Tauri not detected. Setting onboarding complete in local storage.");
-    localStorage.setItem("mock_setting_onboarded", "true");
-    localStorage.setItem("mock_setting_preferred_topics", JSON.stringify(preferred));
+    profileStorage.setItem("mock_setting_onboarded", "true");
+    profileStorage.setItem("mock_setting_preferred_topics", JSON.stringify(preferred));
     return;
   }
   return invokeBackend<void>("complete_onboarding", { topics: preferred });
@@ -150,28 +161,16 @@ export async function completeOnboarding(preferred: string[]): Promise<void> {
 
 export async function getOnboardingStatus(): Promise<boolean> {
   if (!(await isTauriEnv())) {
-    const status = localStorage.getItem("mock_setting_onboarded") === "true";
+    const status = profileStorage.getItem("mock_setting_onboarded") === "true";
     console.log("[FlowNeuro Mock Onboarding Status Check]", status);
     return status;
   }
   return invokeBackend<boolean>("get_onboarding_status");
 }
 
-export async function generateDiscoveryQueries(): Promise<string[]> {
-  if (!(await isTauriEnv())) {
-    const preferred = localStorage.getItem("mock_setting_preferred_topics");
-    const topics: string[] = preferred ? JSON.parse(preferred) : [];
-    if (topics.length > 0) {
-      return topics.slice(0, 5).map((topic) => topic.toLowerCase());
-    }
-    return ["technology", "music", "gaming", "science", "documentary"];
-  }
-  return invokeBackend<string[]>("generate_discovery_queries");
-}
-
 export async function getFlowPersona(): Promise<PersonaDetails> {
   if (!(await isTauriEnv())) {
-    const preferred = localStorage.getItem("mock_setting_preferred_topics");
+    const preferred = profileStorage.getItem("mock_setting_preferred_topics");
     const topics: string[] = preferred ? JSON.parse(preferred) : [];
     
     if (topics.some((t) => ["Coding", "Technology", "Programming"].includes(t))) {
@@ -191,6 +190,16 @@ export async function getFlowPersona(): Promise<PersonaDetails> {
   }
   return invokeBackend<PersonaDetails>("get_flow_persona");
 }
+
+/** Another profile's brain, persona and music taste, read from its database on this device. */
+export interface ProfileInterests {
+  brain: UserBrain;
+  persona: PersonaDetails;
+  music: MusicTasteProfile;
+}
+
+export const getProfileInterests = (profile: string) =>
+  invokeBackend<ProfileInterests>("get_profile_interests", { profile });
 
 export interface ContentVector {
   topics: Record<string, number>;
@@ -261,124 +270,39 @@ export interface UserBrain {
   display_forms?: Record<string, DisplayForm>;
 }
 
-const MOCK_BRAIN: UserBrain = {
-  time_vectors: {
-    "WeekdayMorning": {
-      topics: { "Coding": 0.8, "Tech News": 0.6, "Acoustic": 0.4 },
-      topic_confidence: {},
-      anchor_topics: [],
-      duration: 0.35,
-      pacing: 0.3,
-      complexity: 0.75,
-      is_live: 0.0
-    },
-    "WeekdayEvening": {
-      topics: { "Gaming": 0.7, "Chill Lofi": 0.8, "Pop Culture": 0.5 },
-      topic_confidence: {},
-      anchor_topics: [],
-      duration: 0.45,
-      pacing: 0.4,
-      complexity: 0.45,
-      is_live: 0.1
-    }
-  },
-  global_vector: {
-    topics: {
-      "Coding": 0.85,
-      "TypeScript": 0.72,
-      "React": 0.68,
-      "Lofi Beats": 0.64,
-      "Astrophysics": 0.58,
-      "Space Tech": 0.52,
-      "Synthwave": 0.48,
-      "System Architecture": 0.62,
-      "Documentaries": 0.45,
-      "Rust Language": 0.75
-    },
-    topic_confidence: {},
-    anchor_topics: [],
-    duration: 0.48,
-    pacing: 0.32,
-    complexity: 0.78,
-    is_live: 0.05
-  },
-  channel_scores: {
-    "UCsBjURrdUw78urAxx45z2eg": 0.95,
-    "UC3sELt4nY_Msu7881_oIiCw": 0.82,
-    "UCeVMnSShP_Iviwkknt83cww": 0.88,
-    "UCvn_XCl_mBa1dPf0uVaMglA": 0.45,
-    "UCXuqSBlHAE6Xw-yeJA0Tunw": 0.72
-  },
-  topic_affinities: {
-    "coding:typescript": 0.85,
-    "coding:rust": 0.9,
-    "space:astrophysics": 0.78
-  },
-  total_interactions: 168,
-  consecutive_skips: 0,
-  blocked_topics: ["gossip", "clickbait sensationalism", "celebrity drama"],
-  blocked_channels: ["UC_blocked_channel_123"],
-  preferred_topics: ["Coding", "Technology", "Ambient Music", "Astrophysics"],
-  has_completed_onboarding: true,
-  last_persona: "Silicon Alchemist",
-  persona_stability: 18,
-  idf_word_frequency: {},
-  idf_total_documents: 168,
-  watch_signal_progress: {},
-  watch_history_map: {
-    "vid1": 0.95,
-    "vid2": 1.0,
-    "vid3": 0.2
-  },
-  channel_topic_profiles: {
-    "UCsBjURrdUw78urAxx45z2eg": { "Coding": 0.9, "Tech News": 0.8 }
-  },
-  suppressed_video_ids: {},
-  suppressed_channels: {},
-  rejection_patterns: {
-    "drama": { count: 3, last_rejected_at: Date.now() - 3600000 }
-  },
-  feed_history: {
-    "vid1": { last_shown: Date.now() - 5000, show_count: 2 }
-  },
-  recent_query_tokens: [],
-  topic_evidence: {
-    "Coding": {
-      positive_signals: 45,
-      negative_signals: 1,
-      watch_signals: 38,
-      explicit_signals: 4,
-      positive_score: 18.5,
-      video_ids: ["vid_code_1", "vid_code_2"],
-      channel_ids: ["UCsBjURrdUw78urAxx45z2eg"],
-      first_seen_at: Date.now() - 10 * 24 * 3600000,
-      last_seen_at: Date.now() - 30 * 60000
-    },
-    "Rust Language": {
-      positive_signals: 28,
-      negative_signals: 0,
-      watch_signals: 24,
-      explicit_signals: 2,
-      positive_score: 12.2,
-      video_ids: ["vid_rust_1"],
-      channel_ids: ["UCeVMnSShP_Iviwkknt83cww"],
-      first_seen_at: Date.now() - 8 * 24 * 3600000,
-      last_seen_at: Date.now() - 60 * 60000
-    },
-    "Astrophysics": {
-      positive_signals: 15,
-      negative_signals: 3,
-      watch_signals: 12,
-      explicit_signals: 1,
-      positive_score: 6.4,
-      video_ids: ["vid_astro_1"],
-      channel_ids: ["UCXuqSBlHAE6Xw-yeJA0Tunw"],
-      first_seen_at: Date.now() - 5 * 24 * 3600000,
-      last_seen_at: Date.now() - 120 * 60000
-    }
-  },
-  schema_version: 1
-};
+function emptyContentVector(): ContentVector {
+  return { topics: {}, topic_confidence: {}, anchor_topics: [], duration: 0.5, pacing: 0.5, complexity: 0.5, is_live: 0 };
+}
+
+/** What the browser-only dev build shows: an empty brain, never invented interests. */
+function emptyBrain(): UserBrain {
+  return {
+    time_vectors: {},
+    global_vector: emptyContentVector(),
+    channel_scores: {},
+    topic_affinities: {},
+    total_interactions: 0,
+    consecutive_skips: 0,
+    blocked_topics: [],
+    blocked_channels: [],
+    preferred_topics: [],
+    has_completed_onboarding: false,
+    last_persona: null,
+    persona_stability: 0,
+    idf_word_frequency: {},
+    idf_total_documents: 0,
+    watch_signal_progress: {},
+    watch_history_map: {},
+    channel_topic_profiles: {},
+    suppressed_video_ids: {},
+    suppressed_channels: {},
+    rejection_patterns: {},
+    feed_history: {},
+    recent_query_tokens: [],
+    topic_evidence: {},
+    schema_version: 1,
+  };
+}
 
 let brainCache: UserBrain | null = null;
 let brainCacheTime = 0;
@@ -390,31 +314,75 @@ export async function getBrainSnapshot(forceRefresh?: boolean): Promise<UserBrai
   }
 
   if (!(await isTauriEnv())) {
-    const preferred = localStorage.getItem("mock_setting_preferred_topics");
-    const topics: string[] = preferred ? JSON.parse(preferred) : [];
-    
-    const mockCopy = JSON.parse(JSON.stringify(MOCK_BRAIN));
-    if (topics.length > 0) {
-      mockCopy.preferred_topics = topics;
-      mockCopy.global_vector.topics = {};
-      topics.forEach((t, i) => {
-        mockCopy.global_vector.topics[t] = 0.9 - i * 0.1;
-      });
-    }
-    brainCache = mockCopy;
+    const preferred = profileStorage.getItem("mock_setting_preferred_topics");
+    const brain = emptyBrain();
+    brain.preferred_topics = preferred ? JSON.parse(preferred) : [];
+    brainCache = brain;
     brainCacheTime = now;
-    return mockCopy;
+    return brain;
   }
 
-  try {
-    const result = await invokeBackend<UserBrain>("get_brain_snapshot");
-    brainCache = result;
-    brainCacheTime = now;
-    return result;
-  } catch (err) {
-    console.error("Failed to load brain snapshot from Tauri, using mock fallback:", err);
-    return MOCK_BRAIN;
-  }
+  const result = await invokeBackend<UserBrain>("get_brain_snapshot");
+  brainCache = result;
+  brainCacheTime = now;
+  return result;
+}
+
+/** A typed search is the most explicit interest statement there is; it teaches the engine once. */
+export async function learnFromSearch(query: string): Promise<void> {
+  if (!query.trim() || isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  await invokeBackend<boolean>("learn_from_search", { query });
+  brainCache = null;
+}
+
+/** Following a channel lifts it and teaches its name; unfollowing returns it to neutral. */
+export async function noteSubscription(
+  channelId: string,
+  channelName: string,
+  subscribed: boolean,
+): Promise<void> {
+  if (isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  await invokeBackend<void>("note_subscription", { channelId, channelName, subscribed });
+}
+
+/** Upload titles a feed already fetched say what each channel is about. */
+export async function observeChannelUploads(uploads: VideoSummary[]): Promise<void> {
+  if (uploads.length === 0 || isDeepFlowCurrentlyActive() || !(await isTauriEnv())) return;
+  await invokeBackend<void>("observe_channel_uploads", { uploads });
+}
+
+/** One imported watch-history entry the engine can learn from. */
+export interface ImportedVideo {
+  videoId: string;
+  title: string;
+  channelName: string;
+  channelId: string | null;
+  durationSeconds: number | null;
+  watchedAt: number;
+  isMusic: boolean;
+}
+
+/** Learns gently from an imported history: newest first, no music, capped per channel. */
+export async function bootstrapFromHistory(videos: ImportedVideo[]): Promise<number> {
+  if (videos.length === 0 || !(await isTauriEnv())) return 0;
+  const learned = await invokeBackend<number>("bootstrap_from_history", { videos });
+  brainCache = null;
+  return learned;
+}
+
+/** Seeds topics from imported subscription names when the brain has not learned yet. */
+export async function bootstrapFromSubscriptions(channelNames: string[]): Promise<number> {
+  if (channelNames.length === 0 || !(await isTauriEnv())) return 0;
+  const seeded = await invokeBackend<number>("bootstrap_from_subscriptions", { channelNames });
+  brainCache = null;
+  return seeded;
+}
+
+/** Makes an imported brain the engine's own; the backend checks it and converts its keys. */
+export async function importBrain(brain: unknown): Promise<void> {
+  if (!(await isTauriEnv())) return;
+  await invokeBackend<void>("import_brain", { brain });
+  brainCache = null;
 }
 
 export async function unblockTopic(topic: string): Promise<void> {
@@ -458,7 +426,7 @@ export async function addPreferredTopic(topic: string): Promise<void> {
       );
       brainCache.global_vector.topics[trimmed] = 0.5;
     }
-    localStorage.setItem(
+    profileStorage.setItem(
       "mock_setting_preferred_topics",
       JSON.stringify(brainCache?.preferred_topics ?? [trimmed]),
     );
@@ -477,7 +445,7 @@ export async function removePreferredTopic(topic: string): Promise<void> {
       brainCache.preferred_topics = brainCache.preferred_topics.filter(
         (t) => t.toLowerCase() !== normalized,
       );
-      localStorage.setItem("mock_setting_preferred_topics", JSON.stringify(brainCache.preferred_topics));
+      profileStorage.setItem("mock_setting_preferred_topics", JSON.stringify(brainCache.preferred_topics));
     }
     return;
   }
@@ -497,23 +465,78 @@ export async function unblockChannel(channelId: string): Promise<void> {
   brainCache = null;
 }
 
-export async function blockChannel(channelId: string): Promise<void> {
+/** Blocks a channel; its name is kept so Hidden channels can show it without a lookup. */
+export async function blockChannel(channelId: string, channelName?: string): Promise<void> {
   if (!(await isTauriEnv())) {
     console.log(`[FlowNeuro Mock] Blocking channel: ${channelId}`);
     return;
   }
-  await invokeBackend<void>("block_channel", { channelId });
+  await invokeBackend<void>("block_channel", { channelId, channelName: channelName || null });
   brainCache = null;
 }
 
 export async function resetBrain(): Promise<void> {
   if (!(await isTauriEnv())) {
     console.log(`[FlowNeuro Mock] Resetting brain`);
-    localStorage.removeItem("mock_setting_onboarded");
-    localStorage.removeItem("mock_setting_preferred_topics");
+    profileStorage.removeItem("mock_setting_onboarded");
+    profileStorage.removeItem("mock_setting_preferred_topics");
     brainCache = null;
     return;
   }
   await invokeBackend<void>("reset_brain");
   brainCache = null;
+}
+
+export interface TasteTopic {
+  key: string;
+  /** As titles write it; what a boost stores. */
+  label: string;
+  /** How often the viewer watched, liked or searched it. */
+  evidence: number;
+}
+
+export interface TasteGroup {
+  id: string;
+  label: string;
+  /** Relative to the strongest group, 0 to 1. */
+  share: number;
+  evidence: number;
+  members: TasteTopic[];
+}
+
+export interface NamedChannel {
+  id: string;
+  /** Empty when this device knows no name for it. */
+  name: string;
+}
+
+export interface TasteOverview {
+  picks: TasteTopic[];
+  groups: TasteGroup[];
+  hiddenChannels: NamedChannel[];
+  /** Channels watched often without following, which Home draws uploads from. */
+  rememberedChannels: NamedChannel[];
+}
+
+/** Home stops drawing on the channel until the viewer watches it again. */
+export async function forgetRememberedChannel(channelId: string): Promise<void> {
+  if (!(await isTauriEnv())) return;
+  await invokeBackend<void>("forget_remembered_channel", { channelId });
+}
+
+/** Forgets every channel watched often; channels turned down stay turned down. */
+export async function clearChannelMemory(): Promise<void> {
+  if (!(await isTauriEnv())) return;
+  await invokeBackend<void>("clear_channel_memory");
+}
+
+/** Names of hidden channels this device does not know, from their RSS feeds. */
+export async function resolveHiddenChannelNames(channelIds: string[]): Promise<Record<string, string>> {
+  if (channelIds.length === 0 || !(await isTauriEnv())) return {};
+  return invokeBackend<Record<string, string>>("resolve_hidden_channel_names", { channelIds });
+}
+
+export async function getTasteOverview(): Promise<TasteOverview> {
+  if (!(await isTauriEnv())) return { picks: [], groups: [], hiddenChannels: [], rememberedChannels: [] };
+  return invokeBackend<TasteOverview>("get_taste_overview");
 }

@@ -76,7 +76,8 @@ async fn android_settings_land_on_the_desktop_keys() {
         entry("return_youtube_dislikes", json!(true), 1_000),
         entry("subscriptions_show_shorts", json!(false), 1_000),
         entry("default_video_codec", json!("av1"), 1_000),
-        entry("equalizer", json!("{\"bands\":[]}"), 1_000),
+        entry("equalizer", json!("{\"enabled\":false}"), 1_000),
+        entry("queue_autoplay", json!(false), 1_000),
         entry("desktop.subtitle_font_scale", json!("150"), 1_000),
     ];
     apply_payload(&pool, OUR, PEER, &[staged(&incoming, "s1")])
@@ -106,7 +107,12 @@ async fn android_settings_land_on_the_desktop_keys() {
         "codec never syncs"
     );
     assert_eq!(
-        stored(&pool, "equalizer").await,
+        stored(&pool, "eq_state_json").await.as_deref(),
+        Some("{\"enabled\":false}"),
+        "the equalizer JSON arrives as Android wrote it"
+    );
+    assert_eq!(
+        stored(&pool, "queue_autoplay").await,
         None,
         "Android-only keys are ignored"
     );
@@ -137,6 +143,7 @@ async fn export_renames_and_types_settings_and_leaves_the_codec_out() {
     set_like_the_app(&pool, "subtitle_font_scale", "150").await;
     set_like_the_app(&pool, "default_video_codec", "av1").await;
     set_like_the_app(&pool, "download_location", "/secret").await;
+    set_like_the_app(&pool, "eq_state_json", "{\"version\":1,\"enabled\":true}").await;
 
     let out = export_collections(&pool, OUR, &[Collection::Settings])
         .await
@@ -156,6 +163,11 @@ async fn export_renames_and_types_settings_and_leaves_the_codec_out() {
     );
     assert!(find("default_video_codec").is_none());
     assert!(find("download_location").is_none());
+    // Android's SettingsMapper reads the equalizer as one string primitive under this key.
+    assert_eq!(
+        find("equalizer").unwrap().value,
+        json!("{\"version\":1,\"enabled\":true}")
+    );
     assert!(
         entries.iter().all(|e| e.hlc.physical_ms > 0),
         "local rows carry their real change time"
@@ -179,5 +191,139 @@ async fn raw_keys_from_older_desktop_builds_are_still_accepted() {
     assert_eq!(
         stored(&pool, "custom_speeds_enabled").await.as_deref(),
         Some("true")
+    );
+}
+
+#[tokio::test]
+async fn skip_silence_from_android_is_ignored_until_the_desktop_has_it() {
+    let pool = memory_pool().await;
+    let incoming = [entry("skip_silence", json!(true), 1_000)];
+    apply_payload(&pool, OUR, PEER, &[staged(&incoming, "s1")])
+        .await
+        .unwrap();
+    assert_eq!(stored(&pool, "skip_silence_enabled").await, None);
+
+    set_like_the_app(&pool, "skip_silence_enabled", "true").await;
+    let out = export_collections(&pool, OUR, &[Collection::Settings])
+        .await
+        .unwrap();
+    let ndjson = String::from_utf8(out[0].ndjson.clone()).unwrap();
+    assert!(!ndjson.contains("skip_silence"));
+}
+
+#[tokio::test]
+async fn the_music_player_background_syncs_between_desktops() {
+    let source = memory_pool().await;
+    set_like_the_app(&source, "music_player_background", "blur").await;
+    let out = export_collections(&source, OUR, &[Collection::Settings])
+        .await
+        .unwrap();
+    let entries: Vec<SettingEntry> = String::from_utf8(out[0].ndjson.clone())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let background = entries
+        .iter()
+        .find(|e| e.key == "desktop.music_player_background")
+        .expect("exported under the desktop prefix");
+    assert_eq!(background.value, json!("blur"));
+
+    let target = memory_pool().await;
+    apply_payload(&target, OUR, PEER, &[staged(&entries, "s1")])
+        .await
+        .unwrap();
+    assert_eq!(
+        stored(&target, "music_player_background").await.as_deref(),
+        Some("blur")
+    );
+}
+
+#[tokio::test]
+async fn sponsorblock_actions_go_out_as_androids_per_category_settings() {
+    let pool = memory_pool().await;
+    set_like_the_app(
+        &pool,
+        "sponsorblock_categories",
+        r#"{"sponsor":"skip","intro":"mute","outro":"notify","filler":"ignore","made_up":"skip"}"#,
+    )
+    .await;
+
+    let out = export_collections(&pool, OUR, &[Collection::Settings])
+        .await
+        .unwrap();
+    let sent: Vec<SettingEntry> = String::from_utf8(out[0].ndjson.clone())
+        .unwrap()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let value = |key: &str| sent.iter().find(|e| e.key == key).map(|e| e.value.clone());
+    assert_eq!(value("sponsorblock_action_sponsor"), Some(json!("SKIP")));
+    assert_eq!(value("sponsorblock_action_intro"), Some(json!("MUTE")));
+    assert_eq!(
+        value("sponsorblock_action_outro"),
+        Some(json!("SHOW_TOAST"))
+    );
+    assert_eq!(value("sponsorblock_action_filler"), Some(json!("IGNORE")));
+    assert_eq!(value("sponsorblock_action_preview"), None, "never set here");
+    assert!(sent.iter().all(|e| !e.key.contains("made_up")));
+    assert_eq!(value("desktop.sponsorblock_categories"), None);
+}
+
+#[tokio::test]
+async fn an_android_sponsorblock_action_changes_one_category_here() {
+    let pool = memory_pool().await;
+    sqlx::query(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, '2020-01-01T00:00:00Z')",
+    )
+    .bind("sponsorblock_categories")
+    .bind(r#"{"sponsor":"skip","intro":"skip","selfpromo":"notify"}"#)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let now = 1_900_000_000_000;
+    let incoming = [
+        entry("sponsorblock_action_sponsor", json!("MUTE"), now),
+        entry("sponsorblock_action_filler", json!("IGNORE"), now),
+        entry("sponsorblock_action_intro", json!("WHATEVER"), now),
+    ];
+    apply_payload(&pool, OUR, PEER, &[staged(&incoming, "h1")])
+        .await
+        .unwrap();
+
+    let actions: Value =
+        serde_json::from_str(&stored(&pool, "sponsorblock_categories").await.unwrap()).unwrap();
+    assert_eq!(actions["sponsor"], "mute");
+    assert_eq!(actions["filler"], "ignore");
+    assert_eq!(
+        actions["intro"], "skip",
+        "an unknown action changes nothing"
+    );
+    assert_eq!(actions["selfpromo"], "notify", "other categories stay");
+}
+
+#[tokio::test]
+async fn an_8k_default_quality_reaches_android_as_4k_and_keeps_8k_here() {
+    let pool = memory_pool().await;
+    set_like_the_app(&pool, "default_quality_wifi", "4320p").await;
+
+    let out = export_collections(&pool, OUR, &[Collection::Settings])
+        .await
+        .unwrap();
+    let entries: Vec<SettingEntry> = String::from_utf8(out[0].ndjson.clone())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let quality = entries
+        .iter()
+        .find(|e| e.key == "default_quality_wifi")
+        .expect("the quality travels");
+
+    assert_eq!(quality.value, json!("2160p"));
+    assert_eq!(
+        stored(&pool, "default_quality_wifi").await.as_deref(),
+        Some("4320p")
     );
 }

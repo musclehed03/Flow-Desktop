@@ -23,24 +23,18 @@ impl InnertubeClient {
         query: &str,
         filter: &str,
     ) -> AppResult<MusicSearchResponse> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({ "query": query });
         if let Some(p) = endpoints::search_filter_params(filter) {
             payload["params"] = json!(p);
         }
         let res = self
-            .post_music(
-                "search",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                None,
-            )
+            .post_music("search", &clients::WEB_REMIX, &mut payload, None)
             .await?;
         let (sections, continuation) = parse_search_sections(&res);
         Ok(MusicSearchResponse {
             sections,
             continuation,
+            filters: offered_filters(&res),
         })
     }
 
@@ -49,18 +43,11 @@ impl InnertubeClient {
         &self,
         token: &str,
     ) -> AppResult<MusicSearchResponse> {
-        let visitor = self.music_visitor_data().await;
         let enc = custom_url_encode(token);
         let extra = format!("&ctoken={enc}&continuation={enc}&type=next");
         let mut payload = json!({});
         let res = self
-            .post_music(
-                "search",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                Some(&extra),
-            )
+            .post_music("search", &clients::WEB_REMIX, &mut payload, Some(&extra))
             .await?;
         let shelf = &res["continuationContents"]["musicShelfContinuation"];
         let items = shelves::collect_items(&shelf["contents"]);
@@ -69,26 +56,20 @@ impl InnertubeClient {
             sections: vec![MusicSearchSection {
                 title: String::new(),
                 items,
+                is_top_result: false,
             }],
             continuation: next,
+            filters: Vec::new(),
         })
     }
 
     /// No-filter "summary" search — top-result card + per-category previews.
     pub(crate) async fn music_search_summary(&self, query: &str) -> AppResult<SearchSummaryPage> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({ "query": query });
         let res = self
-            .post_music(
-                "search",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                None,
-            )
+            .post_music("search", &clients::WEB_REMIX, &mut payload, None)
             .await?;
-        let (summaries, _) = parse_search_sections(&res);
-        Ok(SearchSummaryPage { summaries })
+        Ok(parse_summary(&res))
     }
 
     /// Rich search suggestions (text completions + tappable entities).
@@ -96,14 +77,12 @@ impl InnertubeClient {
         &self,
         query: &str,
     ) -> AppResult<MusicSearchSuggestions> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({ "input": query });
         let res = self
             .post_music(
                 "music/get_search_suggestions",
                 &clients::WEB_REMIX,
                 &mut payload,
-                visitor.as_deref(),
                 None,
             )
             .await?;
@@ -136,27 +115,68 @@ impl InnertubeClient {
     }
 }
 
-/// Parse a tabbed search response into titled sections + a continuation token.
-/// A `musicCardShelfRenderer` (top result) is inserted as the first section.
+/// A no-filter search answer: its sections, the top result first, and the
+/// filters offered for the query.
+#[must_use]
+pub fn parse_summary(res: &Value) -> SearchSummaryPage {
+    SearchSummaryPage {
+        summaries: parse_search_sections(res).0,
+        filters: offered_filters(res),
+    }
+}
+
+fn section_list(res: &Value) -> &Value {
+    &res["contents"]["tabbedSearchResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["sectionListRenderer"]
+}
+
+/// The filters the chip bar offers, in its order: the site names only the
+/// categories this query has results in.
+fn offered_filters(res: &Value) -> Vec<String> {
+    section_list(res)["header"]["chipCloudRenderer"]["chips"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|chip| {
+            chip["chipCloudChipRenderer"]["navigationEndpoint"]["searchEndpoint"]["params"].as_str()
+        })
+        .filter_map(endpoints::search_filter_of_params)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// Parse a tabbed search response into sections + a continuation token. The
+/// top-result card comes first with the rows it holds (top songs, or songs
+/// related to it), which the site does not repeat elsewhere.
 fn parse_search_sections(res: &Value) -> (Vec<MusicSearchSection>, Option<String>) {
     let mut sections = Vec::new();
     let mut cont = None;
 
-    let contents = res["contents"]["tabbedSearchResultsRenderer"]["tabs"][0]["tabRenderer"]
-        ["content"]["sectionListRenderer"]["contents"]
-        .as_array();
-    let Some(arr) = contents else {
+    let Some(arr) = section_list(res)["contents"].as_array() else {
         return (sections, cont);
     };
 
     for section in arr {
         if let Some(card) = section.get("musicCardShelfRenderer") {
-            if let Some(item) = items::parse_card_shelf(card) {
+            let mut items: Vec<_> = items::parse_card_shelf(card).into_iter().collect();
+            items.extend(
+                card["contents"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|row| {
+                        items::parse_responsive_list_item(&row["musicResponsiveListItemRenderer"])
+                    }),
+            );
+            if !items.is_empty() {
                 sections.insert(
                     0,
                     MusicSearchSection {
-                        title: "Top result".to_string(),
-                        items: vec![item],
+                        title: runs_text(
+                            &card["header"]["musicCardShelfHeaderBasicRenderer"]["title"],
+                        )
+                        .unwrap_or_default(),
+                        items,
+                        is_top_result: true,
                     },
                 );
             }
@@ -167,7 +187,11 @@ fn parse_search_sections(res: &Value) -> (Vec<MusicSearchSection>, Option<String
                 cont = continuation::any(shelf, &shelf["contents"]);
             }
             if !items.is_empty() {
-                sections.push(MusicSearchSection { title, items });
+                sections.push(MusicSearchSection {
+                    title,
+                    items,
+                    is_top_result: false,
+                });
             }
         } else if let Some(isr) = section.get("itemSectionRenderer") {
             let items = shelves::collect_items(&isr["contents"]);
@@ -176,6 +200,7 @@ fn parse_search_sections(res: &Value) -> (Vec<MusicSearchSection>, Option<String
                     title: runs_text(&isr["header"]["itemSectionTabbedHeaderRenderer"]["title"])
                         .unwrap_or_default(),
                     items,
+                    is_top_result: false,
                 });
             }
         }

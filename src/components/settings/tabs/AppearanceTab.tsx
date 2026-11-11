@@ -1,20 +1,25 @@
 import { SensorySettings } from "../../accessibility/SensorySettings";
 import { lazy, Suspense, useRef, useState } from "react";
-import { Plus, Upload } from "lucide-react";
+import { Download, Plus, Upload } from "lucide-react";
+import { ThemeFileSection } from "../../theme/ThemeFileSection";
 import { ThemePreview } from "../../theme/ThemePreview";
 import { Button } from "../../ui/Button";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { useBoolPref } from "../../../lib/usePreference";
 import { SETTINGS } from "../../../lib/settings/schema";
+import { confirmAction } from "../../../lib/dialogs";
 import { getString } from "../../../lib/i18n/index";
 import {
   BUILTIN_THEMES,
+  MAX_CUSTOM_THEMES,
   THEME_VARIANTS,
   createCustomTheme,
   parseCustomThemes,
   type CustomThemeDefinition,
 } from "../../../lib/themes";
+import { THEME_FILE_ID } from "../../../lib/themeFile";
 import { useTheme } from "../../../lib/useTheme";
+import { useThemeTransfer } from "../../../lib/useThemeTransfer";
 import { IS_LINUX_RUNTIME } from "../../../lib/platform";
 import { GraphicsCompatibilitySection } from "../GraphicsCompatibilitySection";
 import { getSettingValue } from "../../../store/useAppSettingsStore";
@@ -39,6 +44,8 @@ export function AppearanceTab() {
   const importRef = useRef<HTMLInputElement>(null);
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
   const [tooltips, setTooltips] = useBoolPref(SETTINGS.TOOLTIPS_ENABLED, true);
+  const { exportThemes } = useThemeTransfer();
+  const usingThemeFile = themeId === THEME_FILE_ID;
 
   const openEditor = (theme: CustomThemeDefinition) => {
     editorOpenerRef.current = document.activeElement as HTMLElement | null;
@@ -66,13 +73,19 @@ export function AppearanceTab() {
   };
 
   const deleteTheme = async (theme: CustomThemeDefinition) => {
-    if (!window.confirm(getString("theme_delete_confirm", theme.name))) return;
+    const confirmed = await confirmAction({
+      title: getString("settings_custom_theme_delete_title", theme.name),
+      message: getString("settings_custom_theme_delete_body"),
+      confirmLabel: getString("delete"),
+      destructive: true,
+    });
+    if (!confirmed) return;
     const saved = await saveCustomThemes(customThemes.filter((item) => item.id !== theme.id));
     if (saved && themeId === theme.id) await setTheme("default");
   };
 
   const duplicateTheme = async (theme: CustomThemeDefinition) => {
-    if (customThemes.length >= 24) return;
+    if (customThemes.length >= MAX_CUSTOM_THEMES) return;
     const copy = { ...structuredClone(theme), id: `custom-${crypto.randomUUID()}`, name: `${theme.name} ${getString("theme_copy_suffix")}` };
     if (await saveCustomThemes([...customThemes, copy])) {
       await setTheme(copy.id);
@@ -111,18 +124,24 @@ export function AppearanceTab() {
         <div className="flex flex-wrap gap-2">
           <input ref={importRef} type="file" accept=".ddtheme,.json,application/json" className="hidden" onChange={(event) => void importThemes(event.target.files?.[0])} />
           <Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={17} />{getString("theme_import")}</Button>
-          <Button onClick={() => void createTheme()} disabled={customThemes.length >= 24}><Plus size={17} />{getString("theme_create")}</Button>
+          <Button variant="secondary" onClick={() => void exportThemes(customThemes)} disabled={customThemes.length === 0}>
+            <Download size={17} />
+            {getString("theme_export_all")}
+          </Button>
+          <Button onClick={() => void createTheme()} disabled={customThemes.length >= MAX_CUSTOM_THEMES}><Plus size={17} />{getString("theme_create")}</Button>
         </div>
       </div>
 
       <section className="mt-8 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-5">
         <div>
           <h2 className="text-base font-medium text-chrome-neutral-200">{getString("theme_variant")}</h2>
-          <p className="mt-1 text-sm text-chrome-neutral-400">{getString("theme_variant_description")}</p>
+          <p className="mt-1 text-sm text-chrome-neutral-400">
+            {getString(usingThemeFile ? "theme_variant_from_file" : "theme_variant_description")}
+          </p>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {THEME_VARIANTS.map((item) => (
-            <Button key={item} variant={variant === item ? "primary" : "secondary"} onClick={() => void setVariant(item)}>
+            <Button key={item} variant={variant === item ? "primary" : "secondary"} onClick={() => void setVariant(item)} disabled={usingThemeFile}>
               {getString(`theme_variant_${item}` as Parameters<typeof getString>[0])}
             </Button>
           ))}
@@ -138,6 +157,8 @@ export function AppearanceTab() {
       </section>
 
       {IS_LINUX_RUNTIME && <GraphicsCompatibilitySection />}
+
+      <ThemeFileSection />
 
       <section className="mt-8">
         <div className="flex items-end justify-between gap-4">
@@ -171,7 +192,7 @@ export function AppearanceTab() {
               <h2 className="text-base font-medium text-chrome-neutral-200">{getString("theme_custom")}</h2>
               <p className="mt-1 text-sm text-chrome-neutral-400">{getString("theme_custom_description")}</p>
             </div>
-            <span className="font-mono text-xs text-chrome-neutral-500">{customThemes.length}/24</span>
+            <span className="font-mono text-xs text-chrome-neutral-500">{customThemes.length}/{MAX_CUSTOM_THEMES}</span>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
             {customThemes.map((theme) => (

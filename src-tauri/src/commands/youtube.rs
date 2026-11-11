@@ -1,220 +1,47 @@
+use std::collections::BTreeMap;
+
 use tauri::State;
 use tracing::{debug, info};
 
 use crate::api::innertube::core::clients;
+use crate::api::innertube::extractors::resolve::ResolvedEndpoint;
 use crate::errors::ErrorResponse;
-use crate::models::channel::{ChannelDetails, ChannelTabResponse};
+use crate::models::channel::{ChannelAbout, ChannelDetails, ChannelPage, ChannelTabResponse};
 use crate::models::comment::CommentsResponse;
-use crate::models::music::{ArtistPage, ChartsPage, ExplorePage};
+use crate::models::explore::{ExploreGrid, ExplorePage, ExploreTarget};
 use crate::models::playlist::PlaylistDetailsResponse;
-use crate::models::search::{SearchVideosRequest, SearchVideosResponse};
+use crate::models::search::{SearchSuggestion, SearchVideosRequest, SearchVideosResponse};
 use crate::models::video::{
-    MusicHomeChip, MusicHomeSection, RelatedContentItem, StreamInfo, VideoDetails, VideoSummary,
+    RelatedPage, StreamInfo, StreamVariant, VideoDetails, VideoMetadata, VideoSummary,
 };
 use crate::security::validation::{
     validate_browse_id, validate_channel_id, validate_page_token, validate_search_query,
     validate_video_id,
 };
 use crate::services::recommendation_service::RecommendationService;
+use crate::services::subscription_feed::{self, SubscriptionRssFeed};
 use crate::services::youtube_service::YoutubeService;
+use crate::streaming::codec::VideoCodecFamily;
 
 use crate::streaming::proxy::StreamingManager;
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SubscriptionRssChannel {
-    pub id: String,
-    pub name: Option<String>,
-    pub avatar_url: Option<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SubscriptionRssFeed {
-    pub videos: Vec<VideoSummary>,
-    pub channels: Vec<SubscriptionRssChannel>,
-    /// Channels scanned so far (streaming progress). Equals `total` when done.
-    pub processed: usize,
-    /// Total channels to scan.
-    pub total: usize,
-}
-
-fn xml_text(source: &str, tag: &str) -> Option<String> {
-    let start_tag = format!("<{tag}>");
-    let end_tag = format!("</{tag}>");
-    let start = source.find(&start_tag)? + start_tag.len();
-    let end = source[start..].find(&end_tag)? + start;
-    Some(decode_xml_entities(source[start..end].trim()))
-}
-
-fn xml_attr(source: &str, tag_prefix: &str, attr: &str) -> Option<String> {
-    let tag_start = source.find(tag_prefix)?;
-    let tag_end = source[tag_start..].find('>')? + tag_start;
-    let tag = &source[tag_start..tag_end];
-    let attr_prefix = format!("{attr}=\"");
-    let value_start = tag.find(&attr_prefix)? + attr_prefix.len();
-    let value_end = tag[value_start..].find('"')? + value_start;
-    Some(decode_xml_entities(tag[value_start..value_end].trim()))
-}
-
-fn decode_xml_entities(value: &str) -> String {
-    value
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-}
-
-fn format_relative_published(published: &str) -> Option<String> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(published).ok()?;
-    let now = chrono::Utc::now();
-    let elapsed = now.signed_duration_since(parsed.with_timezone(&chrono::Utc));
-
-    let text = if elapsed.num_days() >= 365 {
-        let years = elapsed.num_days() / 365;
-        format!("{years} {} ago", if years == 1 { "year" } else { "years" })
-    } else if elapsed.num_days() >= 30 {
-        let months = elapsed.num_days() / 30;
-        format!(
-            "{months} {} ago",
-            if months == 1 { "month" } else { "months" }
-        )
-    } else if elapsed.num_days() >= 7 {
-        let weeks = elapsed.num_days() / 7;
-        format!("{weeks} {} ago", if weeks == 1 { "week" } else { "weeks" })
-    } else if elapsed.num_days() >= 1 {
-        let days = elapsed.num_days();
-        format!("{days} {} ago", if days == 1 { "day" } else { "days" })
-    } else if elapsed.num_hours() >= 1 {
-        let hours = elapsed.num_hours();
-        format!("{hours} {} ago", if hours == 1 { "hour" } else { "hours" })
-    } else if elapsed.num_minutes() >= 1 {
-        let minutes = elapsed.num_minutes();
-        format!(
-            "{minutes} {} ago",
-            if minutes == 1 { "minute" } else { "minutes" }
-        )
-    } else {
-        "Just now".to_string()
-    };
-
-    Some(text)
-}
-
-pub(crate) fn parse_rss_feed(
-    channel_id: &str,
-    xml: &str,
-) -> (Option<String>, Vec<(i64, VideoSummary)>) {
-    let channel_name = xml_text(xml, "name");
-    let videos = xml
-        .split("<entry>")
-        .skip(1)
-        .filter_map(|entry| {
-            let entry = entry.split("</entry>").next().unwrap_or(entry);
-            let video_id = xml_text(entry, "yt:videoId")?;
-            let title = xml_text(entry, "title").unwrap_or_else(|| "Untitled video".to_string());
-            let published = xml_text(entry, "published");
-            let sort_key = published
-                .as_deref()
-                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                .map_or(0, |date| date.timestamp());
-            let published_text = published.as_deref().and_then(format_relative_published);
-            let thumbnail_url = xml_attr(entry, "<media:thumbnail", "url")
-                .or_else(|| Some(format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")));
-            let duration_seconds = xml_attr(entry, "<media:content", "duration")
-                .and_then(|value| value.parse::<u64>().ok());
-
-            Some((
-                sort_key,
-                VideoSummary {
-                    id: video_id,
-                    title,
-                    channel_name: channel_name
-                        .clone()
-                        .unwrap_or_else(|| "Subscribed channel".to_string()),
-                    channel_id: Some(channel_id.to_string()),
-                    thumbnail_url,
-                    duration_seconds,
-                    published_text,
-                    view_count_text: None,
-                    channel_avatar_url: None,
-                    is_live: false,
-                },
-            ))
-        })
-        .collect();
-
-    (channel_name, videos)
-}
-
-fn extract_channel_id_from_html(html: &str) -> Option<String> {
-    const MARKERS: [&str; 4] = [
-        "\"externalId\":\"",
-        "\"channelId\":\"",
-        "browse.youtube.com/channel/",
-        "/channel/",
-    ];
-    for marker in MARKERS {
-        let mut from = 0;
-        while let Some(rel) = html[from..].find(marker) {
-            let start = from + rel + marker.len();
-            let candidate: String = html[start..].chars().take(24).collect();
-            if candidate.len() == 24
-                && candidate.starts_with("UC")
-                && candidate
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-            {
-                return Some(candidate);
-            }
-            from = start;
-        }
-    }
-    None
-}
-
+/// The channel a handle, `/c/` or `/user/` link names, through the site's own
+/// router.
 #[tauri::command]
-pub async fn resolve_channel_id(url: String) -> Result<String, ErrorResponse> {
-    let parsed = reqwest::Url::parse(url.trim()).map_err(|_| {
-        ErrorResponse::from(crate::errors::AppError::Validation("Invalid URL".into()))
-    })?;
-    let host = parsed.host_str().unwrap_or("").to_lowercase();
-    let host = host.strip_prefix("www.").unwrap_or(&host);
-    let allowed = matches!(
-        host,
-        "youtube.com" | "m.youtube.com" | "music.youtube.com" | "gaming.youtube.com"
-    );
-    if !allowed {
-        return Err(ErrorResponse::from(crate::errors::AppError::Validation(
-            "Not a YouTube URL".into(),
-        )));
+pub async fn resolve_channel_id(
+    url: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<String, ErrorResponse> {
+    match youtube_service
+        .resolve_url(&url)
+        .await
+        .map_err(ErrorResponse::from)?
+    {
+        ResolvedEndpoint::Channel(channel_id) => Ok(channel_id),
+        _ => Err(ErrorResponse::from(crate::errors::AppError::Validation(
+            "That link is not a channel".into(),
+        ))),
     }
-
-    let client = crate::api::http::shared_client();
-    let html = client
-        .get(parsed)
-        .send()
-        .await
-        .map_err(|e| {
-            ErrorResponse::from(crate::errors::AppError::Extractor(format!(
-                "Channel resolve failed: {e}"
-            )))
-        })?
-        .text()
-        .await
-        .map_err(|e| {
-            ErrorResponse::from(crate::errors::AppError::Extractor(format!(
-                "Channel resolve read failed: {e}"
-            )))
-        })?;
-
-    extract_channel_id_from_html(&html).ok_or_else(|| {
-        ErrorResponse::from(crate::errors::AppError::Extractor(
-            "Could not find a channel id at that URL".into(),
-        ))
-    })
 }
 
 fn extract_codecs(mime_type: Option<&str>) -> Option<String> {
@@ -281,7 +108,6 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
         |init_s: Option<u64>, init_e: Option<u64>, idx_s: Option<u64>, idx_e: Option<u64>| {
             init_s.is_some() && init_e.is_some() && idx_s.is_some() && idx_e.is_some()
         };
-    let is_mp4 = |mime: Option<&str>| mime.map(|m| m.contains("mp4")).unwrap_or(false);
 
     let audio_tracks: Vec<_> = stream_info
         .audio_tracks
@@ -301,7 +127,7 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
         return None;
     }
 
-    let all_video_variants: Vec<_> = stream_info
+    let video_variants: Vec<_> = stream_info
         .variants
         .iter()
         .filter(|variant| {
@@ -316,34 +142,6 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
                 )
         })
         .collect();
-
-    // Prefer H.264 outright: it's the only codec every platform can decode
-    // (Linux WebKitGTK frequently lacks VP9/AV1 plugins), and AV1 also ships
-    // in an MP4 container, so the container check alone doesn't exclude it.
-    let is_h264 = |mime: Option<&str>| {
-        mime.map(|m| m.contains("avc1") || m.contains("avc3"))
-            .unwrap_or(false)
-    };
-
-    let h264_video_variants: Vec<_> = all_video_variants
-        .iter()
-        .copied()
-        .filter(|variant| is_h264(variant.mime_type.as_deref()))
-        .collect();
-
-    let mp4_video_variants: Vec<_> = all_video_variants
-        .iter()
-        .copied()
-        .filter(|variant| is_mp4(variant.mime_type.as_deref()))
-        .collect();
-
-    let video_variants = if !h264_video_variants.is_empty() {
-        h264_video_variants
-    } else if !mp4_video_variants.is_empty() {
-        mp4_video_variants
-    } else {
-        all_video_variants
-    };
 
     if video_variants.is_empty() {
         return None;
@@ -385,20 +183,20 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
         "synthetic DASH representation selection"
     );
 
-    let mut video_groups: Vec<(String, Vec<_>)> = Vec::new();
+    // One AdaptationSet per codec family, H.264 first so `firstTrack` starts there, and HDR apart
+    // from SDR. Nothing links the sets, so ABR stays inside the set it is playing: it can't hop
+    // between containers or colour ranges mid-video. A manual pick crosses sets by representation
+    // id, and Auto chooses its set in the player.
+    let mut video_groups: BTreeMap<(VideoCodecFamily, bool, &str), Vec<&StreamVariant>> =
+        BTreeMap::new();
     for variant in &video_variants {
-        let mime_type = extract_base_mime_type(variant.mime_type.as_deref())
-            .unwrap_or("video/mp4")
-            .to_string();
-
-        if let Some((_, variants)) = video_groups
-            .iter_mut()
-            .find(|(group_mime_type, _)| *group_mime_type == mime_type)
-        {
-            variants.push(*variant);
-        } else {
-            video_groups.push((mime_type, vec![*variant]));
-        }
+        let mime = variant.mime_type.as_deref();
+        let key = (
+            VideoCodecFamily::from_mime(mime.unwrap_or("")),
+            variant.quality_label.contains("HDR"),
+            extract_base_mime_type(mime).unwrap_or("video/mp4"),
+        );
+        video_groups.entry(key).or_default().push(variant);
     }
 
     let mut manifest = String::new();
@@ -455,11 +253,12 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
         manifest.push_str("      </Representation>\n");
         manifest.push_str("    </AdaptationSet>\n");
     }
-    for (group_index, (video_mime_type, variants)) in video_groups.iter().enumerate() {
+    for ((family, is_hdr, mime_type), variants) in &video_groups {
+        let container = mime_type.rsplit('/').next().unwrap_or("mp4");
+        let hdr = if *is_hdr { "-hdr" } else { "" };
         manifest.push_str(&format!(
-            "    <AdaptationSet id=\"video-{}\" contentType=\"video\" mimeType=\"{}\" startWithSAP=\"1\" subsegmentAlignment=\"true\">\n",
-            group_index,
-            video_mime_type
+            "    <AdaptationSet id=\"video-{}{hdr}-{container}\" contentType=\"video\" mimeType=\"{mime_type}\" startWithSAP=\"1\" subsegmentAlignment=\"true\">\n",
+            family.slug(),
         ));
 
         for variant in variants {
@@ -467,12 +266,12 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
                 .unwrap_or_else(|| "avc1.640028".to_string());
             manifest.push_str(&format!(
                 "      <Representation id=\"{}\" bandwidth=\"{}\" width=\"{}\" height=\"{}\" frameRate=\"{}\" codecs=\"{}\">\n",
-                variant.id,
+                escape_xml_attr(&variant.id),
                 variant.bitrate.unwrap_or(1_000_000),
                 variant.width.unwrap_or(0),
                 variant.height.unwrap_or(0),
                 variant.fps.unwrap_or(30),
-                codecs
+                escape_xml_attr(&codecs)
             ));
             manifest.push_str(&format!(
                 "        <BaseURL>{}</BaseURL>\n",
@@ -501,6 +300,7 @@ pub fn build_synthetic_dash_manifest(stream_info: &StreamInfo) -> Option<String>
 pub async fn search_videos(
     request: SearchVideosRequest,
     youtube_service: State<'_, YoutubeService>,
+    pool: State<'_, sqlx::SqlitePool>,
 ) -> Result<SearchVideosResponse, ErrorResponse> {
     if let Some(page_token) = request.page_token.as_deref() {
         validate_page_token(page_token).map_err(ErrorResponse::from)?;
@@ -508,10 +308,26 @@ pub async fn search_videos(
         validate_search_query(&request.query).map_err(ErrorResponse::from)?;
     }
 
-    youtube_service
+    let response = youtube_service
         .search_videos(request)
         .await
-        .map_err(ErrorResponse::from)
+        .map_err(ErrorResponse::from)?;
+    let shorts: Vec<String> = response
+        .shorts
+        .iter()
+        .map(|short| short.id.clone())
+        .chain(
+            response
+                .items
+                .iter()
+                .filter(|video| video.is_short)
+                .map(|video| video.id.clone()),
+        )
+        .collect();
+    let _ =
+        crate::db::known_shorts::remember(&pool, &shorts, chrono::Utc::now().timestamp_millis())
+            .await;
+    Ok(response)
 }
 
 #[tauri::command]
@@ -533,11 +349,53 @@ pub async fn get_video_details(
 pub async fn get_related_videos(
     video_id: String,
     youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<RelatedContentItem>, ErrorResponse> {
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<RelatedPage, ErrorResponse> {
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
 
-    youtube_service
+    let related = youtube_service
         .get_related_videos(&video_id)
+        .await
+        .map_err(ErrorResponse::from)?;
+    recommendation_service.note_related(&video_id, &related.items);
+    Ok(related)
+}
+
+/// A listed video's length, views, upload date and category, from one small
+/// request that stays out of the playback caches.
+#[tauri::command]
+pub async fn get_video_metadata(
+    video_id: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<VideoMetadata, ErrorResponse> {
+    validate_video_id(&video_id).map_err(ErrorResponse::from)?;
+    youtube_service
+        .get_video_metadata(&video_id)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// The video's category, for the recommendation engine. A small request of
+/// its own, so the watch page asks only once playback has settled.
+#[tauri::command]
+pub async fn get_video_category(
+    video_id: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<Option<String>, ErrorResponse> {
+    validate_video_id(&video_id).map_err(ErrorResponse::from)?;
+    youtube_service
+        .get_video_category(&video_id)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn get_more_related_videos(
+    continuation: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<RelatedPage, ErrorResponse> {
+    youtube_service
+        .get_more_related_videos(&continuation)
         .await
         .map_err(ErrorResponse::from)
 }
@@ -549,13 +407,28 @@ pub async fn get_stream_info(
     refresh: Option<bool>,
     youtube_service: State<'_, YoutubeService>,
     streaming_manager: State<'_, StreamingManager>,
+    pool: State<'_, sqlx::SqlitePool>,
 ) -> Result<StreamInfo, ErrorResponse> {
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
 
-    let mut stream_info = youtube_service
-        .get_stream_info(&video_id, refresh.unwrap_or(false))
-        .await
-        .map_err(ErrorResponse::from)?;
+    let refresh = refresh.unwrap_or(false);
+    // Feeds stop offering a video refused for good, and offer it again once it plays.
+    let mut stream_info = match youtube_service.get_stream_info(&video_id, refresh).await {
+        Ok(info) => {
+            let _ = crate::db::unplayable_videos::clear(&pool, &video_id).await;
+            info
+        }
+        Err(error) => {
+            let lasting = error.is_lasting_refusal();
+            let response = ErrorResponse::from(error);
+            if lasting {
+                let now = chrono::Utc::now().timestamp_millis();
+                let _ =
+                    crate::db::unplayable_videos::mark(&pool, &video_id, &response.kind, now).await;
+            }
+            return Err(response);
+        }
+    };
 
     let token = uuid::Uuid::new_v4().to_string();
 
@@ -689,6 +562,9 @@ pub async fn get_stream_info(
     }
 
     if let Some(descriptor) = stream_info.sabr_descriptor.take() {
+        if refresh {
+            streaming_manager.sabr().discard_video(&descriptor.video_id);
+        }
         let session_id = streaming_manager
             .sabr()
             .prepare(descriptor, crate::streaming::sabr::CodecSupport::default());
@@ -742,6 +618,31 @@ pub async fn get_sabr_debug_state(
         Some(handle) => Ok(Some(handle.engine.debug_state().await)),
         None => Ok(None),
     }
+}
+
+/// A channel's landing page: header, tabs and Home in one request.
+#[tauri::command]
+pub async fn get_channel_page(
+    channel_id: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<ChannelPage, ErrorResponse> {
+    validate_channel_id(&channel_id).map_err(ErrorResponse::from)?;
+    youtube_service
+        .get_channel_page(&channel_id)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// A channel's About panel, by the token its header carries.
+#[tauri::command]
+pub async fn get_channel_about(
+    token: String,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<ChannelAbout, ErrorResponse> {
+    youtube_service
+        .get_channel_about(&token)
+        .await
+        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -843,24 +744,58 @@ pub async fn get_post_comments(
 pub async fn get_live_chat(
     video_id: String,
     continuation: Option<String>,
+    replay_offset_ms: Option<u64>,
     youtube_service: State<'_, YoutubeService>,
 ) -> Result<crate::models::live_chat::LiveChatResponse, ErrorResponse> {
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
 
     youtube_service
-        .get_live_chat(&video_id, continuation)
+        .get_live_chat(&video_id, continuation, replay_offset_ms)
         .await
         .map_err(ErrorResponse::from)
 }
 
+/// One of Explore's destinations (`live`, `gaming`, `music`, `news`, `sports`,
+/// `learning`, `fashion`) in `region`.
 #[tauri::command]
-pub async fn get_trending_videos(
-    category: Option<String>,
+pub async fn get_explore_destination(
+    destination: String,
     region: Option<String>,
     youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
+) -> Result<ExplorePage, ErrorResponse> {
     youtube_service
-        .get_trending_videos(category.as_deref(), region.as_deref())
+        .get_explore_destination(&destination, region.as_deref())
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// A destination's tab, by the target its page named.
+#[tauri::command]
+pub async fn get_explore_page(
+    target: ExploreTarget,
+    region: Option<String>,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<ExplorePage, ErrorResponse> {
+    youtube_service
+        .get_explore_page(
+            &target.browse_id,
+            target.params.as_deref(),
+            region.as_deref(),
+        )
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// A shelf's full grid: the first page from its target, later ones from a token.
+#[tauri::command]
+pub async fn get_explore_grid(
+    target: Option<ExploreTarget>,
+    continuation: Option<String>,
+    region: Option<String>,
+    youtube_service: State<'_, YoutubeService>,
+) -> Result<ExploreGrid, ErrorResponse> {
+    youtube_service
+        .get_explore_grid(target.as_ref(), continuation.as_deref(), region.as_deref())
         .await
         .map_err(ErrorResponse::from)
 }
@@ -868,22 +803,11 @@ pub async fn get_trending_videos(
 #[tauri::command]
 pub async fn get_search_suggestions(
     query: String,
+    region: Option<String>,
     youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<String>, ErrorResponse> {
+) -> Result<Vec<SearchSuggestion>, ErrorResponse> {
     youtube_service
-        .get_search_suggestions(&query)
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn search_music(
-    query: String,
-    filter: String,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
-    youtube_service
-        .search_music(&query, &filter)
+        .get_search_suggestions(&query, region.as_deref())
         .await
         .map_err(ErrorResponse::from)
 }
@@ -895,39 +819,6 @@ pub async fn parse_subscription_export(
 ) -> Result<Vec<(String, String)>, ErrorResponse> {
     youtube_service
         .parse_subscription_export(&data)
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn get_music_lyrics(
-    video_id: String,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<Option<String>, ErrorResponse> {
-    youtube_service
-        .get_music_lyrics(&video_id)
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn get_music_related(
-    video_id: String,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
-    youtube_service
-        .get_music_related(&video_id)
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn get_music_album(
-    album_browse_id: String,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
-    youtube_service
-        .get_music_album(&album_browse_id)
-        .await
         .map_err(ErrorResponse::from)
 }
 
@@ -952,13 +843,10 @@ pub(crate) async fn fetch_sponsorblock_segments(
         "{base_url}/api/skipSegments?videoID={video_id}&categories=[\"sponsor\",\"intro\",\"outro\",\"selfpromo\",\"interaction\",\"filler\",\"music_offtopic\",\"preview\",\"exclusive_access\"]"
     );
 
-    let client = reqwest::Client::builder()
-        .user_agent("FlowDesktop/1.0")
-        .build()
-        .unwrap_or_default();
-
-    let res = client
+    let res = crate::api::http::shared_client()
         .get(&url)
+        .header(reqwest::header::USER_AGENT, SPONSORBLOCK_USER_AGENT)
+        .timeout(SPONSORBLOCK_TIMEOUT)
         .send()
         .await
         .map_err(|e| crate::errors::AppError::Extractor(format!("Network error: {e}")))?;
@@ -1005,6 +893,9 @@ fn normalize_sponsorblock_server_url(server_url: Option<&str>) -> crate::errors:
     }
     Ok(origin)
 }
+
+const SPONSORBLOCK_USER_AGENT: &str = "FlowDesktop/1.0";
+const SPONSORBLOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 const SPONSORBLOCK_SUBMIT_CATEGORIES: [&str; 9] = [
     "sponsor",
@@ -1076,11 +967,6 @@ async fn submit_sponsorblock_segment_inner(
 
     let base_url = normalize_sponsorblock_server_url(server_url)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent("FlowDesktop/1.0")
-        .build()
-        .unwrap_or_default();
-
     let mut url = reqwest::Url::parse(&format!("{base_url}/api/skipSegments")).map_err(|_| {
         crate::errors::AppError::Validation("Invalid SponsorBlock server URL".into())
     })?;
@@ -1092,8 +978,10 @@ async fn submit_sponsorblock_segment_inner(
         .append_pair("userID", user_id)
         .append_pair("userAgent", "FlowDesktop/1.0");
 
-    let res = client
+    let res = crate::api::http::shared_client()
         .post(url)
+        .header(reqwest::header::USER_AGENT, SPONSORBLOCK_USER_AGENT)
+        .timeout(SPONSORBLOCK_TIMEOUT)
         .send()
         .await
         .map_err(|e| crate::errors::AppError::Extractor(format!("Network error: {e}")))?;
@@ -1146,6 +1034,14 @@ pub async fn get_dearrow_override(
     }
 }
 
+/// The title a video was uploaded with, or `Ok(None)` to keep the one already shown. Only an invalid
+/// video ID is a real error.
+#[tauri::command]
+pub async fn get_original_title(video_id: String) -> Result<Option<String>, ErrorResponse> {
+    validate_video_id(&video_id).map_err(ErrorResponse::from)?;
+    Ok(crate::api::original_title::original_title(video_id.trim()).await)
+}
+
 /// RYD is a graceful-degradation integration: fetch failures resolve to
 /// `Ok(None)` so the frontend simply omits the dislike counter. Only an
 /// invalid video ID is a real error.
@@ -1155,52 +1051,6 @@ pub async fn get_return_youtube_dislike(
 ) -> Result<Option<crate::api::ryd::RydVotes>, ErrorResponse> {
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
     Ok(crate::api::ryd::fetch_ryd_votes(&video_id).await)
-}
-
-#[tauri::command]
-pub async fn get_music_home(
-    youtube_service: State<'_, YoutubeService>,
-    recommendation_service: State<'_, RecommendationService>,
-) -> Result<(Vec<MusicHomeSection>, Vec<MusicHomeChip>), ErrorResponse> {
-    if let Ok(Some(cached)) = recommendation_service.get_cached_music_home().await {
-        return Ok(cached);
-    }
-
-    let (sections, chips) = youtube_service
-        .get_music_home()
-        .await
-        .map_err(ErrorResponse::from)?;
-    let _ = recommendation_service
-        .cache_music_home(&sections, &chips)
-        .await;
-    Ok((sections, chips))
-}
-
-#[tauri::command]
-pub async fn refresh_music_home(
-    youtube_service: State<'_, YoutubeService>,
-    recommendation_service: State<'_, RecommendationService>,
-) -> Result<(Vec<MusicHomeSection>, Vec<MusicHomeChip>), ErrorResponse> {
-    let (sections, chips) = youtube_service
-        .get_music_home()
-        .await
-        .map_err(ErrorResponse::from)?;
-    let _ = recommendation_service
-        .cache_music_home(&sections, &chips)
-        .await;
-    Ok((sections, chips))
-}
-
-#[tauri::command]
-pub async fn get_personalized_music_recommendations(
-    limit: usize,
-    youtube_service: State<'_, YoutubeService>,
-    recommendation_service: State<'_, RecommendationService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
-    recommendation_service
-        .get_personalized_music_recommendations(&youtube_service, limit)
-        .await
-        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -1218,7 +1068,9 @@ pub async fn get_subscription_rotation_feed(
 /// few at a time on a slow link.
 const DURATION_FILL_CONCURRENCY: usize = 3;
 
-async fn populate_video_durations(
+/// Fills in lengths, and marks the Shorts that a lookup told apart by their
+/// frame, remembering each one it checked.
+pub(crate) async fn populate_video_durations(
     videos: &mut [VideoSummary],
     youtube_service: &YoutubeService,
     pool: &sqlx::SqlitePool,
@@ -1247,7 +1099,7 @@ async fn populate_video_durations(
                     crate::db::cache::get_cached_video_summary(&pool, &video_id).await
                 {
                     if cached.duration_seconds.is_some() {
-                        return (video_id, cached.duration_seconds);
+                        return (video_id, cached.duration_seconds, None);
                     }
                 }
 
@@ -1264,19 +1116,24 @@ async fn populate_video_durations(
                         view_count_text: None,
                         channel_avatar_url: None,
                         is_live: false,
+                        ..Default::default()
                     };
                     // Cache it for 7 days
                     let _ = crate::db::cache::cache_video_summary(&pool, &summary, 604800).await;
-                    (video_id, details.duration_seconds)
+                    (video_id, details.duration_seconds, details.is_short)
                 } else {
-                    (video_id, None)
+                    (video_id, None, None)
                 }
             }
         },
     )
     .await;
     let mut durations = std::collections::HashMap::new();
-    for (id, dur) in results {
+    let mut kinds = Vec::new();
+    for (id, dur, is_short) in results {
+        if let Some(is_short) = is_short {
+            kinds.push((id.clone(), is_short));
+        }
         if let Some(d) = dur {
             durations.insert(id, d);
         }
@@ -1289,6 +1146,17 @@ async fn populate_video_durations(
             }
         }
     }
+    let shorts: std::collections::HashSet<&str> = kinds
+        .iter()
+        .filter(|(_, is_short)| *is_short)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    for video in videos.iter_mut() {
+        video.is_short |= shorts.contains(video.id.as_str());
+    }
+    let _ =
+        crate::db::video_kind_checks::record(pool, &kinds, chrono::Utc::now().timestamp_millis())
+            .await;
 }
 
 fn dedupe_channel_ids(channel_ids: Vec<String>) -> Result<Vec<String>, ErrorResponse> {
@@ -1305,61 +1173,15 @@ fn dedupe_channel_ids(channel_ids: Vec<String>) -> Result<Vec<String>, ErrorResp
 
 const SUBSCRIPTION_RSS_BATCH_SIZE: usize = 50;
 
-const SUBSCRIPTION_RSS_CONCURRENCY: usize = 16;
-async fn fetch_rss_channel_batch(
-    client: &'static reqwest::Client,
-    channel_ids: &[String],
-) -> Vec<(SubscriptionRssChannel, Vec<(i64, VideoSummary)>)> {
-    let results = crate::api::http::bounded_join(
-        channel_ids.iter().cloned(),
-        SUBSCRIPTION_RSS_CONCURRENCY,
-        move |channel_id| async move {
-            let rss_url =
-                format!("https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}");
-            let xml = client
-                .get(rss_url)
-                .send()
-                .await
-                .map_err(|error| {
-                    crate::errors::AppError::Extractor(format!(
-                        "RSS fetch failed for {channel_id}: {error}"
-                    ))
-                })?
-                .text()
-                .await
-                .map_err(|error| {
-                    crate::errors::AppError::Extractor(format!(
-                        "RSS read failed for {channel_id}: {error}"
-                    ))
-                })?;
-
-            let (name, videos) = parse_rss_feed(&channel_id, &xml);
-
-            Ok::<_, crate::errors::AppError>((
-                SubscriptionRssChannel {
-                    id: channel_id,
-                    name,
-                    avatar_url: None,
-                },
-                videos,
-            ))
-        },
-    )
-    .await;
-
-    let mut out = Vec::new();
-    for result in results {
-        match result {
-            Ok(entry) => out.push(entry),
-            Err(error) => tracing::warn!("Subscription RSS channel fetch failed: {error}"),
-        }
-    }
-    out
-}
-
-fn sort_and_dedupe_feed(videos: &mut Vec<(i64, VideoSummary)>) {
-    videos.sort_by(|(left, _), (right, _)| right.cmp(left));
-    videos.dedup_by(|(_, left), (_, right)| left.id == right.id);
+/// Videos that were refused for good when they were opened, for Subscriptions to hide.
+#[tauri::command]
+pub async fn get_unplayable_video_ids(
+    pool: State<'_, sqlx::SqlitePool>,
+) -> Result<Vec<String>, ErrorResponse> {
+    let ids = crate::db::unplayable_videos::all(&pool)
+        .await
+        .map_err(ErrorResponse::from)?;
+    Ok(ids.into_iter().collect())
 }
 
 #[tauri::command]
@@ -1371,39 +1193,29 @@ pub async fn get_subscription_rss_feed(
 ) -> Result<SubscriptionRssFeed, ErrorResponse> {
     let unique_channel_ids = dedupe_channel_ids(channel_ids)?;
     let limit = limit.unwrap_or(1500).clamp(1, 1500);
-    let client = crate::api::http::shared_client();
-
-    let mut channels = Vec::new();
-    let mut videos = Vec::new();
-    for (channel, channel_videos) in fetch_rss_channel_batch(client, &unique_channel_ids).await {
-        channels.push(channel);
-        videos.extend(channel_videos);
-    }
-
-    sort_and_dedupe_feed(&mut videos);
-
-    let mut feed_videos: Vec<VideoSummary> = videos
-        .into_iter()
-        .map(|(_, video)| video)
-        .take(limit)
-        .collect();
-
-    // Populate video durations for the top videos (up to 100)
-    let num_to_populate = feed_videos.len().min(100);
-    if num_to_populate > 0 {
-        populate_video_durations(&mut feed_videos[..num_to_populate], &youtube_service, &pool)
-            .await;
-    }
-
+    let mut uploads =
+        subscription_feed::fetch_channels(&youtube_service, &unique_channel_ids).await;
+    subscription_feed::sort_and_dedupe(&mut uploads.videos);
+    let videos = subscription_feed::finish_feed(
+        &youtube_service,
+        &pool,
+        uploads.videos,
+        &uploads.unclassified,
+        limit,
+    )
+    .await;
     let total = unique_channel_ids.len();
     Ok(SubscriptionRssFeed {
-        videos: feed_videos,
-        channels,
+        videos,
+        channels: uploads.channels,
+        failed_channel_ids: uploads.failed_channel_ids,
         processed: total,
         total,
     })
 }
 
+/// The feed in batches of channels, each sent as it lands, then the finished
+/// feed with Shorts and lengths filled in.
 #[tauri::command]
 pub async fn stream_subscription_rss_feed(
     channel_ids: Vec<String>,
@@ -1415,89 +1227,43 @@ pub async fn stream_subscription_rss_feed(
     let unique_channel_ids = dedupe_channel_ids(channel_ids)?;
     let limit = limit.unwrap_or(1500).clamp(1, 1500);
     let total = unique_channel_ids.len();
-    let client = crate::api::http::shared_client();
-
-    let mut channels: Vec<SubscriptionRssChannel> = Vec::new();
-    let mut videos: Vec<(i64, VideoSummary)> = Vec::new();
+    let mut uploads = subscription_feed::ChannelUploads::default();
     let mut processed = 0usize;
 
     for batch in unique_channel_ids.chunks(SUBSCRIPTION_RSS_BATCH_SIZE) {
-        for (channel, channel_videos) in fetch_rss_channel_batch(client, batch).await {
-            channels.push(channel);
-            videos.extend(channel_videos);
-        }
+        let found = subscription_feed::fetch_channels(&youtube_service, batch).await;
+        uploads.channels.extend(found.channels);
+        uploads.videos.extend(found.videos);
+        uploads.failed_channel_ids.extend(found.failed_channel_ids);
+        uploads.unclassified.extend(found.unclassified);
         processed = (processed + batch.len()).min(total);
-        sort_and_dedupe_feed(&mut videos);
-
-        let feed_videos: Vec<VideoSummary> = videos
-            .iter()
-            .take(limit)
-            .map(|(_, video)| video.clone())
-            .collect();
+        subscription_feed::sort_and_dedupe(&mut uploads.videos);
         let _ = on_event.send(SubscriptionRssFeed {
-            videos: feed_videos,
-            channels: channels.clone(),
+            videos: subscription_feed::partial_feed(&uploads.videos, limit),
+            channels: uploads.channels.clone(),
+            failed_channel_ids: uploads.failed_channel_ids.clone(),
             processed,
             total,
         });
     }
 
-    let mut feed_videos: Vec<VideoSummary> = videos
-        .into_iter()
-        .map(|(_, video)| video)
-        .take(limit)
-        .collect();
-    let num_to_populate = feed_videos.len().min(100);
-    if num_to_populate > 0 {
-        populate_video_durations(&mut feed_videos[..num_to_populate], &youtube_service, &pool)
-            .await;
-    }
+    let videos = subscription_feed::finish_feed(
+        &youtube_service,
+        &pool,
+        uploads.videos,
+        &uploads.unclassified,
+        limit,
+    )
+    .await;
     let _ = on_event.send(SubscriptionRssFeed {
-        videos: feed_videos,
-        channels,
+        videos,
+        channels: uploads.channels,
+        failed_channel_ids: uploads.failed_channel_ids,
         processed: total,
         total,
     });
 
     Ok(())
-}
-
-#[tauri::command]
-pub async fn get_music_artist(
-    artist_browse_id: String,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<ArtistPage, ErrorResponse> {
-    validate_browse_id(&artist_browse_id).map_err(ErrorResponse::from)?;
-
-    youtube_service
-        .get_music_artist(&artist_browse_id)
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn get_music_explore(
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<ExplorePage, ErrorResponse> {
-    youtube_service
-        .get_music_explore()
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
-pub async fn get_music_charts(
-    continuation: Option<String>,
-    youtube_service: State<'_, YoutubeService>,
-) -> Result<ChartsPage, ErrorResponse> {
-    if let Some(ref token) = continuation {
-        validate_browse_id(token).map_err(ErrorResponse::from)?;
-    }
-
-    youtube_service
-        .get_music_charts(continuation)
-        .await
-        .map_err(ErrorResponse::from)
 }
 
 #[tauri::command]

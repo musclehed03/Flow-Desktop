@@ -25,7 +25,7 @@ export async function refillVideoCandidates(lastId: string, station: MusicStatio
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const related = await getRelatedVideos(lastId);
-      const videos = related.filter((item) => item.itemType === 'video' && !item.isLive && !playedIds.includes(item.videoId ?? item.id)).map((item) => ({
+      const videos = related.items.filter((item) => item.itemType === 'video' && !item.isLive && !playedIds.includes(item.videoId ?? item.id)).map((item) => ({
         id: item.videoId ?? item.id, title: item.title, channelName: item.channelName,
         channelId: item.channelId, thumbnailUrl: item.thumbnailUrl, durationSeconds: item.durationSeconds,
         publishedText: item.publishedText, viewCountText: item.viewCountText,

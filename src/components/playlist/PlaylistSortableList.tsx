@@ -1,20 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   DndContext,
   closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { resolveDragMove, sortableRowStyle, useListDragSensors } from "../../lib/sortableList";
 import { VideoCard } from "../video/VideoCard";
 import { Select } from "../ui/Select";
 import { playlistSortLabel, showsDateAdded, type PlaylistSortOrder } from "../../lib/playlistSort";
@@ -29,6 +24,8 @@ interface PlaylistSortableListProps {
   onReorder: (videos: VideoSummary[]) => void;
   onPlay: (video: VideoSummary) => void;
   onAddToQueue?: (video: VideoSummary) => void;
+  /** Shown after the last row, such as the next-page loader. */
+  footer?: ReactNode;
 }
 
 interface SortablePlaylistRowProps {
@@ -57,10 +54,7 @@ function SortablePlaylistRow({
     disabled: !sortEnabled,
   });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const style = sortableRowStyle(transform, transition);
 
   return (
     <div ref={setNodeRef} style={style} className={isDragging ? "opacity-80" : undefined}>
@@ -144,15 +138,11 @@ export function PlaylistSortableList({
   onReorder,
   onPlay,
   onAddToQueue,
+  footer,
 }: PlaylistSortableListProps) {
   const sortEnabled = sortOrder === "manual";
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
+  const sensors = useListDragSensors();
 
   const sortableIds = useMemo(
     () => displayVideos.map((video) => video.id),
@@ -160,17 +150,13 @@ export function PlaylistSortableList({
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = videos.findIndex((video) => video.id === active.id);
-    const newIndex = videos.findIndex((video) => video.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
+    const move = resolveDragMove(event, videos.map((video) => video.id));
+    if (!move) return;
 
     const next = [...videos];
-    const [moved] = next.splice(oldIndex, 1);
+    const [moved] = next.splice(move[0], 1);
     if (!moved) return;
-    next.splice(newIndex, 0, moved);
+    next.splice(move[1], 0, moved);
     onReorder(next);
   };
 
@@ -209,6 +195,7 @@ export function PlaylistSortableList({
         ) : (
           listBody
         )}
+        {footer}
       </div>
     </section>
   );

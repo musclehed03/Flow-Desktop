@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Ban, EyeOff, Globe, Trash2 } from "lucide-react";
 import type { UserBrain } from "../../lib/api/recommendation";
 import { getChannelDetails } from "../../lib/api/youtube";
+import { getString } from "../../lib/i18n/index";
 
 interface BlockedContentProps {
   brain: UserBrain;
-  onUnblockTopic: (topic: string) => void;
-  onUnblockChannel: (channelId: string) => void;
+  /** Without the handlers, the lists are read only. */
+  onUnblockTopic?: (topic: string) => void;
+  onUnblockChannel?: (channelId: string) => void;
 }
 
 export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: BlockedContentProps) {
@@ -50,10 +52,10 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
           <Ban className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-on-surface-variant)]" />
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-[var(--color-on-surface)]">
-              Blocked Content Filters
+              {getString("persona_blocked_title")}
             </h3>
             <p className="text-sm text-[var(--color-on-surface-variant)]">
-              Suppressed topics and creators excluded from recommendation ranking.
+              {getString("persona_blocked_desc")}
             </p>
           </div>
         </div>
@@ -62,13 +64,13 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
           <div>
             <p className="font-mono text-xl text-[var(--color-on-surface)]">{blockedTopics.length}</p>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-on-surface-variant)]">
-              Topics
+              {getString("persona_blocked_topics_short")}
             </p>
           </div>
           <div>
             <p className="font-mono text-xl text-[var(--color-on-surface)]">{blockedChannels.length}</p>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-on-surface-variant)]">
-              Creators
+              {getString("persona_blocked_creators_short")}
             </p>
           </div>
         </div>
@@ -78,7 +80,7 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
         <div className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-on-surface-variant)]">
-              Blocked Topics
+              {getString("taste_current_blocked")}
             </p>
             <p className="font-mono text-xs text-[var(--color-on-surface-variant)]">{blockedTopics.length}</p>
           </div>
@@ -95,13 +97,13 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
                       <span className="block truncate capitalize">{topic}</span>
                     </td>
                     <td className="w-12 px-4 py-3 text-right">
-                      <button
+                      {onUnblockTopic && <button
                         onClick={() => onUnblockTopic(topic)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] transition-colors hover:bg-chrome-red-950/30 hover:text-chrome-red-400"
-                        title={`Unblock ${topic}`}
+                        title={getString("persona_unblock_item", topic)}
                       >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))}
@@ -113,7 +115,7 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
         <div className="min-w-0">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-on-surface-variant)]">
-              Blocked Creators
+              {getString("persona_blocked_creators")}
             </p>
             <p className="font-mono text-xs text-[var(--color-on-surface-variant)]">{blockedChannels.length}</p>
           </div>
@@ -122,7 +124,7 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
             <table className="w-full border-collapse text-sm">
               <tbody className="divide-y divide-[var(--color-outline-variant)]">
                 {blockedChannels.map((id) => {
-                  const name = channelNames[id] || (id.startsWith("UC") ? `Channel ${id.slice(0, 8)}` : id);
+                  const name = channelNames[id] || (id.startsWith("UC") ? getString("persona_channel_fallback", id.slice(0, 8)) : id);
 
                   return (
                     <tr key={id}>
@@ -136,13 +138,13 @@ export function BlockedContent({ brain, onUnblockTopic, onUnblockChannel }: Bloc
                         </span>
                       </td>
                       <td className="w-12 px-4 py-3 text-right">
-                        <button
+                        {onUnblockChannel && <button
                           onClick={() => onUnblockChannel(id)}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] transition-colors hover:bg-chrome-red-950/30 hover:text-chrome-red-400"
-                          title={`Unblock ${name}`}
+                          title={getString("persona_unblock_item", name)}
                         >
                           <Trash2 className="h-4 w-4" />
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   );

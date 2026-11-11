@@ -5,8 +5,11 @@ import {
   logInteraction,
   markNotInterested,
   blockChannel as apiBlockChannel,
+  unblockChannel as apiUnblockChannel,
 } from "../lib/api/recommendation";
 import { shouldRecordWatchHistory } from "../lib/deepFlow";
+import { isKnownShort } from "../lib/videoKind";
+import { isMusicVideo } from "../lib/utils";
 import type { VideoSummary } from "../types/video";
 import { SETTINGS } from "../lib/settings/schema";
 import { useAppSettingsStore } from "./useAppSettingsStore";
@@ -31,7 +34,11 @@ interface FeedActionsState {
   loaded: boolean;
   load: () => Promise<void>;
   notInterested: (video: VideoSummary) => Promise<void>;
+  /** Hides a video from every feed, e.g. after a thumbs-down on the watch page. */
+  hideVideo: (videoId: string) => void;
   blockChannel: (video: VideoSummary) => Promise<void>;
+  /** Lets a channel back into every feed: unblocked, and no longer set aside by "not interested". */
+  unblockChannel: (channelId: string) => Promise<void>;
   markWatched: (video: VideoSummary) => Promise<void>;
   moreLikeThis: (video: VideoSummary) => Promise<void>;
   addBlockedKeyword: (keyword: string) => void;
@@ -93,7 +100,7 @@ function meta(video: VideoSummary) {
   return {
     channelId: cleanChannelId(video.channelId),
     duration,
-    isShort: (duration ?? 0) > 0 && (duration ?? 0) <= 60,
+    isShort: isKnownShort(duration),
   };
 }
 
@@ -161,14 +168,9 @@ export const useFeedActionsStore = create<FeedActionsState>((set, get) => {
 
     notInterested: async (video) => {
       const m = meta(video);
-      // Escalating: a second "not interested" on a still-suppressed channel promotes it to a
-      // permanent block (mirrors the backend, which blocks a channel on its 2nd dislike).
-      const active = activeSuppressedChannels(get().suppressedChannelIds);
-      if (m.channelId && active.has(m.channelId)) {
-        set((s) => ({ dismissedVideoIds: addCapped(s.dismissedVideoIds, video.id, DISMISSED_CAP) }));
-        await get().blockChannel(video);
-        return;
-      }
+      const previous = { dismissedVideoIds: get().dismissedVideoIds, suppressedChannelIds: get().suppressedChannelIds };
+      // Hides the video for good and its channel for a rolling window; it never escalates to a
+      // block, so two mis-taps cannot hide a channel forever. Only blockChannel does that.
       set((s) => ({
         dismissedVideoIds: addCapped(s.dismissedVideoIds, video.id, DISMISSED_CAP),
         suppressedChannelIds: m.channelId
@@ -189,18 +191,53 @@ export const useFeedActionsStore = create<FeedActionsState>((set, get) => {
         );
       } catch (e) {
         console.warn("Failed to record not interested", e);
+        set(previous);
+        persist();
+        throw e;
       }
+    },
+
+    hideVideo: (videoId) => {
+      set((s) => ({ dismissedVideoIds: addCapped(s.dismissedVideoIds, videoId, DISMISSED_CAP) }));
+      persist();
     },
 
     blockChannel: async (video) => {
       const channelId = cleanChannelId(video.channelId);
       if (!channelId) return;
+      const previous = get().blockedChannelIds;
       set((s) => ({ blockedChannelIds: addCapped(s.blockedChannelIds, channelId, BLOCKED_CAP) }));
       persist();
       try {
-        await apiBlockChannel(channelId);
+        await apiBlockChannel(channelId, video.channelName);
       } catch (e) {
         console.warn("Failed to block channel", e);
+        set({ blockedChannelIds: previous });
+        persist();
+        throw e;
+      }
+    },
+
+    unblockChannel: async (channelId) => {
+      const previous = {
+        blockedChannelIds: get().blockedChannelIds,
+        suppressedChannelIds: get().suppressedChannelIds,
+      };
+      set((s) => {
+        const blockedChannelIds = new Set(s.blockedChannelIds);
+        blockedChannelIds.delete(channelId);
+        const suppressedChannelIds = new Map(s.suppressedChannelIds);
+        suppressedChannelIds.delete(channelId);
+        return { blockedChannelIds, suppressedChannelIds };
+      });
+      persist();
+      try {
+        await apiUnblockChannel(channelId);
+      } catch (e) {
+        console.warn("Failed to unblock channel", e);
+        set(previous);
+        persist();
+        throw e;
       }
     },
 
@@ -208,19 +245,23 @@ export const useFeedActionsStore = create<FeedActionsState>((set, get) => {
       set((s) => ({ watchedVideoIds: addCapped(s.watchedVideoIds, video.id, WATCHED_CAP) }));
       persist();
       const m = meta(video);
+      const isMusic = isMusicVideo(video);
       try {
-        await logInteraction(
-          video.id,
-          video.title,
-          video.channelName,
-          m.channelId,
-          null,
-          m.duration,
-          false,
-          m.isShort,
-          "WATCHED",
-          1.0,
-        );
+        // Music never teaches the video engine; the card is still marked watched.
+        if (!isMusic) {
+          await logInteraction(
+            video.id,
+            video.title,
+            video.channelName,
+            m.channelId,
+            null,
+            m.duration,
+            false,
+            m.isShort,
+            "WATCHED",
+            1.0,
+          );
+        }
         if (shouldRecordWatchHistory()) {
           await addWatchRecord({
             videoId: video.id,
@@ -230,6 +271,7 @@ export const useFeedActionsStore = create<FeedActionsState>((set, get) => {
             watchDate: new Date().toISOString(),
             watchDurationSeconds: m.duration ?? 0,
             totalDurationSeconds: m.duration ?? 0,
+            isMusic,
           });
         }
       } catch (e) {
@@ -238,6 +280,7 @@ export const useFeedActionsStore = create<FeedActionsState>((set, get) => {
     },
 
     moreLikeThis: async (video) => {
+      if (isMusicVideo(video)) return;
       const m = meta(video);
       try {
         await logInteraction(

@@ -29,6 +29,7 @@ use crate::models::music_stream::{MusicAudioQuality, MusicStreamInfo};
 use crate::music_brain::store::MusicBrainStore;
 use crate::security::validation::{validate_search_query, validate_video_id};
 use crate::services::music_service::{Freshness, MusicService};
+use crate::streaming::hls;
 use crate::streaming::images::{image_content_type, is_local_host, proxyable_image_url};
 use crate::streaming::proxy::StreamingManager;
 
@@ -345,7 +346,7 @@ pub async fn get_music_linked_artists(
 pub async fn get_music_lyrics_typed(
     video_id: String,
     music: State<'_, MusicService>,
-) -> CmdResult<Option<String>> {
+) -> CmdResult<Option<crate::models::music_pages::MusicLyrics>> {
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
     music.lyrics(&video_id).await.map_err(ErrorResponse::from)
 }
@@ -357,35 +358,19 @@ pub struct LyricsHttpResponse {
     pub body: String,
 }
 
-/// Generic HTTPS GET passthrough for the client-side lyrics engine — the lyric
-/// providers are external services that the webview can't reach due to CORS.
+/// HTTPS GET passthrough for the client-side lyrics engine, limited to the lyrics providers.
 #[tauri::command]
 pub async fn lyrics_http_get(
     url: String,
     headers: Option<HashMap<String, String>>,
 ) -> CmdResult<LyricsHttpResponse> {
-    if !url.starts_with("https://") {
-        return Err(ErrorResponse::from(AppError::Validation(
-            "Only https URLs are allowed".into(),
-        )));
-    }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| ErrorResponse::from(AppError::Extractor(e.to_string())))?;
-    let mut req = client.get(&url);
-    if let Some(h) = headers {
-        for (k, v) in h {
-            req = req.header(k, v);
-        }
-    }
-    let resp = req
-        .send()
+    let response = crate::api::lyrics_http::get(&url, headers.unwrap_or_default())
         .await
-        .map_err(|e| ErrorResponse::from(AppError::Extractor(e.to_string())))?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    Ok(LyricsHttpResponse { status, body })
+        .map_err(ErrorResponse::from)?;
+    Ok(LyricsHttpResponse {
+        status: response.status,
+        body: response.body,
+    })
 }
 
 // --- Playback (reuses the shared streaming proxy) -------------------------
@@ -395,6 +380,7 @@ pub async fn lyrics_http_get(
 pub async fn get_music_stream(
     video_id: String,
     audio_quality: Option<String>,
+    prefer_aac: Option<bool>,
     music: State<'_, MusicService>,
     streaming_manager: State<'_, StreamingManager>,
 ) -> CmdResult<MusicStreamInfo> {
@@ -407,7 +393,7 @@ pub async fn get_music_stream(
         .unwrap_or_default();
 
     let mut info = music
-        .resolve_stream(&video_id, audio_quality)
+        .resolve_stream(&video_id, audio_quality, prefer_aac.unwrap_or(false))
         .await
         .map_err(ErrorResponse::from)?;
 
@@ -427,7 +413,20 @@ pub async fn get_music_stream(
         info.user_agent.clone(),
     );
     let port = streaming_manager.get_port();
-    info.audio_url = format!("http://127.0.0.1:{port}/stream/{token}");
+    let media = format!("/stream/{token}");
+    info.audio_url = format!("http://127.0.0.1:{port}{media}");
+    if hls::SERVE_AAC_AS_HLS
+        && info.mime_type.starts_with("audio/mp4")
+        && let Some(playlist) = hls::aac_playlist(port, &media).await
+    {
+        let token = uuid::Uuid::new_v4().to_string();
+        streaming_manager.register_inline_session(
+            token.clone(),
+            playlist.into_bytes(),
+            "application/vnd.apple.mpegurl".into(),
+        );
+        info.audio_url = format!("http://127.0.0.1:{port}/stream/{token}");
+    }
     info.user_agent = String::new();
 
     Ok(info)

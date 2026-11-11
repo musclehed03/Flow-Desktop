@@ -3,12 +3,13 @@ import { useTranslation } from "react-i18next";
 import { useBoolPref } from "../../lib/usePreference";
 import { SETTINGS } from "../../lib/settings/schema";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { getSessionFlag, setSessionFlag } from "../../lib/storage/sessionFlag";
 
 export function SensoryAdvisory({ videoId }: { videoId: string }) {
   const { t } = useTranslation('settings');
   const [safe] = useBoolPref(SETTINGS.SAFE_MOTION_ENABLED);
   const [acknowledged, setAcknowledged] = useState('');
-  const [seenSession, setSeenSession] = useState(() => sessionStorage.getItem('flow-sensory-advisory') === 'true');
+  const [seenSession, setSeenSession] = useState(() => getSessionFlag('flow-sensory-advisory'));
   const key = `${safe}:${videoId}`;
   const visible = safe ? acknowledged !== key : !seenSession;
   useLayoutEffect(() => {
@@ -21,7 +22,7 @@ export function SensoryAdvisory({ videoId }: { videoId: string }) {
     <p id="sensory-advisory-description" className="my-3 text-sm">{t('sensory.advisory')}</p>
     {safe && <p className="mb-3 text-sm">{t('sensory.motionAdvisory')}</p>}
     <button type="button" onClick={() => {
-      setAcknowledged(key); setSeenSession(true); sessionStorage.setItem('flow-sensory-advisory', 'true');
+      setAcknowledged(key); setSeenSession(true); setSessionFlag('flow-sensory-advisory', true);
       usePlayerStore.getState().setIsPlaying(true);
     }} className="rounded-full border border-outline-variant bg-surface-container px-4 py-2">{t('sensory.continue')}</button>
   </section>;

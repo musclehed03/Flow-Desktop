@@ -25,8 +25,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, oneshot};
 use tokio::time::timeout;
 
-use crate::music_brain::store::MusicBrainStore;
-use crate::services::music_service::{Freshness, MusicService};
 use crate::services::recommendation_service::RecommendationService;
 use crate::sync::PROTOCOL_VERSION;
 use crate::sync::apply;
@@ -42,12 +40,14 @@ use crate::sync::frames::{
 };
 use crate::sync::ledger;
 use crate::sync::protocol::{
-    ApplyOutput, ClientOutcome, HostOutcome, OutgoingCollection, StagedCollection,
+    ApplyOutput, ClientOutcome, HostOutcome, StagedCollection, Withheld, WithheldReason,
     run_client_sender, run_host_receiver, run_receiver, run_sender,
 };
 use crate::sync::qr::QrPayload;
+use crate::sync::runtime::{
+    enrich_outgoing_albums, flush_and_hold_brains, flush_brains, reload_brains,
+};
 use crate::sync::transport;
-use serde_json::Value;
 
 /// Per-collection schema version this build advertises in its capabilities.
 const CAP_SCHEMA: i32 = 1;
@@ -100,6 +100,26 @@ pub struct StatInfo {
     pub tombstoned: u64,
 }
 
+/// A collection that stayed on both devices, and why (see [`crate::sync::protocol::withheld`]).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WithheldInfo {
+    pub collection: String,
+    pub reason: WithheldReason,
+}
+
+fn withheld_info(withheld: &[Withheld]) -> Option<Vec<WithheldInfo>> {
+    (!withheld.is_empty()).then(|| {
+        withheld
+            .iter()
+            .map(|w| WithheldInfo {
+                collection: w.collection.key().to_string(),
+                reason: w.reason,
+            })
+            .collect()
+    })
+}
+
 /// A flat status snapshot the UI renders directly. `phase` drives the screen; the optional fields
 /// carry whatever that phase needs.
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +139,10 @@ pub struct SyncStatus {
     pub consent_kind: Option<String>,
     pub manifests: Option<Vec<ManifestInfo>>,
     pub stats: Option<Vec<StatInfo>>,
+    /// For `completed`: `sent` or `received`, whichever this device did.
+    pub direction: Option<String>,
+    /// For `completed`: collections neither device sent, because they key topics differently.
+    pub withheld: Option<Vec<WithheldInfo>>,
     pub expires_at: Option<u64>,
     pub device_name: Option<String>,
 }
@@ -135,6 +159,8 @@ impl SyncStatus {
             consent_kind: None,
             manifests: None,
             stats: None,
+            direction: None,
+            withheld: None,
             expires_at: None,
             device_name: None,
         }
@@ -192,19 +218,41 @@ impl Default for SyncStatus {
 
 pub struct SyncManager {
     inner: Mutex<Inner>,
+    profile: SyncProfile,
 }
 
-impl Default for SyncManager {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Which profile this process runs as, as far as sync cares. Fixed for the process.
+#[derive(Debug, Clone)]
+pub struct SyncProfile {
+    /// Only the Default profile syncs (FLOW-SYNC/1 carries no profile).
+    pub syncs_here: bool,
+    /// Default's name, blank until renamed; shown in "Switch to … to sync".
+    pub default_name: String,
 }
 
 impl SyncManager {
-    pub fn new() -> Self {
+    pub fn new(profile: SyncProfile) -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
+            profile,
         }
+    }
+
+    pub fn syncs_here(&self) -> bool {
+        self.profile.syncs_here
+    }
+
+    /// The only way into a session: refuses outside Default, then while one is running.
+    pub async fn begin(&self) -> Result<(), SyncError> {
+        if !self.profile.syncs_here {
+            return Err(SyncError::NotDefaultProfile(
+                self.profile.default_name.clone(),
+            ));
+        }
+        if self.is_busy().await {
+            return Err(SyncError::Busy);
+        }
+        Ok(())
     }
 
     pub async fn status(&self) -> SyncStatus {
@@ -212,7 +260,7 @@ impl SyncManager {
     }
 
     /// True while a session is mid-flight (a new one would collide).
-    async fn is_busy(&self) -> bool {
+    pub async fn is_busy(&self) -> bool {
         matches!(
             self.inner.lock().await.status.phase.as_str(),
             "hosting" | "connecting" | "awaitingConsent" | "transferring"
@@ -359,93 +407,8 @@ fn now_s() -> u64 {
     chrono::Utc::now().timestamp().max(0) as u64
 }
 
-// --------------------------------------------------------------------------------------------
-// Resident-brain flush / reload around apply
-// --------------------------------------------------------------------------------------------
-
-async fn flush_brains(app: &AppHandle) {
-    if let Some(svc) = app.try_state::<RecommendationService>() {
-        if let Err(e) = svc.flush_brain().await {
-            tracing::warn!(%e, "[sync] flush flow_neuro brain before merge failed");
-        }
-    }
-    if let Some(store) = app.try_state::<Arc<MusicBrainStore>>() {
-        if let Err(e) = store.flush().await {
-            tracing::warn!(%e, "[sync] flush music brain before merge failed");
-        }
-    }
-}
-
-async fn reload_brains(app: &AppHandle) {
-    if let Some(svc) = app.try_state::<RecommendationService>() {
-        if let Err(e) = svc.reload_brain().await {
-            tracing::warn!(%e, "[sync] reload flow_neuro brain after merge failed");
-        }
-    }
-    if let Some(store) = app.try_state::<Arc<MusicBrainStore>>() {
-        if let Err(e) = store.reload().await {
-            tracing::warn!(%e, "[sync] reload music brain after merge failed");
-        }
-    }
-}
-
 fn pool_of(app: &AppHandle) -> SqlitePool {
     app.state::<SqlitePool>().inner().clone()
-}
-
-async fn enrich_outgoing_albums(app: &AppHandle, outgoing: &mut [OutgoingCollection]) {
-    let Some(pl) = outgoing
-        .iter_mut()
-        .find(|o| o.collection == Collection::Playlists)
-    else {
-        return;
-    };
-    let browse_ids = export::album_browse_ids_missing_tracks(&pl.ndjson);
-    if browse_ids.is_empty() {
-        return;
-    }
-    let Some(music) = app.try_state::<MusicService>() else {
-        return;
-    };
-    let mut tracks: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    for id in browse_ids {
-        match music.album(&id, Freshness::Cached).await {
-            Ok(page) => {
-                let cover = page.album.thumbnail.clone();
-                let songs: Vec<Value> = page
-                    .songs
-                    .iter()
-                    .filter_map(|s| {
-                        let mut v = serde_json::to_value(s).ok()?;
-                        if !cover.is_empty() {
-                            if let Some(obj) = v.as_object_mut() {
-                                let has = obj
-                                    .get("thumbnail")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|t| !t.is_empty());
-                                if !has {
-                                    obj.insert(
-                                        "thumbnail".to_string(),
-                                        Value::String(cover.clone()),
-                                    );
-                                }
-                            }
-                        }
-                        Some(v)
-                    })
-                    .collect();
-                if !songs.is_empty() {
-                    tracks.insert(id, songs);
-                }
-            }
-            Err(error) => {
-                tracing::warn!(target: "flow::sync::session", album = %id, %error, "album track fetch failed; album sent without tracks");
-            }
-        }
-    }
-    if !tracks.is_empty() {
-        pl.ndjson = export::fill_album_tracks(&pl.ndjson, &tracks);
-    }
 }
 
 // --------------------------------------------------------------------------------------------
@@ -464,9 +427,7 @@ pub async fn start_host(
     selection: Vec<Collection>,
     receive: bool,
 ) -> Result<HostStartInfo, SyncError> {
-    if manager.is_busy().await {
-        return Err(SyncError::Busy);
-    }
+    manager.begin().await?;
 
     let pool = pool_of(&app);
     let device_id = ledger::get_or_create_device_id(&pool).await?;
@@ -729,9 +690,7 @@ pub async fn scan_join(
     manager: Arc<SyncManager>,
     qr_text: String,
 ) -> Result<(), SyncError> {
-    if manager.is_busy().await {
-        return Err(SyncError::Busy);
-    }
+    manager.begin().await?;
     let payload = QrPayload::from_json(&qr_text)?;
     if payload.is_expired(now_s()) {
         return Err(SyncError::Expired);
@@ -824,7 +783,7 @@ async fn client_send_session(
 
     // Send the freshest data: flush resident brains before exporting.
     flush_brains(app).await;
-    let selection = producible_collections();
+    let selection = Collection::ALL.to_vec();
     let mut outgoing = export::export_collections(&pool, &device_id, &selection).await?;
     enrich_outgoing_albums(app, &mut outgoing).await;
 
@@ -937,14 +896,14 @@ fn apply_step(
             manager
                 .set_status(&app, SyncStatus::simple("transferring", Some(role)))
                 .await;
-            flush_brains(&app).await;
-            let report = apply::apply_payload(&pool, &device_id, &peer.device_id, &staged)
-                .await
-                .map_err(|e| match e {
-                    SyncError::Apply(_) => e,
-                    other => SyncError::Apply(other.to_string()),
-                })?;
+            flush_and_hold_brains(&app).await;
+            let applied = apply::apply_payload(&pool, &device_id, &peer.device_id, &staged).await;
+            // Also after a failed apply, which releases the held brain.
             reload_brains(&app).await;
+            let report = applied.map_err(|e| match e {
+                SyncError::Apply(_) => e,
+                other => SyncError::Apply(other.to_string()),
+            })?;
             let _ =
                 crate::db::settings::set_setting(&pool, "sync_last_backup", &report.backup).await;
             let mut frame = ApplyResultFrame::default();
@@ -1023,6 +982,8 @@ async fn finish_receive(
                 role: Some(role.to_string()),
                 peer: Some(peer_info(&received.peer)),
                 stats: Some(stats),
+                direction: Some("received".into()),
+                withheld: withheld_info(&received.withheld),
                 ..SyncStatus::idle()
             },
         )
@@ -1067,6 +1028,8 @@ async fn finish_send(
                         role: Some(role.to_string()),
                         peer: Some(peer_info(&send.peer)),
                         stats: Some(stats),
+                        direction: Some("sent".into()),
+                        withheld: withheld_info(&send.withheld),
                         ..SyncStatus::idle()
                     },
                 )
@@ -1079,12 +1042,4 @@ async fn finish_send(
         }
     }
     Ok(())
-}
-
-/// Every collection this desktop can produce (all except subscriptions, which has no table).
-fn producible_collections() -> Vec<Collection> {
-    Collection::ALL
-        .into_iter()
-        .filter(|c| !matches!(c, Collection::Subscriptions))
-        .collect()
 }

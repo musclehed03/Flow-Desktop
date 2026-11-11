@@ -21,6 +21,10 @@ use crate::models::video::MusicHomeChip;
 pub struct MusicSearchSection {
     pub title: String,
     pub items: Vec<YTItem>,
+    /// The top-result card and the rows under it, known by its renderer and
+    /// not by its (localised) title.
+    #[serde(default)]
+    pub is_top_result: bool,
 }
 
 /// Result of a filtered search (`/search` with a filter param), with paging.
@@ -29,6 +33,9 @@ pub struct MusicSearchSection {
 pub struct MusicSearchResponse {
     pub sections: Vec<MusicSearchSection>,
     pub continuation: Option<String>,
+    /// The filters the site offers for this query, in its order.
+    #[serde(default)]
+    pub filters: Vec<String>,
 }
 
 /// Result of a no-filter "summary" search — the first section is the
@@ -37,6 +44,9 @@ pub struct MusicSearchResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SearchSummaryPage {
     pub summaries: Vec<MusicSearchSection>,
+    /// The filters the site offers for this query, in its order.
+    #[serde(default)]
+    pub filters: Vec<String>,
 }
 
 /// A rich search suggestion: either a query string or a tappable entity.
@@ -167,6 +177,9 @@ pub struct QueuePage {
     pub related_browse_id: Option<String>,
     /// Auto-radio playlist id (`RDAMVM…`) for endless play, when present.
     pub radio_playlist_id: Option<String>,
+    /// The params the site's own automix asks with, kept with its playlist id.
+    #[serde(default)]
+    pub radio_params: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +190,26 @@ pub struct QueuePage {
 #[serde(rename_all = "camelCase")]
 pub struct MoodGenrePage {
     pub title: String,
+    /// Every item of the page in order, shelves flattened.
     pub items: Vec<YTItem>,
     pub continuation: Option<String>,
+    /// The page's shelves with their titles, when it has more than one.
+    #[serde(default)]
+    pub sections: Vec<MoodGenreSection>,
+}
+
+/// A song's plain lyrics and the credit the site shows under them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicLyrics {
+    pub text: String,
+    /// "Source: Musixmatch", shown for attribution.
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoodGenreSection {
+    pub title: String,
+    pub items: Vec<YTItem>,
 }

@@ -3,6 +3,7 @@ import { RelatedSongsSidebar } from "../radio/RelatedSongsSidebar";
 import { DeviantControls } from "../accessibility/DeviantControls";
 import { SensoryAdvisory } from "../accessibility/SensoryAdvisory";
 import { GripHorizontal, Maximize2, Pin, PinOff, RotateCcw, X } from "lucide-react";
+import { useProfileSwitchListener } from "../../lib/profiles/useProfileSwitchListener";
 
 import { IS_MACOS_RUNTIME } from "../../lib/platform";
 import { useNativeWindowTitle } from "../../lib/useNativeWindowTitle";
@@ -29,6 +30,7 @@ export function PipWindowApp() {
   const { status, alwaysOnTop, toggleAlwaysOnTop, returnToMainWindow, closeWindow } =
     usePipSession();
   usePipWindowAspectLock();
+  useProfileSwitchListener();
 
   const currentVideo = usePlayerStore((s) => s.currentVideo);
   const isQueuePanelOpen = usePlayerStore((s) => s.isQueuePanelOpen);

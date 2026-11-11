@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PlaylistAmbientHeader } from "../components/playlist/PlaylistAmbientHeader";
+import { PlaylistLoadMore } from "../components/playlist/PlaylistLoadMore";
 import { PlaylistSortableList } from "../components/playlist/PlaylistSortableList";
 import {
   availablePlaylistSortOrders,
@@ -23,8 +24,10 @@ import { useCollectionDownloadState } from "../lib/useCollectionDownloads";
 import { youtubePlaylistUrl } from "../lib/youtubeUrl";
 import { copyText } from "../lib/clipboard";
 import { useMixedMediaQueueStore } from "../lib/mixedMediaQueue";
+import { confirmPlaylistRemoval } from "../lib/confirmPlaylistRemoval";
+import { fisherYates } from "../lib/musicShuffle";
 import { usePlayerStore } from "../store/usePlayerStore";
-import { useCollectionDownloadStore } from "../store/useCollectionDownloadStore";
+import { useDownloadStore } from "../store/useDownloadStore";
 import { useUiStore } from "../store/useUiStore";
 import type { PlaylistSummary, VideoSummary } from "../types/video";
 
@@ -51,18 +54,19 @@ export function PlaylistDetailsPage({
     storedPlaylist,
     meta,
     videos,
+    hasMore,
+    loadingMore,
+    loadMoreFailed,
+    loadMore,
+    loadAllVideos,
+    setVideos,
   } = usePlaylistDetails(playlistId);
   usePublishTitle(meta?.title);
 
   const [storedSortOrder, setStoredSortOrder] = useState<string | null>(() =>
     playlistId ? loadPlaylistSortOrder(playlistId) : null,
   );
-  const [manualVideos, setManualVideos] = useState<VideoSummary[]>([]);
   const [savedInLibrary, setSavedInLibrary] = useState(false);
-
-  useEffect(() => {
-    setManualVideos(videos);
-  }, [videos]);
 
   useEffect(() => {
     setStoredSortOrder(playlistId ? loadPlaylistSortOrder(playlistId) : null);
@@ -84,32 +88,38 @@ export function PlaylistDetailsPage({
   const isLocalPlaylist = savedInLibrary || isProtected;
   const sortOrder = resolvePlaylistSortOrder(storedSortOrder, isLocalPlaylist);
 
+  // Sorting by date or popularity is only right over the whole playlist.
+  useEffect(() => {
+    if (sortOrder !== "manual" && hasMore) void loadAllVideos().catch(() => undefined);
+  }, [sortOrder, hasMore, loadAllVideos]);
+
   const displayVideos = useMemo(
-    () => sortPlaylistVideos(manualVideos, sortOrder, isProtected),
-    [manualVideos, sortOrder, isProtected],
+    () => sortPlaylistVideos(videos, sortOrder, isProtected),
+    [videos, sortOrder, isProtected],
   );
 
-  const leadVideo = manualVideos[0];
+  const leadVideo = videos[0];
   const heroThumbnailUrl = leadVideo?.thumbnailUrl ?? meta?.thumbnailUrl ?? null;
 
-  const startPlaylistDownload = useCollectionDownloadStore((state) => state.startPlaylist);
+  const openCollectionDownload = useDownloadStore((state) => state.openCollection);
   const downloadState = useCollectionDownloadState(meta?.id, "playlist");
 
-  const handleDownloadPlaylist = () => {
+  const handleDownloadPlaylist = async () => {
     if (!meta || videos.length === 0) return;
-    void startPlaylistDownload(
-      {
+    openCollectionDownload({
+      kind: "playlist",
+      meta: {
         collectionId: meta.id,
         title: meta.title,
         author: meta.channelName || undefined,
         thumbnailUrl: heroThumbnailUrl ?? meta.thumbnailUrl ?? undefined,
       },
-      videos,
-    );
+      load: () => (hasMore ? loadAllVideos().catch(() => videos) : Promise.resolve(videos)),
+    });
   };
 
   const handleReorder = async (nextVideos: VideoSummary[]) => {
-    setManualVideos(nextVideos);
+    setVideos(nextVideos);
     if (storedPlaylist) {
       await updateStoredPlaylistTracks(storedPlaylist.id, nextVideos);
     }
@@ -139,19 +149,21 @@ export function PlaylistDetailsPage({
     }
   };
 
+  const librarySummary = (): PlaylistSummary | null => meta && {
+    type: "playlist",
+    id: meta.id,
+    title: meta.title,
+    thumbnailUrl: heroThumbnailUrl ?? meta.thumbnailUrl ?? null,
+    videoCountText: meta.videoCountText,
+  };
+
   const handleSaveToLibrary = async () => {
-    if (!meta) return;
-    const summary: PlaylistSummary = {
-      type: "playlist",
-      id: meta.id,
-      title: meta.title,
-      thumbnailUrl: heroThumbnailUrl ?? meta.thumbnailUrl ?? null,
-      videoCountText: meta.videoCountText,
-    };
+    const summary = librarySummary();
+    if (!meta || !summary) return;
     try {
       const playlists = await savePlaylistToLibrary(summary);
       const saved = playlists.find((playlist) => playlist.id === meta.id);
-      if (saved) setManualVideos(saved.tracks);
+      if (saved) setVideos(saved.tracks);
       setSavedInLibrary(true);
       showToast({
         variant: "success",
@@ -164,11 +176,9 @@ export function PlaylistDetailsPage({
   };
 
   const handleRemoveFromLibrary = async () => {
-    if (!meta || isProtected) return;
-    const confirmMessage = isOwned
-      ? `Delete "${meta.title}"? This can't be undone.`
-      : `Remove "${meta.title}" from your library?`;
-    if (!window.confirm(confirmMessage)) return;
+    const summary = librarySummary();
+    if (!meta || !summary || isProtected) return;
+    if (!await confirmPlaylistRemoval(summary, isOwned)) return;
 
     try {
       await removePlaylistFromLibrary(meta.id);
@@ -186,10 +196,15 @@ export function PlaylistDetailsPage({
     }
   };
 
+  const editable = isProtected || isOwned;
+  const playlistContext = meta
+    ? { id: meta.id, title: meta.title, editable, reorderable: editable && sortOrder === "manual" }
+    : null;
+
   const playQueue = (shuffle: boolean) => {
     if (displayVideos.length === 0) return;
     const queue = shuffle
-      ? [...displayVideos].sort(() => Math.random() - 0.5)
+      ? fisherYates(displayVideos)
       : displayVideos;
     const first = queue[0];
     if (!first) return;
@@ -197,7 +212,7 @@ export function PlaylistDetailsPage({
       startMixedQueue(queue, 0);
       return;
     }
-    setQueue(queue, 0);
+    setQueue(queue, 0, playlistContext, shuffle ? displayVideos : null);
     navigate(`/watch/${first.id}`);
   };
 
@@ -208,7 +223,7 @@ export function PlaylistDetailsPage({
       startMixedQueue(displayVideos, safeIndex);
       return;
     }
-    setQueue(displayVideos, safeIndex);
+    setQueue(displayVideos, safeIndex, playlistContext);
     navigate(`/watch/${video.id}`);
   };
 
@@ -246,7 +261,7 @@ export function PlaylistDetailsPage({
           canPlay={displayVideos.length > 0}
           onPlayAll={() => playQueue(false)}
           onShuffle={() => playQueue(true)}
-          onDownload={handleDownloadPlaylist}
+          onDownload={() => void handleDownloadPlaylist()}
           downloadActive={downloadState.active}
           downloadComplete={downloadState.isComplete}
           onAddToQueue={handleAddAllToQueue}
@@ -259,7 +274,7 @@ export function PlaylistDetailsPage({
         />
 
         <PlaylistSortableList
-          videos={manualVideos}
+          videos={videos}
           displayVideos={displayVideos}
           sortOrder={sortOrder}
           sortOptions={availablePlaylistSortOrders(isLocalPlaylist)}
@@ -267,6 +282,14 @@ export function PlaylistDetailsPage({
           onReorder={handleReorder}
           onPlay={playFromPlaylist}
           onAddToQueue={onAddToQueue}
+          footer={
+            <PlaylistLoadMore
+              hasMore={hasMore}
+              loading={loadingMore}
+              failed={loadMoreFailed}
+              onLoadMore={() => void loadMore()}
+            />
+          }
         />
       </div>
     </div>

@@ -153,6 +153,34 @@ pub fn label(forms: &DisplayForms, key: &str) -> String {
         .map_or_else(|| capitalized(&base), |form| form.form.clone())
 }
 
+/// `query` with every key it holds written as titles write it ("machine learn" reads "machine
+/// learning"), longest runs first (Android `NeuroDisplayForms.searchText`).
+#[must_use]
+pub fn search_text(forms: &DisplayForms, query: &str) -> String {
+    if forms.is_empty() {
+        return query.to_string();
+    }
+    let words: Vec<&str> = query.split(' ').collect();
+    let longest = tables().max_run_words;
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        let matched = (1..=longest.min(words.len() - i)).rev().find_map(|length| {
+            forms
+                .get(&words[i..i + length].join(" "))
+                .map(|form| (form.form.clone(), length))
+        });
+        if let Some((form, length)) = matched {
+            out.push(form);
+            i += length;
+        } else {
+            out.push(words[i].to_string());
+            i += 1;
+        }
+    }
+    out.join(" ")
+}
+
 /// `text` with each word capitalized, unless it already holds a capital ("iPhone" stays).
 #[must_use]
 pub fn capitalized(text: &str) -> String {
@@ -263,22 +291,27 @@ mod tests {
 
     #[test]
     fn learning_from_a_title_keeps_its_spellings() {
+        use crate::flow_neuro::learning::{Interaction, apply_interaction};
         use crate::flow_neuro::scoring::UserBrain;
-        use crate::flow_neuro::signals::{InteractionType, apply_interaction};
+        use crate::flow_neuro::signals::InteractionType;
 
         let mut brain = UserBrain::default();
         apply_interaction(
             &mut brain,
-            "v1",
-            "Restoring Vintage Guitars",
-            "Guitar Workshop",
-            "c1",
-            None,
-            Some(600),
-            false,
-            false,
-            InteractionType::Watched,
-            0.9,
+            &Interaction {
+                video_id: "v1",
+                title: "Restoring Vintage Guitars",
+                channel_name: "Guitar Workshop",
+                channel_id: "c1",
+                description: None,
+                duration_sec: Some(600),
+                is_live: false,
+                is_short: false,
+                kind: InteractionType::Watched,
+                percent_watched: 0.9,
+                seconds_since_impression: None,
+                category: None,
+            },
         );
         let spec = brain.key_spec();
         assert_eq!(label(&brain.display_forms, "guitar"), "Guitars");

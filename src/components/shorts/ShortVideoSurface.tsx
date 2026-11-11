@@ -27,6 +27,7 @@ import {
   parseCustomSpeedPresets,
   selectPreferredCaptionId,
 } from "../../lib/settings/playerRuntime";
+import { LONG_PRESS_MS, longPressRate } from "../../lib/pointerGesture";
 import {
   AUDIO_DRIFT_TOLERANCE_SECONDS,
   AUDIO_RESYNC_MIN_INTERVAL_MS,
@@ -36,6 +37,7 @@ import type { CaptionTrack, StreamVariant } from "../../types/video";
 import { SubtitleOverlay } from "../player/SubtitleOverlay";
 import { StatsForNerds } from "../player/StatsForNerds";
 import { MediaScrubber } from "../ui/MediaScrubber";
+import { noteShortEnded, noteShortProgress } from "../../lib/shortViews";
 
 interface ShortVideoSurfaceProps {
   videoId: string;
@@ -152,7 +154,7 @@ export function ShortVideoSurface({
   useSubtitleSettingsSync();
 
   const defaultPlaybackRate = normalizePlaybackRate(playbackSpeedSetting);
-  const longPressPlaybackRate = normalizePlaybackRate(longPressSpeedSetting, 2);
+  const longPressPlaybackRate = longPressRate(longPressSpeedSetting);
   const speedOptions = parseCustomSpeedPresets(customSpeedPresets, customSpeedsEnabled);
   const selectedCaption = captions.find((caption) => caption.id === selectedCaptionId) ?? null;
   const selectedVariant = qualities.find((quality) => quality.id === selectedQualityId) ?? null;
@@ -318,6 +320,7 @@ export function ShortVideoSurface({
       };
 
       const handleEnded = () => {
+        noteShortEnded(videoId);
         if (shouldLoop) {
           loopBoth();
           return;
@@ -361,6 +364,7 @@ export function ShortVideoSurface({
       };
       const handleDashError = () => onError?.();
       const handleEnded = () => {
+        noteShortEnded(videoId);
         if (shouldLoop || autoAdvanceFiredRef.current) return;
         autoAdvanceFiredRef.current = true;
         onRequestAdvance?.();
@@ -382,6 +386,9 @@ export function ShortVideoSurface({
       player.updateSettings({
         streaming: {
           capabilities: { useMediaCapabilitiesApi: false },
+          // dash.js otherwise keeps these in localStorage, which every profile shares.
+          lastBitrateCachingInfo: { enabled: false },
+          lastMediaSettingsCachingInfo: { enabled: false },
           buffer: { bufferToKeep: 12, bufferTimeDefault: 3 },
         },
       });
@@ -400,7 +407,7 @@ export function ShortVideoSurface({
     }
 
     return teardown;
-  }, [active, audioUrl, dashUrl, hasSeparateAudio, onRequestAdvance, playbackMode, shouldLoop, useDirect, videoUrl]);
+  }, [active, audioUrl, dashUrl, hasSeparateAudio, onRequestAdvance, playbackMode, shouldLoop, useDirect, videoId, videoUrl]);
 
   useEffect(() => {
     if (!active || playbackMode !== "auto_interval" || autoAdvanceFiredRef.current) return;
@@ -417,9 +424,9 @@ export function ShortVideoSurface({
 
     const syncProgress = () => {
       setProgress(video.currentTime || 0);
-      if (Number.isFinite(video.duration) && video.duration > 0) {
-        setDuration(video.duration);
-      }
+      const known = Number.isFinite(video.duration) && video.duration > 0;
+      if (known) setDuration(video.duration);
+      noteShortProgress(videoId, (video.currentTime || 0) * 1000, known ? video.duration * 1000 : 0);
     };
 
     video.addEventListener("timeupdate", syncProgress);
@@ -430,7 +437,7 @@ export function ShortVideoSurface({
       video.removeEventListener("durationchange", syncProgress);
       video.removeEventListener("loadedmetadata", syncProgress);
     };
-  }, [dashUrl, videoUrl]);
+  }, [dashUrl, videoUrl, videoId]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -507,12 +514,13 @@ export function ShortVideoSurface({
       if (!active || event.button !== 0) return;
       setContextMenu(null);
       event.currentTarget.setPointerCapture(event.pointerId);
+      if (longPressPlaybackRate === null) return;
       longPressTimerRef.current = setTimeout(() => {
         previousRateRef.current = playbackRate;
         longPressActiveRef.current = true;
         setIsBoosting(true);
         setPlaybackRate(longPressPlaybackRate);
-      }, 420);
+      }, LONG_PRESS_MS);
     },
     [active, longPressPlaybackRate, playbackRate, setPlaybackRate],
   );
@@ -787,7 +795,7 @@ export function ShortVideoSurface({
                   setSettingsPane("root");
                 }}
               />
-              {captions.map((caption) => (
+              {captions.filter((caption) => !caption.isTranslation).map((caption) => (
                 <MenuChoice
                   key={caption.id}
                   checked={selectedCaptionId === caption.id}

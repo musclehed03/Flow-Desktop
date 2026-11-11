@@ -14,13 +14,14 @@
 
 use serde_json::{Value, json};
 
-/// Signature timestamp sent in `playbackContext.contentPlaybackContext`.
+/// Signature timestamp sent in `playbackContext.contentPlaybackContext` when the
+/// live value cannot be read.
 ///
-/// Clients with `use_signature_timestamp` need one, and YouTube rotates the value
-/// with `player_ias` releases. Flow has no JS solver to read the live value out of
-/// `base.js`, so this is pinned; when signed clients start failing wholesale this
-/// is the first thing to re-check.
-pub const DEFAULT_SIGNATURE_TIMESTAMP: i64 = 19550;
+/// Clients with `use_signature_timestamp` need one, and the value rotates with
+/// each player release. `player_js::signature_timestamp` reads the live one from
+/// the current player script; this is only the fallback when that fetch fails,
+/// kept at the value of player 55de7e60 (2026-10-22).
+pub const DEFAULT_SIGNATURE_TIMESTAMP: i64 = 20745;
 
 /// Which attestation runtime mints a PO token a given client's requests will be
 /// accepted with.
@@ -69,6 +70,16 @@ pub struct YouTubeClient {
     pub use_web_po_tokens: bool,
     /// The runtime whose tokens this client's requests and URLs accept.
     pub attestation: AttestationPlatform,
+    /// `context.client.platform` ("DESKTOP", "MOBILE"), sent only by the web clients.
+    pub platform: Option<&'static str>,
+    /// `context.client.originalUrl`, sent only by WEB.
+    pub original_url: Option<&'static str>,
+    /// Whether the User-Agent is repeated inside `context.client`. Only MWEB does this;
+    /// sending it for any other client is a fingerprint inconsistency.
+    pub send_ua_in_context: bool,
+    /// Its formats are all signed, solvable only by the remote decoder, whose
+    /// player's signature timestamp the request must carry.
+    pub remote_signed: bool,
 }
 
 impl YouTubeClient {
@@ -79,12 +90,21 @@ impl YouTubeClient {
     /// deterministic regardless of where the user is.
     #[must_use]
     pub fn context(&self, visitor_data: Option<&str>, gl: Option<&str>) -> Value {
+        self.context_in(visitor_data, gl, &super::locale::content_language())
+    }
+
+    /// [`Self::context`] in a given host language. Player requests use English,
+    /// which every playability rule reads.
+    #[must_use]
+    pub fn context_in(&self, visitor_data: Option<&str>, gl: Option<&str>, hl: &str) -> Value {
         let mut client = json!({
             "clientName": self.name,
             "clientVersion": self.version,
-            "hl": "en",
+            "hl": hl,
             "gl": gl.unwrap_or("US"),
-            "utcOffsetMinutes": 0,
+            // Times YouTube writes out ("Scheduled for 7:00 PM") are rendered in
+            // this offset, so it is the device's own.
+            "utcOffsetMinutes": chrono::Local::now().offset().local_minus_utc() / 60,
         });
         for (key, value) in [
             ("osName", self.os_name),
@@ -92,6 +112,12 @@ impl YouTubeClient {
             ("deviceMake", self.device_make),
             ("deviceModel", self.device_model),
             ("androidSdkVersion", self.android_sdk_version),
+            ("platform", self.platform),
+            ("originalUrl", self.original_url),
+            (
+                "userAgent",
+                self.send_ua_in_context.then_some(self.user_agent),
+            ),
         ] {
             if let Some(value) = value {
                 client[key] = json!(value);
@@ -103,26 +129,45 @@ impl YouTubeClient {
         json!({ "client": client })
     }
 
-    /// The context for a player request, with the PO token attached only when this
-    /// client can actually be attested by the runtime Flow owns.
+    /// The body of a `player` request: context, video id, content-check flags,
+    /// the embed URL for embedded clients, and the PO token only when this client
+    /// can actually be attested by the runtime Flow owns.
     ///
-    /// Callers pass whatever token they hold and let this decide; that keeps the
-    /// attestation rule in one place instead of at every call site.
+    /// The token goes in a top-level `serviceIntegrityDimensions`, next to
+    /// `context`. The server silently ignores it inside `context`, which left every
+    /// "attested" web request unattested. Callers pass whatever token they hold
+    /// and let this decide; that keeps the attestation rule in one place.
     #[must_use]
-    pub fn player_context(
+    pub fn player_body(
         &self,
+        video_id: &str,
         visitor_data: Option<&str>,
         po_token: Option<&str>,
-        gl: Option<&str>,
     ) -> Value {
-        let mut context = self.context(visitor_data, gl);
-        if !self.accepts_web_po_token() {
-            return context;
+        let mut context = self.context_in(visitor_data, None, "en");
+        if self.is_embedded {
+            context["thirdParty"] = json!({
+                "embedUrl": format!("https://www.youtube.com/watch?v={video_id}")
+            });
         }
-        if let Some(token) = po_token.filter(|token| !token.is_empty()) {
-            context["serviceIntegrityDimensions"] = json!({ "poToken": token });
+        let mut body = json!({
+            "context": context,
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+        });
+        if self.accepts_web_po_token()
+            && let Some(token) = po_token.filter(|token| !token.is_empty())
+        {
+            body["serviceIntegrityDimensions"] = json!({ "poToken": token });
         }
-        context
+        body
+    }
+
+    /// A web client served through SABR with an attestation token on its request.
+    #[must_use]
+    pub fn is_web_sabr(&self) -> bool {
+        self.accepts_web_po_token() && self.use_web_po_tokens
     }
 
     /// Whether a BotGuard-minted token is valid for this client.
@@ -148,7 +193,8 @@ impl YouTubeClient {
 // Client definitions
 // ---------------------------------------------------------------------------
 
-const USER_AGENT_WEB: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const USER_AGENT_WEB: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
 
 /// The primary direct-URL client for both video and music.
 ///
@@ -174,6 +220,10 @@ pub const VISIONOS: YouTubeClient = YouTubeClient {
     is_embedded: false,
     use_web_po_tokens: false,
     attestation: AttestationPlatform::IosGuard,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 pub const ANDROID_VR: YouTubeClient = YouTubeClient {
@@ -190,6 +240,10 @@ pub const ANDROID_VR: YouTubeClient = YouTubeClient {
     is_embedded: false,
     use_web_po_tokens: false,
     attestation: AttestationPlatform::DroidGuard,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 /// Newest VR build, leading the gated fallbacks the way it does on Android:
@@ -230,6 +284,10 @@ pub const ANDROID: YouTubeClient = YouTubeClient {
     is_embedded: false,
     use_web_po_tokens: false,
     attestation: AttestationPlatform::DroidGuard,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 pub const ANDROID_CREATOR: YouTubeClient = YouTubeClient {
@@ -246,22 +304,30 @@ pub const ANDROID_CREATOR: YouTubeClient = YouTubeClient {
     is_embedded: false,
     use_web_po_tokens: false,
     attestation: AttestationPlatform::DroidGuard,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 pub const IOS: YouTubeClient = YouTubeClient {
     name: "IOS",
-    version: "19.29.1",
+    version: "21.03.1",
     client_id: "5",
-    user_agent: "com.google.ios.youtube/19.29.1 (iPhone14,5; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
-    os_name: Some("iOS"),
-    os_version: Some("17.5.1"),
-    device_make: Some("Apple"),
-    device_model: Some("iPhone14,5"),
+    user_agent: "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+    os_name: None,
+    os_version: Some("18.2.22C152"),
+    device_make: None,
+    device_model: None,
     android_sdk_version: None,
-    use_signature_timestamp: true,
+    use_signature_timestamp: false,
     is_embedded: false,
     use_web_po_tokens: false,
     attestation: AttestationPlatform::IosGuard,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 pub const IPADOS: YouTubeClient = YouTubeClient {
@@ -269,17 +335,18 @@ pub const IPADOS: YouTubeClient = YouTubeClient {
     user_agent: "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
     os_name: Some("iPadOS"),
     os_version: Some("17.7.10.21H450"),
+    device_make: Some("Apple"),
     device_model: Some("iPad7,6"),
     ..IOS
 };
 
 pub const WEB: YouTubeClient = YouTubeClient {
     name: "WEB",
-    version: "2.20260120.01.00",
+    version: "2.20260710.06.00",
     client_id: "1",
     user_agent: USER_AGENT_WEB,
-    os_name: Some("Windows"),
-    os_version: Some("10.0"),
+    os_name: None,
+    os_version: None,
     device_make: None,
     device_model: None,
     android_sdk_version: None,
@@ -287,6 +354,10 @@ pub const WEB: YouTubeClient = YouTubeClient {
     is_embedded: false,
     use_web_po_tokens: true,
     attestation: AttestationPlatform::Web,
+    platform: Some("DESKTOP"),
+    original_url: Some("https://www.youtube.com"),
+    send_ua_in_context: false,
+    remote_signed: false,
 };
 
 /// Mobile web. With a `BotGuard` token on the request it is served the same SABR
@@ -299,6 +370,9 @@ pub const MWEB: YouTubeClient = YouTubeClient {
     user_agent: "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)",
     os_name: None,
     os_version: None,
+    platform: Some("MOBILE"),
+    original_url: None,
+    send_ua_in_context: true,
     ..WEB
 };
 
@@ -308,6 +382,8 @@ pub const WEB_REMIX: YouTubeClient = YouTubeClient {
     client_id: "67",
     os_name: None,
     os_version: None,
+    platform: None,
+    original_url: None,
     ..WEB
 };
 
@@ -331,7 +407,33 @@ pub const TVHTML5_SIMPLY_EMBEDDED_PLAYER: YouTubeClient = YouTubeClient {
     os_version: None,
     is_embedded: true,
     use_web_po_tokens: false,
+    platform: None,
+    original_url: None,
     ..WEB
+};
+
+/// The Samsung Tizen TV app, asked anonymously. Flow for Android measured it
+/// serving visitors the app clients had walled (#921). Its formats are all
+/// signed, so it needs the remote decoder, and the Tizen device fields: without
+/// them `player` answers "The page needs to be reloaded".
+pub const TV_TIZEN: YouTubeClient = YouTubeClient {
+    name: "TVHTML5",
+    version: "5.20260707",
+    client_id: "7",
+    user_agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
+    os_name: Some("Tizen"),
+    os_version: Some("2.4.0"),
+    device_make: Some("Samsung"),
+    device_model: Some("SmartTV"),
+    android_sdk_version: None,
+    use_signature_timestamp: true,
+    is_embedded: false,
+    use_web_po_tokens: false,
+    attestation: AttestationPlatform::Web,
+    platform: None,
+    original_url: None,
+    send_ua_in_context: false,
+    remote_signed: true,
 };
 
 /// Every client the registry knows, for reverse lookup by name.
@@ -347,6 +449,7 @@ const ALL: &[YouTubeClient] = &[
     WEB_REMIX,
     WEB_MUSIC_ANALYTICS,
     TVHTML5_SIMPLY_EMBEDDED_PLAYER,
+    TV_TIZEN,
 ];
 
 /// Resolve a client by its InnerTube `clientName`.

@@ -20,6 +20,8 @@ export interface PlayerErrorInfo {
   retryable: boolean;
   /** Whether "Open in browser" is a meaningful next step for this failure. */
   canOpenInBrowser: boolean;
+  /** When an upcoming premiere or stream starts, in epoch milliseconds. */
+  startsAtMs?: number;
 }
 
 interface KindSpec {
@@ -91,9 +93,45 @@ const SPECS: Record<string, KindSpec> = {
     retryable: true,
     openable: true,
   },
+  mediaDecode: {
+    titleKey: "player_error_media_decode_title",
+    hintKey: "player_error_media_decode_hint",
+    retryable: true,
+    openable: true,
+  },
+  streamExpired: {
+    titleKey: "player_error_stream_expired_title",
+    hintKey: "player_error_stream_expired_hint",
+    retryable: true,
+    openable: true,
+  },
   network: {
     titleKey: "player_error_network_title",
     hintKey: "player_error_network_hint",
+    retryable: true,
+    openable: true,
+  },
+  membersOnly: {
+    titleKey: "player_error_members_only_title",
+    hintKey: "player_error_members_only_hint",
+    retryable: false,
+    openable: true,
+  },
+  networkWall: {
+    titleKey: "player_error_network_wall_title",
+    hintKey: "player_error_network_wall_hint",
+    retryable: true,
+    openable: true,
+  },
+  liveUpcoming: {
+    titleKey: "player_error_upcoming_title",
+    hintKey: "player_error_upcoming_hint",
+    retryable: true,
+    openable: true,
+  },
+  rateLimited: {
+    titleKey: "player_error_rate_limited_title",
+    hintKey: "player_error_rate_limited_hint",
     retryable: true,
     openable: true,
   },
@@ -163,5 +201,6 @@ export function classifyPlayerError(error: unknown): PlayerErrorInfo {
     rawMessage: normalized.message,
     retryable: spec.retryable,
     canOpenInBrowser: spec.openable,
+    startsAtMs: normalized.startsAtMs,
   };
 }

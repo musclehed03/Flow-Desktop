@@ -27,7 +27,7 @@ export async function buildRelatedSnapshot(seed: RelatedSeed, queueIds: string[]
     rows = songs.map((song) => ({ id: song.videoId ?? song.id, title: song.title, artist: song.artists.map((a) => a.name).join(', '), song }));
   } else {
     const candidates = await getRelatedVideos(id);
-    rows = candidates.filter((item) => item.itemType === 'video' && !item.isLive).map((item) => {
+    rows = candidates.items.filter((item) => item.itemType === 'video' && !item.isLive).map((item) => {
       const video: VideoSummary = { id: item.videoId ?? item.id, title: item.title, channelName: item.channelName,
         channelId: item.channelId, thumbnailUrl: item.thumbnailUrl, durationSeconds: item.durationSeconds };
       return { id: video.id, title: video.title, artist: video.channelName, video };

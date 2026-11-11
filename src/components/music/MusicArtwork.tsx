@@ -1,4 +1,5 @@
-import { motion } from "framer-motion";
+import type { CSSProperties } from "react";
+import { motion, type Transition } from "framer-motion";
 import { Music2, Loader2 } from "lucide-react";
 import { upgradeMusicImageUrl } from "../../lib/thumbnails";
 import { useImageFallback } from "../../lib/useImageFallback";
@@ -8,8 +9,10 @@ interface MusicArtworkProps {
   src?: string | null;
   alt: string;
   className?: string;
+  style?: CSSProperties;
 
-  layoutId?: string;
+  layout?: boolean;
+  transition?: Transition;
   loading?: boolean;
   iconClassName?: string;
 }
@@ -18,7 +21,9 @@ export function MusicArtwork({
   src,
   alt,
   className,
-  layoutId,
+  style,
+  layout,
+  transition,
   loading = false,
   iconClassName = "h-5 w-5",
 }: MusicArtworkProps) {
@@ -28,8 +33,10 @@ export function MusicArtwork({
 
   return (
     <motion.div data-sensory-artwork="true"
-      layoutId={layoutId}
+      layout={layout}
+      transition={transition}
       className={`relative overflow-hidden bg-surface-container-highest ${className ?? ""}`}
+      style={style}
     >
       {showImage ? (
         <img

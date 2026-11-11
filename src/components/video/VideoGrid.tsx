@@ -3,6 +3,9 @@ import type { VideoSummary } from '../../types/video';
 import { VideoCard } from './VideoCard';
 import { SkeletonLoader } from '../ui/SkeletonLoader';
 import { useGridStyle, useResolvedGridColumns } from '../../lib/useGridColumns';
+import { IMPRESSION_ATTRIBUTE, useFeedImpressions } from '../../lib/useFeedImpressions';
+import { GRID_INDEX_ATTRIBUTE, useLastVisibleCard } from '../../lib/useLastVisibleCard';
+import { thumbnailNeedsHighRes } from '../../lib/thumbnails';
 
 interface VideoGridProps {
   videos?: VideoSummary[];
@@ -16,6 +19,12 @@ interface VideoGridProps {
   getVideoKey?: (video: VideoSummary, index: number) => string;
   variant?: "default" | "history";
   hideChannelAvatar?: boolean;
+  /** Counts cards the viewer actually sees as feed impressions for the recommendation engine. */
+  trackImpressions?: boolean;
+  /** Why a feed shows a card, offered in its menu. */
+  getReason?: (video: VideoSummary) => string | undefined;
+  /** The position of the last card on screen, for a feed that pages as it nears the end. */
+  onLastVisibleIndex?: (index: number) => void;
 }
 
 function VideoCardSkeleton() {
@@ -44,10 +53,17 @@ function VideoGridComponent({
   getVideoKey,
   variant = "default",
   hideChannelAvatar,
+  trackImpressions = false,
+  getReason,
+  onLastVisibleIndex,
 }: VideoGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
+  useFeedImpressions(gridRef, videos, trackImpressions && !loading);
+  useLastVisibleCard(gridRef, loading ? 0 : videos.length, onLastVisibleIndex);
   const gridStyle = useGridStyle();
-  const columns = useResolvedGridColumns(gridRef, gridStyle);
+  const { columns, trackWidth } = useResolvedGridColumns(gridRef, gridStyle);
+  // Few columns or a wide window can stretch a card past `hqdefault` even on a 1× screen.
+  const highResThumbnails = trackWidth > 0 ? thumbnailNeedsHighRes(trackWidth) : undefined;
   const gridClass = "flow-grid gap-y-8 pb-8";
 
   /*
@@ -78,7 +94,11 @@ function VideoGridComponent({
             past the card's own hover bleed, so the colour wash still has room
             at the peak of its expansion — even at two columns on a wide window.
           */}
-          <div className="flow-grid-card p-2 -m-2">
+          <div
+            className="flow-grid-card p-2 -m-2"
+            {...(trackImpressions ? { [IMPRESSION_ATTRIBUTE]: video.id } : {})}
+            {...(onLastVisibleIndex ? { [GRID_INDEX_ATTRIBUTE]: index } : {})}
+          >
             <VideoCard
               video={video}
               onPlay={onPlay}
@@ -86,6 +106,8 @@ function VideoGridComponent({
               onRemoveFromHistory={onRemoveFromHistory}
               variant={variant}
               hideChannelAvatar={hideChannelAvatar}
+              reason={getReason?.(video)}
+              highResThumbnail={highResThumbnails}
             />
           </div>
           {insertAfterIndex === index ? (

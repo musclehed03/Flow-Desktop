@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Radio, ShieldCheck, BadgeCheck, ArrowDown, RotateCw } from "lucide-react";
-import { useLiveChat } from "../../lib/useLiveChat";
+import { Loader2, Radio, ShieldCheck, BadgeCheck, ArrowDown, RotateCw, X } from "lucide-react";
+import { useLiveChat, type ChatView, type LiveChatState } from "../../lib/useLiveChat";
+import { useChatReplay } from "../../lib/useChatReplay";
 import { getString } from "../../lib/i18n/index";
+import { selectionTouches } from "../../lib/textSelection";
 import { useProxyImageSrc } from "../../lib/useImageProxy";
 import type { LiveChatMessage, LiveChatSegment } from "../../types/video";
 import type { LiveChatProps } from "./types";
@@ -128,15 +130,80 @@ function ChatRow({ message }: { message: LiveChatMessage }) {
   );
 }
 
-export function LiveChat({ videoId }: LiveChatProps) {
-  const { messages, loading, ended, reconnect } = useLiveChat(videoId, true);
+function StreamChat({ videoId, view, ...panel }: ChatPanelSource) {
+  const chat = useLiveChat(videoId, true, view);
+  return <ChatPanel chat={chat} isReplay={false} view={view} {...panel} />;
+}
+
+function ReplayChat({ videoId, view, ...panel }: ChatPanelSource) {
+  const chat = useChatReplay(videoId, true, view);
+  return <ChatPanel chat={chat} isReplay view={view} {...panel} />;
+}
+
+interface ChatPanelSource {
+  videoId: string;
+  view: ChatView;
+  onViewChange: (view: ChatView) => void;
+  fill?: boolean;
+  onClose?: () => void;
+}
+
+/** A live stream's chat, or a finished stream's chat replayed in step with the player. */
+export function LiveChat({ videoId, isReplay, fill, onClose }: LiveChatProps) {
+  const [view, setView] = useState<ChatView>("top");
+  return isReplay ? (
+    <ReplayChat videoId={videoId} view={view} onViewChange={setView} fill={fill} onClose={onClose} />
+  ) : (
+    <StreamChat videoId={videoId} view={view} onViewChange={setView} fill={fill} onClose={onClose} />
+  );
+}
+
+function ViewToggle({ view, onViewChange }: { view: ChatView; onViewChange: (view: ChatView) => void }) {
+  return (
+    <div className="flex items-center rounded-full bg-surface-container p-0.5">
+      {(["top", "all"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onViewChange(option)}
+          aria-pressed={view === option}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+            view === option
+              ? "bg-surface-container-highest text-chrome-neutral-100"
+              : "text-chrome-neutral-400 hover:text-chrome-neutral-200"
+          }`}
+        >
+          {getString(option === "top" ? "live_chat_view_top" : "live_chat_view_all")}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChatPanel({
+  chat,
+  isReplay,
+  view,
+  onViewChange,
+  fill = false,
+  onClose,
+}: {
+  chat: LiveChatState;
+  isReplay: boolean;
+  view: ChatView;
+  onViewChange: (view: ChatView) => void;
+  fill?: boolean;
+  onClose?: () => void;
+}) {
+  const { messages, loading, ended, canSwitchView, reconnect } = chat;
 
   const listRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
 
-  // Keep the view glued to the newest message unless the user has scrolled up to read history.
+  // Keep the view glued to the newest message unless the user has scrolled up to read history
+  // or is highlighting a message, which a jump would drag out from under the pointer.
   useLayoutEffect(() => {
-    if (pinned && listRef.current) {
+    if (pinned && listRef.current && !selectionTouches(listRef.current)) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages, pinned]);
@@ -153,29 +220,50 @@ export function LiveChat({ videoId }: LiveChatProps) {
   }, []);
 
   return (
-    <div className="flex h-[min(560px,70vh)] w-full flex-col overflow-hidden rounded-2xl border border-chrome-neutral-800 bg-surface-container-low">
+    <div
+      className={`flex w-full flex-col overflow-hidden rounded-2xl border border-chrome-neutral-800 bg-surface-container-low ${
+        fill ? "h-full" : "h-[min(560px,70vh)] shrink-0"
+      }`}
+    >
       <div className="flex shrink-0 items-center gap-2 border-b border-chrome-neutral-800 px-4 py-3">
         <Radio size={16} className="text-primary" />
-        <h3 className="text-base font-medium text-chrome-neutral-200">{getString("live_chat_title")}</h3>
-        {ended ? (
-          <button
-            type="button"
-            onClick={reconnect}
-            className="ml-auto flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold text-chrome-neutral-300 transition-colors hover:bg-surface-container-high hover:text-chrome-neutral-100"
-          >
-            <RotateCw size={12} />
-            {getString("live_chat_reconnect")}
-          </button>
-        ) : (
-          <span className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-primary">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-            {getString("live_badge")}
-          </span>
-        )}
+        <h3 className="text-base font-medium text-chrome-neutral-200">
+          {getString(isReplay ? "live_chat_replay_title" : "live_chat_title")}
+        </h3>
+        <div className="ml-auto flex items-center gap-2">
+          {canSwitchView && <ViewToggle view={view} onViewChange={onViewChange} />}
+          {ended ? (
+            <button
+              type="button"
+              onClick={reconnect}
+              className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold text-chrome-neutral-300 transition-colors hover:bg-surface-container-high hover:text-chrome-neutral-100"
+            >
+              <RotateCw size={12} />
+              {getString("live_chat_reconnect")}
+            </button>
+          ) : (
+            !isReplay && (
+              <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-primary">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                {getString("live_badge")}
+              </span>
+            )
+          )}
+          {onClose && (
+            <button
+              type="button"
+              aria-label={getString("close")}
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-full text-chrome-neutral-400 transition-colors duration-200 ease-out hover:bg-surface-container-high hover:text-chrome-neutral-100"
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <div ref={listRef} className="hide-scrollbar h-full space-y-2.5 overflow-y-auto px-3 py-3">
+        <div ref={listRef} className="hide-scrollbar h-full select-text space-y-2.5 overflow-y-auto px-3 py-3">
           {loading && messages.length === 0 ? (
             <div className="flex items-center gap-2 px-1 py-2 text-sm text-chrome-neutral-500">
               <Loader2 size={16} className="animate-spin" />

@@ -8,16 +8,18 @@
 
 use flow_desktop_lib::api::innertube::core::clients::{
     self, ANDROID, ANDROID_CREATOR, ANDROID_VR, ANDROID_VR_1_43_32, ANDROID_VR_NO_AUTH,
-    AttestationPlatform, IOS, IPADOS, TVHTML5_SIMPLY_EMBEDDED_PLAYER, VISIONOS, WEB, WEB_REMIX,
+    AttestationPlatform, IOS, IPADOS, MWEB, TVHTML5_SIMPLY_EMBEDDED_PLAYER, VISIONOS, WEB,
+    WEB_REMIX,
 };
 use flow_desktop_lib::api::innertube::music::clients::DIRECT_AUDIO_CLIENTS;
 
 #[test]
 fn non_web_clients_never_carry_a_botguard_token() {
     for client in [VISIONOS, IOS, IPADOS, ANDROID, ANDROID_VR, ANDROID_CREATOR] {
-        let context = client.player_context(Some("visitor"), Some("a-botguard-token"), None);
+        let body = client.player_body("vid", Some("visitor"), Some("a-botguard-token"));
         assert!(
-            context.get("serviceIntegrityDimensions").is_none(),
+            body.get("serviceIntegrityDimensions").is_none()
+                && body["context"].get("serviceIntegrityDimensions").is_none(),
             "{} is attested by {:?}, so a BotGuard token must not be attached",
             client.name,
             client.attestation
@@ -28,18 +30,39 @@ fn non_web_clients_never_carry_a_botguard_token() {
 
 #[test]
 fn web_family_does_carry_a_botguard_token() {
-    let context = WEB.player_context(Some("visitor"), Some("a-botguard-token"), None);
+    let body = WEB.player_body("vid", Some("visitor"), Some("a-botguard-token"));
     assert_eq!(
-        context["serviceIntegrityDimensions"]["poToken"], "a-botguard-token",
+        body["serviceIntegrityDimensions"]["poToken"], "a-botguard-token",
         "WEB is the one family Flow can attest, so it must send the token"
+    );
+    assert!(
+        body["context"].get("serviceIntegrityDimensions").is_none(),
+        "YouTube ignores the token inside context; it belongs at the top level"
     );
     assert_eq!(WEB.attestation, AttestationPlatform::Web);
 }
 
 #[test]
 fn an_empty_token_is_never_attached() {
-    let context = WEB.player_context(Some("visitor"), Some(""), None);
-    assert!(context.get("serviceIntegrityDimensions").is_none());
+    let body = WEB.player_body("vid", Some("visitor"), Some(""));
+    assert!(body.get("serviceIntegrityDimensions").is_none());
+}
+
+#[test]
+fn player_body_carries_the_content_flags_and_embed_url() {
+    let body = TVHTML5_SIMPLY_EMBEDDED_PLAYER.player_body("abc", None, None);
+    assert_eq!(body["videoId"], "abc");
+    assert_eq!(body["contentCheckOk"], true);
+    assert_eq!(body["racyCheckOk"], true);
+    assert_eq!(
+        body["context"]["thirdParty"]["embedUrl"],
+        "https://www.youtube.com/watch?v=abc"
+    );
+    assert!(
+        VISIONOS.player_body("abc", None, None)["context"]
+            .get("thirdParty")
+            .is_none()
+    );
 }
 
 #[test]
@@ -94,6 +117,19 @@ fn lookup_resolves_the_names_media_urls_carry() {
 }
 
 #[test]
+fn web_clients_carry_android_s_context_fields() {
+    let web = WEB.context(None, None);
+    assert_eq!(web["client"]["platform"], "DESKTOP");
+    assert_eq!(web["client"]["originalUrl"], "https://www.youtube.com");
+    assert!(web["client"].get("osName").is_none());
+    let mweb = MWEB.context(None, None);
+    assert_eq!(mweb["client"]["platform"], "MOBILE");
+    assert_eq!(mweb["client"]["userAgent"], MWEB.user_agent);
+    assert_eq!(WEB.version, "2.20260710.06.00");
+    assert_eq!(IOS.version, "21.03.1");
+}
+
+#[test]
 fn client_ids_parse_for_the_sabr_streamer_context() {
     assert_eq!(VISIONOS.client_name_id(), 101);
     assert_eq!(WEB.client_name_id(), 1);
@@ -108,8 +144,12 @@ fn signature_timestamp_is_sent_only_where_the_client_asks_for_it() {
         "VISIONOS serves un-signed URLs; sending a timestamp is a fingerprint mismatch"
     );
     assert!(ANDROID_VR.signature_timestamp().is_none());
+    assert!(
+        IOS.signature_timestamp().is_none(),
+        "Flow for Android's IOS sends none either"
+    );
     assert_eq!(
-        IOS.signature_timestamp(),
+        WEB.signature_timestamp(),
         Some(clients::DEFAULT_SIGNATURE_TIMESTAMP)
     );
 }

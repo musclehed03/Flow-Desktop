@@ -1,6 +1,6 @@
 import { planCrossfade, crossfadeSeconds, shouldCrossfade } from "../lib/audio/crossfade";
 import { sessionPlayed, rememberPlayed, allowReplay } from "../lib/djSession";
-import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, trackStation, type MusicStation } from "../lib/musicStation";
+import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, geniusLaneFor, targetNovelty, trackStation, type MusicStation } from "../lib/musicStation";
 import { recallArtist, audioMusicOnly } from "../lib/musicRecall";
 import { getMusicMoodGenre } from "../lib/api/music";
 import type { ArtistItem } from "../types/music";
@@ -10,14 +10,15 @@ import { create } from "zustand";
 import { usePlayerStore } from "./usePlayerStore";
 import { musicVideoFirstEnabled, shouldWatchSong, songToVideoSummary } from "../lib/musicVideoRouting";
 import { showQueueFeedback } from "../lib/queueFeedback";
+import { queueWith, remoteControl } from "./useRemoteControlStore";
+import { profileStorage } from "../lib/storage/profileStorage";
 
 import type { MusicStreamInfo, SongItem } from "../types/music";
-import {
-  type MusicAudioQuality,
-} from "../lib/api/music";
+import type { MusicAudioQuality } from "../lib/api/music";
 import { getOfflineStream } from "../lib/api/downloads";
 import {
   invalidateMusicStream,
+  isResolveTimeout,
   prefetchMusicStream,
   resolveMusicStream,
 } from "../lib/musicStreamResolution";
@@ -27,22 +28,54 @@ import { useDownloadsLibraryStore } from "./useDownloadsLibraryStore";
 import { normalizeBackendError } from "../lib/api/errors";
 import { recordPlayerEvent } from "../lib/playerDiagnostics";
 import { logToBackend } from "../lib/diagnostics";
+import { listedSeconds } from "../lib/audio/listedLength";
 import { musicAudioEngine } from "../lib/audio/musicAudioEngine";
+import { migrateSavedMusicVolume } from "../lib/audio/volumeCurve";
 import { preloadTrack } from "../lib/musicPreload";
-import { resetQueueOrder, upcomingIndex, type QueueRepeatMode } from "../lib/musicQueueOrder";
-import { SETTINGS } from "../lib/settings/schema";
-import {
-  EQ_FLAT,
-  EQ_PRESETS,
-  normalizeEqGains,
-  type EqPresetName,
-} from "../lib/audio/eqBands";
+import { upcomingIndex, type QueueRepeatMode } from "../lib/musicQueueOrder";
+import { restoreOriginalOrder, shuffleFrom, shuffleUpcoming } from "../lib/musicShuffle";
 import { getSettingValue, setSettingValue } from "./useAppSettingsStore";
-import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "../lib/audio/eqConfig";
+import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, normalizeGraphicGains, type AudioProcessingConfig } from "../lib/audio/eqConfig";
 import { dispatchMixedMediaEnded, dispatchMixedMediaPrevious } from "../lib/mixedMediaEvents";
+import {
+  appendTracks,
+  insertNext,
+  isUpcoming,
+  removeAt,
+  removeWhere,
+  type QueueLists,
+} from "../lib/musicQueueEdits";
+import { radioSession } from "../lib/musicRadioSession";
+import type { RestoredQueue } from "../lib/musicQueuePersistence";
+import { isLongTrack, resumePositionFor } from "../lib/musicResume";
+import { POOL_LOW_WATER } from "../lib/musicRadioPlanner";
+import { SETTINGS } from "../lib/settings/schema";
+import { shouldSkipUnplayable } from "../lib/musicSkip";
+import { MEDIA_FAILURE_KIND, RecoveryLedger, classifyMediaFailure } from "../lib/musicRecoveryPolicy";
 
 export type MusicViewState = "dock" | "full" | "queue" | "lyrics";
 export type MusicRepeatMode = QueueRepeatMode;
+
+/** The legacy ten-band preset names, kept for `applyEqPreset`. */
+export type EqPresetName =
+  | "flat"
+  | "bass"
+  | "vocal"
+  | "treble"
+  | "electronic"
+  | "acoustic";
+
+// The legacy ten-band preset curves (low → high), from the deleted
+// `lib/audio/eqBands.ts`; they drive the 10-band graphic stage, which the
+// upstream EqChain still honours through `AudioProcessingConfig`.
+const LEGACY_EQ_PRESETS: Record<EqPresetName, number[]> = {
+  flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  bass: [6, 5, 4, 2, 0, 0, 0, 0, 1, 2],
+  vocal: [-2, -1, 0, 2, 4, 4, 3, 2, 0, -1],
+  treble: [0, 0, 0, 0, 0, 1, 2, 4, 5, 6],
+  electronic: [5, 4, 1, 0, -1, 1, 0, 2, 3, 4],
+  acoustic: [3, 2, 1, 1, 2, 2, 3, 3, 2, 1],
+};
 
 let suppressAutomaticFadeUntil = 0;
 
@@ -69,7 +102,7 @@ const DEFAULT_CONFIG: PersistedMusicConfig = {
   volume: 1,
   isMuted: false,
   eqEnabled: false,
-  eqGains: [...EQ_FLAT],
+  eqGains: Array(10).fill(0),
   normalizationEnabled: true,
   repeatMode: "none",
   isShuffle: false,
@@ -78,14 +111,14 @@ const DEFAULT_CONFIG: PersistedMusicConfig = {
 
 const loadConfig = (): PersistedMusicConfig => {
   try {
-    const saved = localStorage.getItem(PERSIST_KEY);
+    const saved = profileStorage.getItem(PERSIST_KEY);
     if (!saved) return { ...DEFAULT_CONFIG };
     const parsed = JSON.parse(saved) as Partial<PersistedMusicConfig>;
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
       volume: clamp01(parsed.volume ?? DEFAULT_CONFIG.volume),
-      eqGains: normalizeEqGains(parsed.eqGains),
+      eqGains: normalizeGraphicGains(parsed.eqGains ?? DEFAULT_CONFIG.eqGains, 10),
     };
   } catch (error) {
     console.warn("Failed to load saved music player config", error);
@@ -93,6 +126,7 @@ const loadConfig = (): PersistedMusicConfig => {
   }
 };
 
+migrateSavedMusicVolume();
 const initialConfig = loadConfig();
 const initialProcessing = (() => {
   try {
@@ -118,20 +152,43 @@ const saveConfig = (get: () => MusicPlayerState) => {
       isShuffle: s.isShuffle,
       radioEnabled: s.radioEnabled,
     };
-    localStorage.setItem(PERSIST_KEY, JSON.stringify(config));
+    profileStorage.setItem(PERSIST_KEY, JSON.stringify(config));
   } catch (error) {
     console.warn("Failed to save music player config", error);
   }
 };
 
-const PLAYBACK_ERROR_FALLBACK = "Playback failed";
+// Recoveries each track has had from a media-element failure.
+const recovery = new RecoveryLedger();
+// The user paused: a stall or a recovery must never start the song again.
+let userPaused = false;
+let stopWaitingForNetwork: (() => void) | null = null;
 
-// The track a media-element failure was already recovered for; a second failure
-// on it is shown to the user instead of looping.
-let recoveredVideoId: string | null = null;
+const cancelNetworkWait = () => {
+  stopWaitingForNetwork?.();
+  stopWaitingForNetwork = null;
+};
+
+/** Runs `onBack` once the browser reports the connection is back. */
+const waitForNetwork = (onBack: () => void) => {
+  cancelNetworkWait();
+  const handler = () => {
+    stopWaitingForNetwork = null;
+    onBack();
+  };
+  window.addEventListener("online", handler, { once: true });
+  stopWaitingForNetwork = () => window.removeEventListener("online", handler);
+};
+
+// A queue restored at launch shows its song paused without loading it; the
+// first play loads it at the saved position.
+let awaitingFirstPlay = false;
+
+// Unplayable tracks skipped since the last one that started.
+let unplayableSkips = 0;
 
 // When the current load began, for the start-up timing in the diagnostics log.
-let loadStartedAt: { videoId: string; at: number } | null = null;
+let loadStartedAt: { videoId: string; at: number; resolvedAt?: number; hidden: boolean } | null = null;
 
 // A stall with no bytes arriving for this long is treated as a dead connection
 // and recovered; a slow one that is still receiving is left to finish.
@@ -164,6 +221,7 @@ const resetRadioSession = (seedIds: string[] = []) => {
   radioInFlight = null;
   radioSessionSeen.clear();
   for (const id of seedIds) radioSessionSeen.add(id);
+  radioSession.reset(seedIds);
 };
 
 const nextMusicIndex = (state: MusicPlayerState) => upcomingIndex({ ...state, playedIds: geniusEnabled() ? sessionPlayed() : undefined });
@@ -177,11 +235,52 @@ export const isPlayableAudio = (s: SongItem): boolean => {
   return (!isVideoSong || musicVideoFirstEnabled()) && okDuration && !!(s.videoId ?? s.id);
 };
 
+const queueListsOf = (s: QueueLists): QueueLists => ({
+  queue: s.queue,
+  unshuffledQueue: s.unshuffledQueue,
+  currentIndex: s.currentIndex,
+});
+
+/** The station's tracks still waiting to play, which count toward each artist's share. */
+const waitingStationTracks = (s: Pick<MusicPlayerState, "queue" | "currentIndex" | "radioQueuedIds">) => {
+  const station = new Set(s.radioQueuedIds);
+  return s.queue.filter((t, i) => i > s.currentIndex && station.has(videoIdOf(t)));
+};
+
+/**
+ * A queue replacing the last one, with no station tracks and no undo of the
+ * old one. `unshuffled` is the order shuffle restores, or null with shuffle off.
+ */
+const freshQueue = (queue: SongItem[], unshuffled: SongItem[] | null) => {
+  undoSnapshot = null;
+  return {
+    queue,
+    unshuffledQueue: unshuffled,
+    radioQueuedIds: [],
+    radioLoading: false,
+    radioExhausted: false,
+  };
+};
+
+type UndoSnapshot = Pick<
+  MusicPlayerState,
+  "queue" | "unshuffledQueue" | "currentIndex" | "radioQueuedIds" | "queueSource"
+>;
+/** The queue as it stood before the last removal or clear, for its undo toast. */
+let undoSnapshot: UndoSnapshot | null = null;
+
+const undoSnapshotOf = (s: UndoSnapshot): UndoSnapshot => ({
+  queue: s.queue,
+  unshuffledQueue: s.unshuffledQueue,
+  currentIndex: s.currentIndex,
+  radioQueuedIds: s.radioQueuedIds,
+  queueSource: s.queueSource,
+});
+
 const getMusicAudioQualitySetting = (): MusicAudioQuality => {
   const value = getSettingValue(SETTINGS.MUSIC_AUDIO_QUALITY);
   return MUSIC_AUDIO_QUALITY_VALUES.has(value) ? (value as MusicAudioQuality) : "Auto";
 };
-const stableVolumeEnabled = () => getSettingValue(SETTINGS.STABLE_VOLUME_ENABLED) === "true";
 
 interface MusicPlayerState {
   // --- now playing ---
@@ -214,6 +313,8 @@ interface MusicPlayerState {
 
   /** Where the current queue was started from ("Playing from …"); null for ad-hoc plays. */
   queueSource: string | null;
+  /** The order shuffle rearranged, restored when it is turned off; null while shuffle is off. */
+  unshuffledQueue: SongItem[] | null;
 
   // --- radio / autoplay ---
   station: MusicStation | null;
@@ -221,6 +322,8 @@ interface MusicPlayerState {
   radioError: boolean;
   radioLoading: boolean;
   radioQueuedIds: string[];
+  /** The station found nothing more to play, even from its anchor songs. */
+  radioExhausted: boolean;
 
   // --- overlay / surface ---
   viewState: MusicViewState;
@@ -233,7 +336,13 @@ interface MusicPlayerState {
 
   // --- intents (called by UI) ---
   playTrack: (track: SongItem) => Promise<void>;
-  playQueue: (tracks: SongItem[], startIndex?: number, source?: string | null) => Promise<void>;
+  /** `start` begins the first song at `at` seconds, and paused unless `autoplay`, in one load. */
+  playQueue: (
+    tracks: SongItem[],
+    startIndex?: number,
+    source?: string | null,
+    start?: { at: number; autoplay: boolean },
+  ) => Promise<void>;
   restoreSession: (queue: SongItem[], currentIndex: number, position: number, autoplay: boolean) => void;
   togglePlay: () => void;
   play: () => void;
@@ -261,6 +370,12 @@ interface MusicPlayerState {
   removeFromQueue: (index: number) => void;
   reorderQueue: (from: number, to: number) => void;
   clearQueue: () => void;
+  /** Replaces the queue around the song playing, which carries on; it goes first when `tracks` leaves it out. */
+  replaceQueue: (tracks: SongItem[]) => void;
+  /** Puts back the queue as it was before the last removal or clear. */
+  undoQueueEdit: () => void;
+  /** Shows the queue saved at the last session, paused, unless something already plays. */
+  restoreSavedQueue: (restored: RestoredQueue) => void;
 
   // --- block list integration (driven by useMusicActionsStore) ---
   setHiddenPredicate: (predicate: (track: SongItem) => boolean) => void;
@@ -275,11 +390,13 @@ interface MusicPlayerState {
   setEqGains: (gains: number[]) => void;
   applyEqPreset: (name: EqPresetName) => void;
   setAudioProcessing: (config: AudioProcessingConfig) => void;
+  /** Follows the saved music normalization setting (see `bindMusicAudioSettings`). */
   setNormalizationEnabled: (enabled: boolean) => void;
 
   // --- internal: driven by the root <audio> controller (element → store) ---
   _ensureRadio: () => Promise<void>;
-  _loadIndex: (index: number, options?: { resumeAt?: number; automatic?: boolean; manual?: boolean }) => Promise<void>;
+  /** `autoplay: false` loads the track paused, for a recovery while the user had paused. */
+  _loadIndex: (index: number, options?: { resumeAt?: number; autoplay?: boolean; automatic?: boolean; manual?: boolean }) => Promise<void>;
   _prefetchUpcoming: () => void;
   _preloadUpcoming: () => void;
   _onPreloadError: () => void;
@@ -294,6 +411,12 @@ interface MusicPlayerState {
 export const selectRadioOn = (s: Pick<MusicPlayerState, "radioEnabled" | "radioStationActive">): boolean =>
   s.radioEnabled || s.radioStationActive;
 
+/** Resolves a song's stream ahead of playing it; a downloaded one plays from disk and needs none. */
+export function warmMusicStream(videoId: string): void {
+  if (findDownloadedRecord(videoId, "audio")) return;
+  prefetchMusicStream(videoId, getMusicAudioQualitySetting(), { preferAac: musicAudioEngine.wantsAac() });
+}
+
 export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   currentTrack: null,
   queue: [],
@@ -307,7 +430,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   volume: initialConfig.volume,
   isMuted: initialConfig.isMuted,
   loudnessDb: null,
-  normalizationEnabled: initialConfig.normalizationEnabled,
+  normalizationEnabled: getSettingValue(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION) === "true",
   eqEnabled: initialConfig.eqEnabled,
   eqGains: initialConfig.eqGains,
   audioProcessing: initialProcessing,
@@ -321,8 +444,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   station: null,
   playedIds: [],
   radioError: false,
+  unshuffledQueue: null,
   radioLoading: false,
   radioQueuedIds: [],
+  radioExhausted: false,
 
   viewState: "dock",
   musicFullscreen: false,
@@ -336,24 +461,37 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   playTrack: async (track) => {
     transportGeneration++;
     set({ station: null, playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)), radioError: false });
+    const remote = remoteControl();
+    if (remote) return remote.play([videoIdOf(track)], 0, true);
     resetRadioSession([videoIdOf(track)]);
-    set({ queue: [track], radioQueuedIds: [], radioStationActive: false, queueSource: null });
+    set({ ...freshQueue([track], get().isShuffle ? [track] : null), radioStationActive: false, queueSource: null });
     await get()._loadIndex(0);
   },
 
-  playQueue: async (tracks, startIndex = 0, source = null) => {
+  playQueue: async (tracks, startIndex = 0, source = null, start) => {
     if (tracks.length === 0) return;
     transportGeneration++;
     set({ station: null, playedIds: get().playedIds.filter((id) => id !== videoIdOf(tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))]!)), radioError: false });
+    const remote = remoteControl();
+    if (remote) return remote.play(tracks.map(videoIdOf), startIndex, true);
     resetRadioSession(tracks.map(videoIdOf));
-    set({ queue: tracks, radioQueuedIds: [], radioStationActive: false, queueSource: source });
-    await get()._loadIndex(Math.max(0, Math.min(startIndex, tracks.length - 1)));
+    const first = Math.max(0, Math.min(startIndex, tracks.length - 1));
+    const shuffled = get().isShuffle;
+    set({
+      ...freshQueue(shuffled ? shuffleFrom(tracks, first) : tracks, shuffled ? tracks : null),
+      radioStationActive: false,
+      queueSource: source,
+    });
+    await get()._loadIndex(shuffled ? 0 : first, start && { resumeAt: start.at, autoplay: start.autoplay });
   },
 
   restoreSession: (queue, currentIndex, position, autoplay) => {
     if (!queue.length) return;
     const index = Math.max(0, Math.min(currentIndex, queue.length - 1));
     const track = queue[index]!;
+    // A paused restore warms nothing until it is played, like a queue
+    // restored at launch (see the subscribe at the end of this file).
+    awaitingFirstPlay = !autoplay;
     set({
       queue,
       currentIndex: index,
@@ -374,60 +512,122 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   _ensureRadio: async () => {
     if (radioInFlight) return radioInFlight;
     const { queue, currentIndex, isShuffle } = get();
-    if (!selectRadioOn(get()) || (!geniusEnabled() && isShuffle)) return;
-    const remaining = geniusEnabled() && isShuffle ? queue.filter((track) => !sessionPlayed().includes(videoIdOf(track))).length : queue.length - 1 - currentIndex;
-    if (remaining > RADIO_LOW_WATER) return;
+    if (!selectRadioOn(get())) return;
     const seed = queue[queue.length - 1] ?? get().currentTrack;
     if (!seed) return;
-    const generation = radioGeneration;
-    let station = get().station ?? { ...trackStation(seed), title: get().queueSource ?? undefined };
-    radioInFlight = (async () => {
-      set({ radioLoading: true, radioError: false });
-      try {
-        let collected: SongItem[] = [];
-        const collect = (songs: SongItem[]) => {
-          const seen = new Set([...get().queue.map(videoIdOf), ...collected.map(videoIdOf)]);
-          for (const track of songs) {
-            const id = videoIdOf(track);
-            if (isPlayableAudio(track) && !seen.has(id) && !radioSessionSeen.has(id)
-              && (!geniusEnabled() || !sessionPlayed().includes(id)) && !hiddenPredicate(track)) {
-              collected.push(track); seen.add(id);
-            }
-          }
-        };
-        for (let page = 0; page < RADIO_MAX_PAGES && collected.length < RADIO_BATCH; page++) {
-          let fetched = false;
-          for (let attempt = 0; attempt < (geniusEnabled() ? 2 : 1); attempt++) {
-            try {
-              const result = await fetchStationPage(station, seed);
-              station = result.station;
-              collect(result.songs);
-              fetched = result.songs.length > 0;
-              if (fetched) break;
-            } catch { /* Retry once before falling back to another local recall lane. */ }
-          }
-          if (!fetched || (!station.continuation && station.type !== "genre")) break;
-        }
-        const expanded = await expandStationCandidates(station, collected).catch(() => ({ station, songs: collected }));
-        station = expanded.station;
-        collected = [];
-        collect(expanded.songs);
-        if (!collected.length && geniusEnabled()) collect(await stationFallback(seed, new Set([...get().queue.map(videoIdOf), ...sessionPlayed()])));
-        const batch = await rankStationBatch(collected, station, RADIO_BATCH);
-        if (generation !== radioGeneration) return;
-        if (batch.length) {
-          for (const track of batch) radioSessionSeen.add(videoIdOf(track));
-          set({ queue: [...get().queue, ...batch], station, radioQueuedIds: [...get().radioQueuedIds, ...batch.map(videoIdOf)] });
-        } else if (geniusEnabled()) { set({ radioError: true }); radioNotice(); }
-      } catch {
-        if (generation === radioGeneration && geniusEnabled()) { set({ radioError: true }); radioNotice(); }
-      } finally {
-        if (generation === radioGeneration) { set({ radioLoading: false }); radioInFlight = null; }
-      }
-    })();
-    return radioInFlight;
-  },
 
+    // The genius DJ lane keeps its own station fetch, ranking, and failure
+    // notice; every other queue tops up through the upstream radio session.
+    // (geniusLaneFor: only when the DJ ranking is engaged or the station
+    // needs its own fetch — a plain station at "moderate" discovery gets
+    // nothing from the lane except a fetch without the session's anchors,
+    // pool, and per-artist cap.)
+    if (geniusLaneFor(get().station)) {
+      const remaining = isShuffle
+        ? queue.filter((track) => !sessionPlayed().includes(videoIdOf(track))).length
+        : queue.length - 1 - currentIndex;
+      if (remaining > (isShuffle ? 0 : RADIO_LOW_WATER)) return;
+      const generation = radioGeneration;
+      let station = get().station ?? { ...trackStation(seed), title: get().queueSource ?? undefined };
+      radioInFlight = (async () => {
+        set({ radioLoading: true, radioError: false });
+        try {
+          let collected: SongItem[] = [];
+          const collect = (songs: SongItem[]) => {
+            const seen = new Set([...get().queue.map(videoIdOf), ...collected.map(videoIdOf)]);
+            for (const track of songs) {
+              const id = videoIdOf(track);
+              if (isPlayableAudio(track) && !seen.has(id) && !radioSessionSeen.has(id)
+                && (!geniusEnabled() || !sessionPlayed().includes(id)) && !hiddenPredicate(track)) {
+                collected.push(track); seen.add(id);
+              }
+            }
+          };
+          for (let page = 0; page < RADIO_MAX_PAGES && collected.length < RADIO_BATCH; page++) {
+            let fetched = false;
+            for (let attempt = 0; attempt < (geniusEnabled() ? 2 : 1); attempt++) {
+              try {
+                const result = await fetchStationPage(station, seed);
+                station = result.station;
+                collect(result.songs);
+                fetched = result.songs.length > 0;
+                if (fetched) break;
+              } catch { /* Retry once before falling back to another local recall lane. */ }
+            }
+            if (!fetched || (!station.continuation && station.type !== "genre")) break;
+          }
+          const expanded = await expandStationCandidates(station, collected).catch(() => ({ station, songs: collected }));
+          station = expanded.station;
+          collected = [];
+          collect(expanded.songs);
+          if (!collected.length && geniusEnabled()) collect(await stationFallback(seed, new Set([...get().queue.map(videoIdOf), ...sessionPlayed()])));
+          const batch = await rankStationBatch(collected, station, RADIO_BATCH);
+          if (generation !== radioGeneration) return;
+          if (batch.length) {
+            for (const track of batch) radioSessionSeen.add(videoIdOf(track));
+            set({ queue: [...get().queue, ...batch], station, radioQueuedIds: [...get().radioQueuedIds, ...batch.map(videoIdOf)] });
+          } else if (geniusEnabled()) { set({ radioError: true }); radioNotice(); }
+        } catch {
+          if (generation === radioGeneration && geniusEnabled()) { set({ radioError: true }); radioNotice(); }
+        } finally {
+          if (generation === radioGeneration) { set({ radioLoading: false }); radioInFlight = null; }
+        }
+      })();
+      return radioInFlight;
+    }
+
+    const remaining = queue.length - 1 - currentIndex;
+    // Shuffle means "shuffle my queue" while it plays; the station carries on
+    // once every shuffled song has had its turn.
+    if (remaining > (isShuffle ? 0 : RADIO_LOW_WATER)) return;
+
+    const generation = radioSession.generation;
+
+    const request = (async () => {
+      set({ radioLoading: true });
+      try {
+        const queueIds = () => new Set(get().queue.map(videoIdOf));
+        const feedQueue = (): boolean => {
+          if (radioSession.generation !== generation) return false;
+          const batch = radioSession.take(queueIds(), RADIO_BATCH);
+          if (batch.length === 0) return false;
+          set({
+            ...appendTracks(queueListsOf(get()), batch),
+            radioQueuedIds: [...get().radioQueuedIds, ...batch.map(videoIdOf)],
+          });
+          return true;
+        };
+
+        let fed = feedQueue();
+        for (
+          let page = 0;
+          page < RADIO_MAX_PAGES && radioSession.poolSize() < POOL_LOW_WATER && radioSession.canRefill();
+          page++
+        ) {
+          await radioSession.refill({
+            seed,
+            queueIds: queueIds(),
+            stationTracks: waitingStationTracks(get()),
+            isHidden: hiddenPredicate,
+          });
+          if (radioSession.generation !== generation) return;
+          if (!fed) fed = feedQueue();
+        }
+      } catch (error) {
+        console.warn("Radio autoplay fetch failed", error);
+      } finally {
+        if (radioSession.generation === generation) {
+          set({ radioLoading: false, radioExhausted: radioSession.isExhausted() });
+        }
+      }
+    })().finally(() => {
+      // Cleared here, not in the body: a top-up served from the pool finishes
+      // before the assignment below, which would then keep the settled promise.
+      if (radioInFlight === request) radioInFlight = null;
+    });
+    radioInFlight = request;
+    return request;
+  },
   _loadIndex: async (index, options) => {
     if (!options?.automatic) transportGeneration++;
     const track = get().queue[index];
@@ -439,7 +639,6 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const outgoingDuration = get().duration || outgoing?.duration || 0;
     const makePlan = () => planCrossfade(crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS)), musicAudioEngine.getCurrentTime(),
       Math.max(0, outgoingDuration - musicAudioEngine.getCurrentTime()), outgoing?.transition, track.transition);
-    musicAudioEngine.cancelCrossfade();
     if (!options?.automatic) allowReplay(videoIdOf(track));
     rememberPlayed(videoIdOf(track));
     const playedIds = [...new Set([...get().playedIds, ...sessionPlayed()])];
@@ -456,53 +655,72 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       return;
     }
     const videoId = videoIdOf(track);
-    const resumeAt = options?.resumeAt ?? 0;
+    let resumeAt = options?.resumeAt ?? 0;
+    const autoplay = options?.autoplay ?? true;
+    awaitingFirstPlay = false;
+    cancelNetworkWait();
+    if (autoplay) userPaused = false;
+    const start = async () => {
+      if (autoplay) await musicAudioEngine.play();
+    };
 
-    const incomingState = { currentTrack: track, currentIndex: index, progress: resumeAt, duration: track.duration ?? 0 };
     set({
-      ...(!fade ? incomingState : {}),
-      isPlaying: true,
-      isBuffering: true,
+      currentTrack: track,
+      currentIndex: index,
+      progress: resumeAt,
+      duration: track.duration ?? 0,
+      isPlaying: autoplay,
+      isBuffering: autoplay,
       streamError: null,
       streamErrorKind: null,
       loadingStreamId: videoId,
     });
-    if (recoveredVideoId !== videoId) recoveredVideoId = null;
-    loadStartedAt = { videoId, at: performance.now() };
+    loadStartedAt = { videoId, at: performance.now(), hidden: document.hidden };
     recordPlayerEvent(`music resolve start: ${videoId}`);
 
     // Radio top-up and next-track warming wait until this track is audible, so
     // they never compete with it for a slow connection.
     const afterStart = () => {
+      unplayableSkips = 0;
       void get()._ensureRadio();
       get()._prefetchUpcoming();
     };
 
-    const tryFade = async (url?: string, loudnessDb?: number | null): Promise<boolean> => {
-      if (!fade) return false;
-      if (url) musicAudioEngine.preload(videoId, url, loudnessDb ?? null);
-      const moved = await musicAudioEngine.crossfadeToPreloaded(videoId, makePlan, () => get()._preloadUpcoming());
-      if (get().loadingStreamId !== videoId || !get().isPlaying) return true;
-      if (!moved) return false;
-      set({ ...incomingState, progress: makePlan().incomingStart, loudnessDb: musicAudioEngine.getActiveLoudness(), loadingStreamId: null, isBuffering: false });
-      afterStart(); return true;
-    };
-    if (await tryFade()) return;
+    // A fresh play of a long track picks up where it was left (a setting).
+    if (options?.resumeAt === undefined && isLongTrack(track.duration ?? 0)) {
+      resumeAt = await resumePositionFor(track);
+      if (get().loadingStreamId !== videoId) return;
+      if (resumeAt > 0) set({ progress: resumeAt });
+    }
+
     // Gapless: the standby element already holds this track, buffered.
-    if (resumeAt === 0 && musicAudioEngine.activatePreloaded(videoId)) {
-      if (fade) set(incomingState);
-      const loudnessDb = musicAudioEngine.getActiveLoudness();
-      set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null });
-      musicAudioEngine.setLoudness(loudnessDb, stableVolumeEnabled());
-      await musicAudioEngine.play();
-      recordPlayerEvent(`music started from preload: ${videoId}`);
-      afterStart();
-      return;
+    // An advance into a preloaded track fades across it with the beat-aware
+    // plan; the audio-settings subscriber arms the plain fade the same way.
+    if (resumeAt === 0) {
+      const plan = fade ? makePlan() : null;
+      if (plan) musicAudioEngine.armCrossfade(plan.seconds);
+      if (musicAudioEngine.activatePreloaded(videoId)) {
+        const loudnessDb = musicAudioEngine.getActiveLoudness();
+        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null });
+        musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
+        await start();
+        if (plan && plan.incomingStart > 0) {
+          musicAudioEngine.seekWhenReady(plan.incomingStart);
+          set({ progress: plan.incomingStart });
+        }
+        recordPlayerEvent(`music started from preload: ${videoId}`);
+        afterStart();
+        return;
+      }
     }
     // Whatever the standby element holds is not what plays next any more.
     musicAudioEngine.clearPreload();
 
     const audioQuality = getMusicAudioQualitySetting();
+    const lookup = () =>
+      resolveMusicStream(videoId, audioQuality, {
+        preferAac: recovery.prefersAac(videoId) || musicAudioEngine.wantsAac(),
+      });
 
     try {
       // The downloads library is a SQLite read and resolution is a network round
@@ -511,7 +729,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       // so a saved track still needs no network.
       let streamRequest: Promise<MusicStreamInfo> | null = null;
       if (!useDownloadsLibraryStore.getState().loaded) {
-        streamRequest = resolveMusicStream(videoId, audioQuality);
+        streamRequest = lookup();
         streamRequest.catch(() => {});
         await useDownloadsLibraryStore.getState().ensureLoaded();
         if (get().loadingStreamId !== videoId) return;
@@ -525,19 +743,17 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           // use them so an offline track needs no network at all to display.
           if (offline.lyrics) seedOfflineLyrics(videoId, offline.lyrics);
           set({
-            loudnessDb: null,
+            loudnessDb: offline.loudnessDb,
             streamFormat: null,
-            ...(!fade ? { loadingStreamId: null } : {}),
+            loadingStreamId: null,
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
               : {}),
           });
-          if (await tryFade(offline.url, null)) return;
-          if (fade) set(incomingState);
-          musicAudioEngine.setLoudness(null, stableVolumeEnabled());
-          await musicAudioEngine.load(offline.url);
+          musicAudioEngine.setLoudness(offline.loudnessDb, get().normalizationEnabled);
+          await musicAudioEngine.load(offline.url, offline.contentType, track.duration ?? null);
           musicAudioEngine.seekWhenReady(resumeAt);
-          await musicAudioEngine.play();
+          await start();
           afterStart();
           return;
         } catch (offlineError) {
@@ -547,31 +763,47 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
       let info: MusicStreamInfo;
       try {
-        info = await (streamRequest ?? resolveMusicStream(videoId, audioQuality));
+        info = await (streamRequest ?? lookup());
       } catch (firstError) {
-        // One automatic retry on a fresh lookup: a timeout or a dropped
-        // connection on a slow link usually clears on the second attempt.
+        // One automatic retry: a timeout or a dropped connection on a slow
+        // link usually clears on the second attempt. A wait that timed out
+        // left the backend's walk running, so the retry joins it rather than
+        // walking the client ladder a second time.
         if (get().loadingStreamId !== videoId) return;
         recordPlayerEvent(`music resolve retry: ${normalizeBackendError(firstError).kind}`);
-        invalidateMusicStream(videoId);
-        info = await resolveMusicStream(videoId, audioQuality);
+        if (!isResolveTimeout(firstError)) invalidateMusicStream(videoId);
+        info = await lookup();
       }
       if (get().loadingStreamId !== videoId) return;
 
       set({ streamFormat: { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null } });
       musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null);
-      if (await tryFade(info.audioUrl, info.loudnessDb)) return;
-      if (fade) set(incomingState);
       set({ loudnessDb: info.loudnessDb, loadingStreamId: null });
-      musicAudioEngine.setLoudness(info.loudnessDb, stableVolumeEnabled());
-      await musicAudioEngine.load(info.audioUrl);
+      if (loadStartedAt?.videoId === videoId) loadStartedAt.resolvedAt = performance.now();
+      musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
+      await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track));
       musicAudioEngine.seekWhenReady(resumeAt);
-      await musicAudioEngine.play();
+      await start();
       afterStart();
     } catch (e) {
       if (get().loadingStreamId !== videoId) return;
       const normalized = normalizeBackendError(e);
       recordPlayerEvent(`music resolve failed: ${normalized.kind} (${normalized.message})`);
+      const { queue, currentIndex, repeatMode } = get();
+      const hasNext = repeatMode !== "one" && currentIndex + 1 < queue.length;
+      if (shouldSkipUnplayable(normalized.kind, unplayableSkips, hasNext)) {
+        unplayableSkips += 1;
+        recordPlayerEvent(`music skipped an unplayable track (${unplayableSkips} in a row)`);
+        set({ loadingStreamId: null });
+        get().next();
+        return;
+      }
+      unplayableSkips = 0;
+      if (!navigator.onLine) {
+        waitForNetwork(() => {
+          if (get().queue[get().currentIndex] === track) void get()._loadIndex(index, { resumeAt, autoplay });
+        });
+      }
       set({
         streamError: normalized.message,
         streamErrorKind: normalized.kind,
@@ -583,22 +815,35 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   },
 
   togglePlay: () => {
+    const remote = remoteControl();
+    if (remote) return remote.command(remote.playing ? "pause" : "play");
     if (get().isPlaying) get().pause();
     else get().play();
   },
 
   play: () => {
+    const remote = remoteControl();
+    if (remote) return remote.command("play");
     if (!get().currentTrack) return;
     if (get().restoredPaused) {
       void get()._loadIndex(get().currentIndex, { resumeAt: get().progress });
       return;
     }
+    if (awaitingFirstPlay) {
+      void get()._loadIndex(get().currentIndex, { resumeAt: get().progress });
+      return;
+    }
+    userPaused = false;
     void musicAudioEngine.play();
     set({ isPlaying: true });
   },
 
   pause: () => {
     transportGeneration++;
+    const remote = remoteControl();
+    if (remote) return remote.command("pause");
+    userPaused = true;
+    stopStallWatch();
     musicAudioEngine.pause();
     set({ isPlaying: false, ...(get().loadingStreamId && get().currentTrack && get().loadingStreamId !== videoIdOf(get().currentTrack!) ? { loadingStreamId: null, isBuffering: false } : {}) });
   },
@@ -607,13 +852,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   // dock/overlay. (The controller flushes a final history record on track clear.)
   dismiss: () => {
     transportGeneration++;
+    awaitingFirstPlay = false;
     stopStallWatch();
+    cancelNetworkWait();
     musicAudioEngine.stop();
     resetRadioSession();
-    resetQueueOrder();
     set({
+      ...freshQueue([], null),
       currentTrack: null,
-      queue: [],
       queueSource: null,
       station: null,
       playedIds: [],
@@ -636,22 +882,24 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   // Which track plays next depends on shuffle and repeat, so ask the same
   // question the transport does rather than assuming the following index.
+  // Warms the next song, and the one before for Previous, so either starts from a cache read.
   _prefetchUpcoming: () => {
     const state = get();
     const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
-    if (!upcoming || shouldWatchSong(upcoming)) return;
-
-    const upcomingId = videoIdOf(upcoming);
-    // A downloaded track plays from disk; resolving it would be a wasted request.
-    if (findDownloadedRecord(upcomingId, "audio")) return;
-    prefetchMusicStream(upcomingId, getMusicAudioQualitySetting());
+    if (upcoming && !shouldWatchSong(upcoming)) {
+      const upcomingId = videoIdOf(upcoming);
+      // A downloaded track plays from disk; resolving it would be a wasted request.
+      if (!findDownloadedRecord(upcomingId, "audio")) prefetchMusicStream(upcomingId, getMusicAudioQualitySetting());
+    }
+    const previous = state.queue[state.currentIndex - 1];
+    if (previous) warmMusicStream(videoIdOf(previous));
   },
 
   // Buffers the next track's audio on the standby element near the end of the
   // current one, so the change is a swap with no load in between.
   _preloadUpcoming: () => {
-    if (musicAudioEngine.isCrossfading()) return;
+    // The engine itself refuses to preload while a fade is running.
     const state = get();
     const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
@@ -676,7 +924,10 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     // The retry exists because the resolved URL stopped working, so it must not
     // be handed the same cached answer again.
     const track = queue[currentIndex];
-    if (track) invalidateMusicStream(videoIdOf(track));
+    if (track) {
+      invalidateMusicStream(videoIdOf(track));
+      recovery.forgive(videoIdOf(track));
+    }
     set({ streamError: null, streamErrorKind: null });
     recordPlayerEvent(`music retry: index ${currentIndex}`);
     // Pick up where it stopped rather than from the start of the track.
@@ -686,11 +937,17 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   clearStreamError: () => set({ streamError: null, streamErrorKind: null }),
 
   next: () => {
-    const { queue, currentIndex, isShuffle, repeatMode } = get();
+    const remote = remoteControl();
+    if (remote) return remote.command("next");
+    const { queue, currentIndex, repeatMode } = get();
     if (queue.length === 0) return;
     if (repeatMode === "none" && currentIndex + 1 >= queue.length && dispatchMixedMediaEnded("music")) return;
 
-    if (geniusEnabled() && repeatMode !== "all") {
+    // Genius DJ steers Next only when it is actually steering the music —
+    // discovery "less" or "more". At the default "moderate" discovery the
+    // queue itself is the order: shuffle already rearranged it, so Next,
+    // Previous, Up next and the preload all follow the same list.
+    if (targetNovelty() !== undefined && repeatMode !== "all") {
       const next = nextMusicIndex({ ...get(), repeatMode: repeatMode === "one" ? "none" : repeatMode });
       if (next >= 0) { void get()._loadIndex(next, { automatic: true }); return; }
       if (!selectRadioOn(get())) { musicAudioEngine.pause(); set({ isPlaying: false }); return; }
@@ -704,37 +961,36 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       })();
       return;
     }
-    let nextIndex: number;
-    if (isShuffle && queue.length > 1) {
-      nextIndex = nextMusicIndex(get());
-    } else {
-      nextIndex = currentIndex + 1;
-      if (nextIndex >= queue.length) {
-        if (repeatMode === "all") {
-          nextIndex = 0;
-        } else if (selectRadioOn(get())) {
-          void (async () => {
-            await get()._ensureRadio();
-            const s = get();
-            if (s.currentIndex + 1 < s.queue.length) {
-              void s._loadIndex(s.currentIndex + 1, { automatic: true });
-            } else {
-              musicAudioEngine.pause();
-              set({ isPlaying: false });
-            }
-          })();
-          return;
-        } else {
-          musicAudioEngine.pause();
-          set({ isPlaying: false });
-          return;
-        }
+    // Shuffle has already rearranged the queue, so the next track is always
+    // the following entry, and a shuffled queue ends like any other.
+    let nextIndex = currentIndex + 1;
+    if (nextIndex >= queue.length) {
+      if (repeatMode === "all") {
+        nextIndex = 0;
+      } else if (selectRadioOn(get())) {
+        void (async () => {
+          await get()._ensureRadio();
+          const s = get();
+          if (s.currentIndex + 1 < s.queue.length) {
+            void s._loadIndex(s.currentIndex + 1, { automatic: true });
+          } else {
+            musicAudioEngine.pause();
+            set({ isPlaying: false });
+          }
+        })();
+        return;
+      } else {
+        musicAudioEngine.pause();
+        set({ isPlaying: false });
+        return;
       }
     }
     void get()._loadIndex(nextIndex, { automatic: true });
   },
 
   previous: () => {
+    const remote = remoteControl();
+    if (remote) return remote.command("previous");
     const { queue, currentIndex, progress, repeatMode } = get();
     if (queue.length === 0) return;
     if (progress > 3) {
@@ -750,14 +1006,20 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   seek: (seconds) => {
     suppressAutomaticFadeUntil = Date.now() + 2000;
     if (get().loadingStreamId && get().currentTrack && get().loadingStreamId !== videoIdOf(get().currentTrack!)) set({ loadingStreamId: null, isBuffering: false });
+    const remote = remoteControl();
+    if (remote) return remote.command("seek", { pos: Math.round(seconds * 1000) });
     musicAudioEngine.seek(seconds);
     set({ progress: Math.max(0, seconds) });
   },
 
   setVolume: (volume) => {
+    const remote = remoteControl();
+    if (remote) return remote.command("volume", { vol: Math.round(clamp01(volume) * 100) });
     const vol = clamp01(volume);
     musicAudioEngine.setVolume(vol);
-    set({ volume: vol, isMuted: vol === 0 ? get().isMuted : false });
+    const isMuted = vol === 0 ? get().isMuted : false;
+    if (get().isMuted && !isMuted) musicAudioEngine.setMuted(false);
+    set({ volume: vol, isMuted });
     saveConfig(get);
   },
 
@@ -775,8 +1037,20 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     saveConfig(get);
   },
 
+  // Shuffle rearranges the queue itself, as Android does, so Next, Previous,
+  // Up next and the preload all follow the list; turning it off puts the
+  // original order back.
   toggleShuffle: () => {
-    set({ isShuffle: !get().isShuffle });
+    const s = get();
+    undoSnapshot = null;
+    if (s.isShuffle) {
+      const restored = s.unshuffledQueue
+        ? restoreOriginalOrder(s.unshuffledQueue, s.queue, s.queue[s.currentIndex] ?? null)
+        : { queue: s.queue, currentIndex: s.currentIndex };
+      set({ isShuffle: false, unshuffledQueue: null, ...restored });
+    } else {
+      set({ isShuffle: true, unshuffledQueue: s.queue, queue: shuffleUpcoming(s.queue, s.currentIndex) });
+    }
     saveConfig(get);
   },
 
@@ -792,7 +1066,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (!base) return;
     transportGeneration++;
     resetRadioSession([videoIdOf(base)]);
-    set({ queue: [base], station: trackStation(base), playedIds: get().playedIds.filter((id) => id !== videoIdOf(base)), radioQueuedIds: [], currentIndex: 0, radioStationActive: true, queueSource: null });
+    set({
+      ...freshQueue([base], get().isShuffle ? [base] : null),
+      station: trackStation(base),
+      playedIds: get().playedIds.filter((id) => id !== videoIdOf(base)),
+      currentIndex: 0,
+      radioStationActive: true,
+      queueSource: null,
+    });
     await get()._loadIndex(0);
   },
 
@@ -849,59 +1130,52 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     } catch { radioNotice(); }
   },
 
+  // Each queued entry is its own copy, so a song played earlier can be queued
+  // again and shuffle can still tell the two apart.
   addToQueue: (track) => {
+    const remote = remoteControl();
+    if (remote) return remote.command("queue", { queue: queueWith(remote, [videoIdOf(track)], false) });
     const replay = geniusEnabled() && sessionPlayed().includes(videoIdOf(track));
     allowReplay(videoIdOf(track));
     radioSessionSeen.delete(videoIdOf(track));
     set({ playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)) });
     const { queue, currentTrack, currentIndex } = get();
     const idle = !currentTrack || currentIndex < 0;
-    if (!replay && queue.some((t) => videoIdOf(t) === videoIdOf(track))) {
+    const lists = queueListsOf(get());
+    if (!replay && isUpcoming(lists, track)) {
       if (idle && queue.length > 0) void get()._loadIndex(0);
       showQueueFeedback("duplicate");
       return;
     }
-    set({ queue: [...queue, track] });
+    set(appendTracks(lists, [{ ...track }]));
     showQueueFeedback("added");
     if (idle) void get()._loadIndex(0);
   },
 
   playNextInQueue: (track) => {
+    const remote = remoteControl();
+    if (remote) return remote.command("queue", { queue: queueWith(remote, [videoIdOf(track)], true) });
     allowReplay(videoIdOf(track));
     radioSessionSeen.delete(videoIdOf(track));
     set({ playedIds: get().playedIds.filter((id) => id !== videoIdOf(track)) });
-    const { currentTrack, queue } = get();
+    const { currentTrack } = get();
     if (!currentTrack) {
       get().addToQueue(track);
       return;
     }
-
-    const currentId = videoIdOf(currentTrack);
-    const trackId = videoIdOf(track);
-    if (trackId === currentId) {
+    if (videoIdOf(track) === videoIdOf(currentTrack)) {
       showQueueFeedback("duplicate");
       return;
     }
-
-    const next = queue.filter((item) => videoIdOf(item) !== trackId);
-    let currentIndex = next.findIndex((item) => videoIdOf(item) === currentId);
-    if (currentIndex < 0) {
-      next.unshift(currentTrack);
-      currentIndex = 0;
-    }
-
-    next.splice(currentIndex + 1, 0, track);
-    set({ queue: next, currentIndex });
+    set(insertNext(queueListsOf(get()), { ...track }));
     showQueueFeedback("added");
   },
 
   removeFromQueue: (index) => {
-    const { queue, currentIndex } = get();
-    if (index < 0 || index >= queue.length) return;
-    const next = queue.filter((_, i) => i !== index);
-    let nextCurrent = currentIndex;
-    if (index < currentIndex) nextCurrent = currentIndex - 1;
-    set({ queue: next, currentIndex: nextCurrent });
+    const s = get();
+    if (index < 0 || index >= s.queue.length || index === s.currentIndex) return;
+    undoSnapshot = undoSnapshotOf(s);
+    set(removeAt(queueListsOf(s), index));
   },
 
   reorderQueue: (from, to) => {
@@ -916,26 +1190,75 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     set({ queue: next });
   },
 
+  // A cleared queue starts its station afresh, and the standby element's
+  // preload belonged to a song that is no longer coming.
   clearQueue: () => {
-    const { currentTrack, currentIndex } = get();
-    if (currentTrack) set({ queue: [currentTrack], currentIndex: 0, queueSource: null });
-    else set({ queue: [], currentIndex: -1, queueSource: null });
-    void currentIndex;
+    const s = get();
+    const playing = s.queue[s.currentIndex];
+    const snapshot = undoSnapshotOf(s);
+    resetRadioSession(playing ? [videoIdOf(playing)] : []);
+    musicAudioEngine.clearPreload();
+    const queue = playing ? [playing] : [];
+    set({
+      ...freshQueue(queue, s.isShuffle ? queue : null),
+      currentIndex: playing ? 0 : -1,
+      queueSource: null,
+    });
+    undoSnapshot = snapshot;
+  },
+
+  replaceQueue: (tracks) => {
+    const s = get();
+    const playing = s.queue[s.currentIndex];
+    if (!playing) return;
+    const at = tracks.findIndex((track) => videoIdOf(track) === videoIdOf(playing));
+    const queue = at >= 0 ? tracks.map((track, i) => (i === at ? playing : track)) : [playing, ...tracks];
+    resetRadioSession(queue.map(videoIdOf));
+    musicAudioEngine.clearPreload();
+    set({ ...freshQueue(queue, s.isShuffle ? queue : null), currentIndex: Math.max(0, at), queueSource: null });
+  },
+
+  undoQueueEdit: () => {
+    const snapshot = undoSnapshot;
+    undoSnapshot = null;
+    const s = get();
+    const playing = s.queue[s.currentIndex];
+    if (!snapshot || !playing) return;
+    // The song playing now may be a later one than at the edit; it carries on.
+    const currentIndex = snapshot.queue.indexOf(playing);
+    if (currentIndex < 0) return;
+    set({ ...snapshot, currentIndex });
+  },
+
+  restoreSavedQueue: (restored) => {
+    const track = restored.queue[restored.currentIndex];
+    if (get().currentTrack || !track) return;
+    resetRadioSession(restored.queue.map(videoIdOf));
+    const unshuffled = get().isShuffle ? (restored.unshuffledQueue ?? restored.queue) : null;
+    awaitingFirstPlay = true;
+    set({
+      ...freshQueue(restored.queue, unshuffled),
+      radioQueuedIds: restored.radioQueuedIds,
+      radioStationActive: restored.radioStationActive,
+      queueSource: restored.queueSource,
+      currentTrack: track,
+      currentIndex: restored.currentIndex,
+      progress: restored.resumeAt,
+      duration: track.duration ?? 0,
+      isPlaying: false,
+      isBuffering: false,
+    });
   },
 
   setHiddenPredicate: (predicate) => {
     hiddenPredicate = predicate;
   },
 
+  // Never yanks the track that's playing; drops the rest that are now hidden.
   pruneQueue: (shouldRemove) => {
-    const { queue, currentIndex } = get();
-    if (queue.length === 0) return;
-    // Never yank the track that's playing; drop the rest that are now hidden.
-    const current = queue[currentIndex];
-    const kept = queue.filter((track, i) => i === currentIndex || !shouldRemove(track));
-    if (kept.length === queue.length) return;
-    const nextIndex = current ? Math.max(0, kept.indexOf(current)) : Math.min(currentIndex, kept.length - 1);
-    set({ queue: kept, currentIndex: nextIndex });
+    const lists = queueListsOf(get());
+    const pruned = removeWhere(lists, shouldRemove);
+    if (pruned !== lists) set(pruned);
   },
 
   setViewState: (viewState) => set({ viewState }),
@@ -943,42 +1266,34 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   closeOverlay: () => set({ viewState: "dock" }),
 
   setEqEnabled: (enabled) => {
-    musicAudioEngine.setEqEnabled(enabled);
     const audioProcessing = { ...get().audioProcessing, enabled };
     musicAudioEngine.setProcessingConfig(audioProcessing);
     set({ eqEnabled: enabled, audioProcessing });
     void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
-    saveConfig(get);
   },
 
   setEqBand: (index, gainDb) => {
     const next = [...get().eqGains];
     next[index] = gainDb;
-    const gains = normalizeEqGains(next);
-    musicAudioEngine.setEqGains(gains);
-    const audioProcessing = { ...get().audioProcessing, mode: "graphic" as const, bandCount: 10 as const, graphicGains: { ...get().audioProcessing.graphicGains, 10: gains } };
-    set({ eqGains: gains, audioProcessing });
-    void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
-    saveConfig(get);
+    get().setEqGains(next);
   },
 
   setEqGains: (gains) => {
-    const normalized = normalizeEqGains(gains);
-    musicAudioEngine.setEqGains(normalized);
+    const normalized = normalizeGraphicGains(gains, 10);
     const audioProcessing = { ...get().audioProcessing, mode: "graphic" as const, bandCount: 10 as const, graphicGains: { ...get().audioProcessing.graphicGains, 10: normalized } };
+    musicAudioEngine.setProcessingConfig(audioProcessing);
     set({ eqGains: normalized, audioProcessing });
     void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
-    saveConfig(get);
   },
 
   applyEqPreset: (name) => {
-    get().setEqGains([...(EQ_PRESETS[name] ?? EQ_FLAT)]);
+    get().setEqGains([...(LEGACY_EQ_PRESETS[name] ?? LEGACY_EQ_PRESETS.flat)]);
   },
 
   setAudioProcessing: (config) => {
     const audioProcessing = normalizeAudioProcessingConfig(config);
     musicAudioEngine.setProcessingConfig(audioProcessing);
-    const eqGains = audioProcessing.bandCount === 10 ? normalizeEqGains(audioProcessing.graphicGains[10]) : get().eqGains;
+    const eqGains = audioProcessing.bandCount === 10 ? normalizeGraphicGains(audioProcessing.graphicGains[10], 10) : get().eqGains;
     set({ audioProcessing, eqEnabled: audioProcessing.enabled, eqGains });
     void setSettingValue(SETTINGS.MUSIC_AUDIO_PROCESSING, JSON.stringify(audioProcessing));
   },
@@ -986,37 +1301,64 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   setNormalizationEnabled: (enabled) => {
     musicAudioEngine.setLoudness(get().loudnessDb, enabled);
     set({ normalizationEnabled: enabled });
-    void setSettingValue(SETTINGS.STABLE_VOLUME_ENABLED, String(enabled));
-    saveConfig(get);
   },
 
   // --- internal (element → store) --------------------------------------
 
+  // Every store write runs every subscriber's selector, so the clock is only
+  // published when the whole second changes; the full player's bar reads the
+  // audio element itself for anything finer.
   _syncTime: (progress, duration) => {
-    const next: Partial<MusicPlayerState> = {
-      progress: Number.isFinite(progress) ? progress : 0,
-    };
-    if (Number.isFinite(duration) && duration > 0) next.duration = duration;
-    set(next);
+    const current = get();
+    // While the next song resolves, the element still plays the last one.
+    if (current.loadingStreamId !== null) return;
+    const seconds = Number.isFinite(progress) ? progress : 0;
+    const nextDuration = Number.isFinite(duration) && duration > 0 ? duration : current.duration;
+    if (current.currentTrack && current.isPlaying && !current.isBuffering) {
+      recovery.notePlaying(videoIdOf(current.currentTrack), Date.now());
+    }
+    if (Math.floor(seconds) === Math.floor(current.progress) && nextDuration === current.duration) return;
+    set({ progress: seconds, duration: nextDuration });
+
+    // The audio-settings subscriber already starts a plain fade once the song
+    // is inside its last `seconds`. This only steps in for a phrase-aligned
+    // fade: when the beat-aware plan says the fade starts within the next
+    // tick, and the next song is already buffered, arm it and load it.
+    // A seek suppresses it briefly, so a seek landing near the end never
+    // starts a fade on its own.
     const state = get();
-    if (getSettingValue(SETTINGS.CROSSFADE_ENABLED) !== 'true' || Date.now() < suppressAutomaticFadeUntil
-      || !state.isPlaying || state.loadingStreamId || state.repeatMode === 'one' || musicAudioEngine.isCrossfading()
-      || duration <= 0 || progress <= 0 || duration-progress <= .2) return;
-    const seconds = crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS));
+    if (
+      getSettingValue(SETTINGS.CROSSFADE_ENABLED) !== "true" ||
+      Date.now() < suppressAutomaticFadeUntil ||
+      !state.isPlaying ||
+      state.loadingStreamId ||
+      state.repeatMode === "one" ||
+      nextDuration <= 0 ||
+      seconds <= 0 ||
+      nextDuration - seconds <= 0.2
+    ) return;
+    const fadeSeconds = crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS));
     const tempo = state.currentTrack?.transition;
-    const phraseWindow = tempo?.bpm && tempo.bpm >= 40 && tempo.bpm <= 240 ? Math.min(24,60 / tempo.bpm * (tempo.beatsPerPhrase ?? 16)) : 0;
-    if (duration-progress > Math.max(seconds,8) + phraseWindow) return;
+    const phraseWindow = tempo?.bpm && tempo.bpm >= 40 && tempo.bpm <= 240 ? Math.min(24, 60 / tempo.bpm * (tempo.beatsPerPhrase ?? 16)) : 0;
+    if (nextDuration - seconds > fadeSeconds + phraseWindow) return;
     const nextIndex = nextMusicIndex(state);
     const upcoming = nextIndex >= 0 ? state.queue[nextIndex] : null;
-    const plan = planCrossfade(seconds, progress, duration-progress, tempo, upcoming?.transition);
-    if (upcoming && duration-progress <= Math.max(seconds,plan.seconds) + phraseWindow && !shouldWatchSong(upcoming)) state.next();
+    if (!upcoming || shouldWatchSong(upcoming)) return;
+    const plan = planCrossfade(fadeSeconds, seconds, nextDuration - seconds, tempo, upcoming.transition);
+    // The fade starts at the next phrase edge; until its start is within a
+    // tick, wait — the plain subscriber takes it once inside `fadeSeconds`.
+    if (plan.delay > 1.5) return;
+    if (!musicAudioEngine.canPlayPreloaded(videoIdOf(upcoming))) return;
+    musicAudioEngine.armCrossfade(plan.seconds);
+    void state._loadIndex(nextIndex, { automatic: true });
   },
 
   _reflectPlaying: (isPlaying) => set({ isPlaying }),
 
   _setBuffering: (isBuffering) => {
     stopStallWatch();
-    if (isBuffering && get().loadingStreamId === null) {
+    // A paused song that was still buffering must stay paused, so no watch.
+    if (isBuffering && get().loadingStreamId === null && !userPaused) {
       let lastBuffered = musicAudioEngine.getBufferedEnd();
       let quietSince = Date.now();
       stallWatch = setInterval(() => {
@@ -1035,17 +1377,31 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (!isBuffering && loadStartedAt) {
       const started = loadStartedAt;
       loadStartedAt = null;
-      const elapsedMs = Math.round(performance.now() - started.at);
+      const now = performance.now();
+      const elapsedMs = Math.round(now - started.at);
+      // Split into finding the stream and buffering it, with whether the window was hidden.
+      const resolveMs = started.resolvedAt === undefined ? null : Math.round(started.resolvedAt - started.at);
+      const bufferMs = started.resolvedAt === undefined ? null : Math.round(now - started.resolvedAt);
+      const hidden = started.hidden || document.hidden;
       const audioContext = musicAudioEngine.getContextState();
       recordPlayerEvent(`music first audio: ${started.videoId} after ${elapsedMs} ms (audio context ${audioContext})`);
       // One line per track in the log file, so slow starts can be measured.
-      void logToBackend("info", "music first audio", { videoId: started.videoId, elapsedMs, audioContext });
+      void logToBackend("info", "music first audio", {
+        videoId: started.videoId,
+        elapsedMs,
+        resolveMs,
+        bufferMs,
+        hidden,
+        audioContext,
+      });
     }
     set({ isBuffering });
   },
 
   handleEnded: () => {
-    if (get().repeatMode === "one") {
+    const { repeatMode, queue } = get();
+    // Repeat-all over one song is a replay; reloading it would fetch it again.
+    if (repeatMode === "one" || (repeatMode === "all" && queue.length === 1)) {
       musicAudioEngine.seek(0);
       void musicAudioEngine.play();
       set({ progress: 0, isPlaying: true });
@@ -1057,29 +1413,49 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
   _onPlaybackError: () => {
     if (get().loadingStreamId !== null) return;
-    recordPlayerEvent("music playback error (media element)");
-    // The element rejected the URL it was given, so drop it rather than let any
-    // later attempt be served the same dead one from cache.
     const { currentTrack, currentIndex, progress } = get();
     if (!currentTrack) return;
+    stopStallWatch();
     const videoId = videoIdOf(currentTrack);
+    const code = musicAudioEngine.getErrorCode();
+    const failure = classifyMediaFailure(code, navigator.onLine);
+    recordPlayerEvent(`music playback error (media element ${code ?? "stall"}, ${failure})`);
+    // The element rejected the URL it was given, so drop it rather than let any
+    // later attempt be served the same dead one from cache.
     invalidateMusicStream(videoId);
-    // An expired or refused link usually plays again on a fresh lookup, so try
-    // that once, from the same position, before telling the user.
-    if (recoveredVideoId !== videoId) {
-      recoveredVideoId = videoId;
-      recordPlayerEvent(`music playback recovery: ${videoId} at ${Math.round(progress)}s`);
-      void get()._loadIndex(currentIndex, { resumeAt: progress });
+    // Pick up from the same position, and only play if the user had not paused.
+    const entry = get().queue[currentIndex];
+    const reload = () => {
+      const s = get();
+      if (!entry || s.queue[s.currentIndex] !== entry) return;
+      void s._loadIndex(s.currentIndex, { resumeAt: progress, autoplay: !userPaused });
+    };
+    const decision = recovery.decide(videoId, failure, Date.now());
+    const shown = {
+      isPlaying: false,
+      isBuffering: false,
+      streamError: `media element error ${code ?? "stall"} (${failure})`,
+      streamErrorKind: MEDIA_FAILURE_KIND[failure],
+    };
+    if (decision === "waitForNetwork") {
+      set(shown);
+      waitForNetwork(reload);
       return;
     }
-    set({ isPlaying: false, streamError: PLAYBACK_ERROR_FALLBACK, streamErrorKind: "streaming" });
+    if (decision === "retry") {
+      recordPlayerEvent(`music playback recovery: ${videoId} at ${Math.round(progress)}s`);
+      reload();
+      return;
+    }
+    set(shown);
   },
 }));
 
 // Radio additions, queue edits and reorders all change what plays next, so warm
-// its link whenever the queue does.
+// its link whenever the queue does. A queue restored at launch warms nothing
+// until it is played, so startup makes no network request for it.
 useMusicPlayerStore.subscribe((state, previous) => {
-  if (state.queue !== previous.queue && state.currentTrack && state.loadingStreamId === null) {
+  if (state.queue !== previous.queue && state.currentTrack && state.loadingStreamId === null && !awaitingFirstPlay) {
     state._prefetchUpcoming();
   }
 });

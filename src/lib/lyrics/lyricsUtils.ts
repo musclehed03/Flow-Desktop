@@ -38,18 +38,6 @@ export function decodeHtmlEntities(text: string): string {
   return out;
 }
 
-export function cleanTitle(title: string): string {
-  return title
-    .replace(/\s*[([].*?[)\]]/g, "")
-    .replace(/\b(official video|official audio|lyrics|lyric video|hq|hd|audio|video|clip)\b/gi, "")
-    .trim();
-}
-
-export function cleanArtist(artist: string): string {
-  const head = artist.replace(/\s*-\s*Topic/gi, "").split(/\s+(?:feat\.?|ft\.?|featuring|&|,|vs\.?)\s+/i)[0];
-  return (head ?? artist).trim();
-}
-
 const CREDIT_PREFIXES = [
   "synced by",
   "lyrics by",
@@ -66,12 +54,11 @@ export function filterCreditLines(entries: LyricsEntry[]): LyricsEntry[] {
   });
 }
 
-export function findCurrentLineIndex(lines: LyricsEntry[], position: number): number {
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.time >= position + 300) return i - 1;
-  }
-  return lines.length - 1;
-}
+// KuGou answers instrumentals with one line, "纯音乐，请欣赏" ("pure music, please enjoy"), not with no lyrics.
+const INSTRUMENTAL_NOTICE = /^纯音乐[，,]?\s*请欣赏$/;
+
+export const isInstrumentalNotice = (entries: LyricsEntry[]): boolean =>
+  entries.length > 0 && entries.every((entry) => INSTRUMENTAL_NOTICE.test(entry.text.trim()));
 
 export function normalizeEntries(entries: LyricsEntry[]): LyricsEntry[] {
   return entries.map((e) => ({

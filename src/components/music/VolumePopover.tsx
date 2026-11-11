@@ -4,6 +4,8 @@ import type { RefObject } from "react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { getString } from "../../lib/i18n/index";
+import { useMusicWheelVolume } from "../../lib/useMusicWheelVolume";
+import { MENU_ENTER_TRANSITION, MENU_EXIT_TRANSITION } from "../../lib/motion";
 import { Slider } from "../ui/Slider";
 import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
@@ -21,6 +23,8 @@ export function VolumePopover({
   const setVolume = useMusicPlayerStore((s) => s.setVolume);
   const toggleMute = useMusicPlayerStore((s) => s.toggleMute);
 
+  const wheelRef = useMusicWheelVolume();
+
   const shown = isMuted ? 0 : volume;
   const popoverRef = useDismissOnOutsideInteraction<HTMLDivElement>({
     open,
@@ -33,12 +37,14 @@ export function VolumePopover({
     <AnimatePresence>
       {open && (
         <motion.div
-          ref={popoverRef}
+          ref={(node) => {
+            popoverRef.current = node;
+            wheelRef(node);
+          }}
           key="vol-popover"
-          initial={{ opacity: 0, y: 10, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 10, scale: 0.97 }}
-          transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1, transition: MENU_ENTER_TRANSITION }}
+          exit={{ opacity: 0, scale: 0.98, transition: MENU_EXIT_TRANSITION }}
           style={{ transformOrigin: "bottom center" }}
           className="flex w-60 items-center gap-3 rounded-2xl border border-chrome-neutral-800 bg-surface-container p-3"
         >

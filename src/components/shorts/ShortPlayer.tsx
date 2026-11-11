@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { Loader2, Volume1, Volume2, VolumeX } from "lucide-react";
 import { getReturnYouTubeDislike, type RydData } from "../../lib/api/foss";
@@ -8,11 +8,14 @@ import { useProxiedImageUrl } from "../../lib/useProxiedImageUrl";
 import { useShortStream } from "../../lib/useShortStream";
 import { IS_LINUX_RUNTIME } from "../../lib/platform";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useAmbientSettings } from "../../lib/ambient/useAmbientSettings";
+import { AMBIENT_INTENSITY_DEFAULT } from "../../lib/ambient/pipeline";
 import { ShortVideoSurface } from "./ShortVideoSurface";
 import { ShortMetadata } from "./ShortMetadata";
 import { ShortActionBar } from "./ShortActionBar";
 import { ShortSidePanel } from "./ShortSidePanel";
 import { Slider } from "../ui/Slider";
+import { useWheelVolume } from "../../lib/useWheelVolume";
 import type { ShortItem, ShortsPanelState } from "../../types/shorts";
 
 const SIDE_PANEL_WIDTH = 560;
@@ -55,8 +58,10 @@ export function ShortPlayer({
   const { details } = useShortDetails(short.id, active);
   const { countText: fetchedCommentCountText } = useVideoComments(active ? short.id : undefined);
   const rytdEnabled = useSettingsStore((s) => s.rytdEnabled);
+  const ambient = useAmbientSettings();
   const [rydData, setRydData] = useState<RydData | null>(null);
   const commentCountText = short.commentCountText ?? fetchedCommentCountText;
+  const volumeWheelRef = useWheelVolume({ volume, muted, onVolumeChange, onUnmute: onToggleMute });
 
   useEffect(() => {
     if (!active || !rytdEnabled) {
@@ -106,20 +111,24 @@ export function ShortPlayer({
   }, [active, activeRetryAttempted, loading, unavailable, onUnavailable]);
 
   return (
-    <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden flex items-end justify-center pb-10">
-      {thumbnail && active && !IS_LINUX_RUNTIME && (
+    <div
+      className="short-stage relative h-full w-full overflow-hidden flex items-end justify-center py-6"
+      style={{ "--short-panel": panelOpen ? `${SIDE_PANEL_WIDTH}px` : "0px" } as CSSProperties}
+    >
+      {ambient.enabled && thumbnail && active && !IS_LINUX_RUNTIME && (
         <img
           src={thumbnail}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover blur-[120px] scale-125 opacity-50 saturate-[1.5] pointer-events-none"
+          className="absolute inset-0 h-full w-full object-cover blur-[120px] scale-125 saturate-[1.5] pointer-events-none"
+          style={{ opacity: Math.min(1, (ambient.intensity / AMBIENT_INTENSITY_DEFAULT) * 0.5) }}
         />
       )}
       <div className="absolute inset-0 bg-chrome-neutral-950/60 pointer-events-none" />
 
       <motion.div
         layout={active}
-        className="relative z-10 flex w-full max-w-none flex-row items-end justify-center gap-6 px-6 lg:gap-8"
+        className="relative z-10 flex h-full w-full max-w-none flex-row items-end justify-center gap-6 px-6 lg:gap-8"
       >
         {active ? (
           <ShortMetadata
@@ -133,7 +142,7 @@ export function ShortPlayer({
 
         <motion.div
           layout={active}
-          className="flex h-[85vh] max-h-[850px] flex-row overflow-hidden rounded-2xl bg-chrome-black ring-1 ring-chrome-white/10"
+          className="short-frame flex flex-row overflow-hidden rounded-2xl bg-chrome-black ring-1 ring-chrome-white/10"
         >
           <div className="relative z-20 aspect-[9/16] h-full bg-chrome-black">
             <ShortVideoSurface
@@ -171,7 +180,7 @@ export function ShortPlayer({
             )}
 
             {active && (
-              <div className="group/volume absolute right-4 top-4 z-20 flex items-center rounded-full bg-chrome-black/55 transition-colors duration-200 ease-out hover:bg-chrome-black/75 hover:pr-3">
+              <div ref={volumeWheelRef} className="group/volume absolute right-4 top-4 z-20 flex items-center rounded-full bg-chrome-black/55 transition-colors duration-200 ease-out hover:bg-chrome-black/75 hover:pr-3">
                 <button
                   type="button"
                   aria-label={muted ? "Unmute" : "Mute"}

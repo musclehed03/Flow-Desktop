@@ -1,21 +1,13 @@
-import { equalPowerCurves, type CrossfadePlan } from "./crossfade";
-import {
-  EQ_BANDS,
-  EQ_PEAKING_Q,
-  normalizeEqGains,
-} from "./eqBands";
-import { defaultAudioProcessingConfig, graphicFrequencies, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "./eqConfig";
-
-type AudioContextCtor = typeof AudioContext;
-
-function getAudioContextCtor(): AudioContextCtor | null {
-  if (typeof window === "undefined") return null;
-  return (
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ??
-    null
-  );
-}
+import { loudnessFactor, MUSIC_MAX_CUT_DB } from "../loudness";
+import { IS_LINUX_RUNTIME, IS_MACOS_RUNTIME } from "../platform";
+import { createAudioContext, keepRunning, resumeWithin, webAudioSupported } from "./audioContext";
+import { fadeInGain, fadeOutGain, resetFade, scheduleFade, steppedFade } from "./crossfadeRamp";
+import { EQ_GRAPH_OFF, type EqGraphSpec } from "./eq/graphPlan";
+import { EqChain, RAMP_TIME_CONSTANT } from "./eqChain";
+import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, type AudioProcessingConfig } from "./eqConfig";
+import { pastListedEnd, playableLength } from "./listedLength";
+import { volumeGain } from "./volumeCurve";
+import { webAudioHears } from "./webAudioFormats";
 
 /**
  * One of the two <audio> elements. While one plays, the other can hold the next
@@ -26,14 +18,36 @@ interface Slot {
   el: HTMLAudioElement | null;
   source: MediaElementAudioSourceNode | null;
   normGain: GainNode | null;
+  /** The crossfade's share of this element, on the audio clock. */
   fadeGain: GainNode | null;
+  /** The same share when WebAudio is not in use, applied to the element's volume. */
+  fade: number;
   loudnessDb: number | null;
+  /** The loaded file's MIME type, which decides whether WebAudio can hear it. */
+  mime: string | null;
+  /** The song's listed length in seconds, for when the element reports a wrong one. */
+  listed: number | null;
+  /** Set once the end at the listed length has been handed to the player. */
+  listedEndTaken: boolean;
   /** The track a standby slot holds, so a swap only ever plays the right one. */
   key: string | null;
+  /** The loaded file's format, for the honest source badge. */
   format: { mimeType: string; bitrate: number | null; sampleRate: number | null } | null;
 }
 
-const emptySlot = (): Slot => ({ el: null, source: null, normGain: null, fadeGain: null, loudnessDb: null, key: null, format: null });
+const emptySlot = (): Slot => ({
+  el: null,
+  source: null,
+  normGain: null,
+  fadeGain: null,
+  fade: 1,
+  loudnessDb: null,
+  mime: null,
+  listed: null,
+  listedEndTaken: false,
+  key: null,
+  format: null,
+});
 
 function unload(el: HTMLAudioElement): void {
   el.pause();
@@ -44,123 +58,44 @@ function unload(el: HTMLAudioElement): void {
   }
 }
 
+interface Fade {
+  previous: Slot;
+  done: ReturnType<typeof setTimeout>;
+  cancelSteps: (() => void) | null;
+}
+
 export class MusicAudioEngine {
   private slots: [Slot, Slot] = [emptySlot(), emptySlot()];
   private activeIndex: 0 | 1 = 0;
   private ctx: AudioContext | null = null;
-  private filters: BiquadFilterNode[] = [];
+  private chain: EqChain | null = null;
+  private volGain: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  /** Deviants dynamics stage (preamp / balance / compressor / limiter), after the EQ chain. */
   private preampGain: GainNode | null = null;
   private balanceNode: StereoPannerNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
-  private volGain: GainNode | null = null;
-  private analyser: AnalyserNode | null = null;
-  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
-  private fadeWait: (() => void) | null = null;
-  private overlapLimiter: DynamicsCompressorNode | null = null;
-  private fadeGeneration = 0;
-  private fading = false;
-  isCrossfading(): boolean { return this.fading; }
-  getAnalyser(): AnalyserNode | null { return this.analyser; }
-  cancelCrossfade(): void {
-    this.fadeGeneration++;
-    if (this.fadeTimer) clearTimeout(this.fadeTimer);
-    this.fadeTimer = null;
-    this.fadeWait?.(); this.fadeWait = null;
-    if (!this.fading) return;
-    this.fading = false;
-    this.setOverlapLimiter(false);
-    const time = this.ctx?.currentTime ?? 0;
-    for (const slot of this.slots) {
-      slot.fadeGain?.gain.cancelScheduledValues(time);
-      slot.fadeGain?.gain.setTargetAtTime(slot === this.active ? 1 : 0, time, .012);
-    }
-    if (this.standby.el) unload(this.standby.el);
-    this.standby.key = null;
-    this.applyGain();
-  }
-
-  async crossfadeToPreloaded(key: string, planInput: CrossfadePlan | (() => CrossfadePlan), complete: () => void): Promise<boolean> {
-    const ticket = this.fadeGeneration;
-    const slot = this.standby;
-    if (!this.hasPreloaded(key) || !slot.el) return false;
-    if (!this.preloadIsPlayable(key)) {
-      await new Promise<void>((resolve) => {
-        const finish = () => { clearTimeout(timer); slot.el?.removeEventListener('loadeddata', finish); slot.el?.removeEventListener('error', finish); resolve(); };
-        const timer = setTimeout(finish, 5000);
-        slot.el!.addEventListener('loadeddata', finish, { once: true });
-        slot.el!.addEventListener('error', finish, { once: true });
-      });
-    }
-    if (ticket !== this.fadeGeneration || !this.preloadIsPlayable(key) || this.active.el?.ended || this.active.el?.paused) return false;
-    this.ensureGraph();
-    if (!this.ctx || !this.graphReady || !slot.fadeGain || !this.active.fadeGain) return false;
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
-    if (ticket !== this.fadeGeneration) return false;
-    const plan = typeof planInput === "function" ? planInput() : planInput;
-    this.fading = true;
-    if (plan.delay > 0) {
-      await new Promise<void>((resolve) => { this.fadeWait = resolve; this.fadeTimer = setTimeout(resolve, plan.delay * 1000); });
-      this.fadeWait = null; this.fadeTimer = null;
-      if (ticket !== this.fadeGeneration) return false;
-    }
-    const previous = this.active;
-    const [outgoing, incoming] = equalPowerCurves();
-    const start = this.ctx.currentTime;
-    previous.fadeGain!.gain.cancelScheduledValues(this.ctx.currentTime);
-    previous.fadeGain!.gain.setValueAtTime(1, this.ctx.currentTime);
-    previous.fadeGain!.gain.setValueCurveAtTime(outgoing, start, plan.seconds);
-    slot.fadeGain.gain.cancelScheduledValues(this.ctx.currentTime);
-    slot.fadeGain.gain.setValueAtTime(0, this.ctx.currentTime);
-    slot.fadeGain.gain.setValueCurveAtTime(incoming, start, plan.seconds);
-    if (plan.incomingStart > 0) slot.el.currentTime = plan.incomingStart;
-    this.fading = true;
-    this.setOverlapLimiter(true);
-    this.applyGain();
-    try { await slot.el.play(); }
-    catch { this.cancelCrossfade(); return false; }
-    if (ticket !== this.fadeGeneration) return false;
-    this.activeIndex = this.activeIndex === 0 ? 1 : 0;
-    this.active.key = null;
-    this.fadeTimer = setTimeout(() => {
-      if (ticket !== this.fadeGeneration) return;
-      this.fading = false; this.fadeTimer = null;
-      this.setOverlapLimiter(false);
-      if (previous.el) unload(previous.el);
-      previous.key = null; previous.loudnessDb = null; previous.format = null;
-      this.active.fadeGain?.gain.setValueAtTime(1, this.ctx!.currentTime);
-      this.applyGain(); complete();
-    }, plan.seconds * 1000);
-    return true;
-  }
-
-  private setOverlapLimiter(enabled: boolean): void {
-    if (!this.volGain || !this.analyser || !this.ctx) return;
-    if (enabled && !this.overlapLimiter) {
-      this.overlapLimiter = this.ctx.createDynamicsCompressor();
-      this.overlapLimiter.threshold.value = -1;
-      this.overlapLimiter.knee.value = 0;
-      this.overlapLimiter.ratio.value = 20;
-      this.overlapLimiter.attack.value = .003;
-      this.overlapLimiter.release.value = .12;
-    }
-    this.volGain.disconnect(); this.overlapLimiter?.disconnect();
-    if (enabled && this.overlapLimiter) { this.volGain.connect(this.overlapLimiter); this.overlapLimiter.connect(this.analyser); }
-    else this.volGain.connect(this.analyser);
-  }
-
-  private graphReady = false;
-  private webAudioFailed = false;
-
-  private volume = 1;
-  private muted = false;
-  private eqGains: number[] = normalizeEqGains(null);
-  private normalizationEnabled = true;
-  private processing = defaultAudioProcessingConfig();
+  private processing: AudioProcessingConfig = defaultAudioProcessingConfig();
   private volumeBoostEnabled = false;
   private skipSilenceEnabled = false;
   private silentSince = 0;
-  private sourceSampleRate: number | null = null;
+
+  private graphReady = false;
+  private webAudioFailed = false;
+  private availabilityListeners = new Set<(available: boolean) => void>();
+
+  private volume = 1;
+  private muted = false;
+  /** The sleep timer's fade-out, from 1 (none) down to 0. */
+  private fadeLevel = 1;
+  private normalizationEnabled = true;
+  private eqSpec: EqGraphSpec = EQ_GRAPH_OFF;
+  private eqEngaged = false;
+  private speed = 1;
+  private crossfadeEnabled = false;
+  private armedFadeSeconds: number | null = null;
+  private fading: Fade | null = null;
 
   private get active(): Slot {
     return this.slots[this.activeIndex];
@@ -175,17 +110,19 @@ export class MusicAudioEngine {
   /** Bind the two hidden <audio> elements. Safe to call again on HMR. */
   attach(elements: [HTMLAudioElement, HTMLAudioElement]): void {
     if (this.slots[0].el === elements[0] && this.slots[1].el === elements[1]) return;
-    this.cancelCrossfade();
     this.slots = [emptySlot(), emptySlot()];
     this.activeIndex = 0;
+    this.fading = null;
     for (const [i, el] of elements.entries()) {
       // Required for WebAudio to receive (non-silent) cross-origin samples.
       el.crossOrigin = "anonymous";
       el.preload = "auto";
+      el.preservesPitch = true;
       this.slots[i as 0 | 1].el = el;
     }
-    // Rebuild the graph lazily on the next play()
     this.graphReady = false;
+    this.applySpeed();
+    this.engageWhilePlaying();
     this.applyGain();
   }
 
@@ -194,28 +131,27 @@ export class MusicAudioEngine {
     return this.active.el;
   }
 
+  /**
+   * Routes both elements through WebAudio. Done only once the equalizer changes the sound or
+   * crossfade is on: a media element taken over by WebAudio can never play on its own again, and
+   * loudness normalization only ever turns down, which the element's own volume does.
+   */
   private ensureGraph(): void {
-    if (this.graphReady || this.webAudioFailed || !this.active.el) return;
+    if (this.graphReady || this.webAudioFailed || !this.slots[0].el || !this.slots[1].el) return;
     try {
-      const Ctor = getAudioContextCtor();
-      if (!Ctor) {
-        this.webAudioFailed = true;
-        return;
+      if (!this.ctx) {
+        const ctx = createAudioContext();
+        if (!ctx) throw new Error("No AudioContext");
+        this.ctx = ctx;
+        keepRunning(ctx, () => !!this.active.el && !this.active.el.paused);
       }
-      if (!this.ctx) this.ctx = this.sourceSampleRate ? new Ctor({ sampleRate: this.sourceSampleRate }) : new Ctor();
       const ctx = this.ctx;
 
-      this.filters = Array.from({ length: 31 }, (_, index) => {
-        const f = ctx.createBiquadFilter();
-        const band = EQ_BANDS[index] ?? EQ_BANDS[EQ_BANDS.length - 1]!;
-        f.type = index < EQ_BANDS.length ? band.type : "allpass";
-        f.frequency.value = band.frequency;
-        f.Q.value = EQ_PEAKING_Q;
-        f.gain.value = 0;
-        return f;
-      });
-      this.preampGain = ctx.createGain();
+      this.chain = new EqChain(ctx);
       this.volGain = ctx.createGain();
+      // Deviants dynamics stage sits between the EQ chain and the volume gain:
+      // preamp -> balance -> compressor -> limiter. Neutral while disabled.
+      this.preampGain = ctx.createGain();
       this.compressor = ctx.createDynamicsCompressor();
       this.limiter = ctx.createDynamicsCompressor();
       this.balanceNode = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : null;
@@ -223,49 +159,50 @@ export class MusicAudioEngine {
       this.limiter.connect(this.volGain);
       const dynamicsStart: AudioNode = this.balanceNode ?? this.compressor;
       if (this.balanceNode) this.balanceNode.connect(this.compressor);
-      const chainStart = this.filters.reduceRight<AudioNode>((next, filter) => {
-        filter.connect(next);
-        return filter;
-      }, dynamicsStart);
-      this.preampGain.connect(chainStart);
+      this.preampGain.connect(dynamicsStart);
+      this.chain.output.connect(this.preampGain);
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.volGain.connect(this.analyser);
       this.analyser.connect(ctx.destination);
 
-      // Each element keeps its own loudness gain, since the two hold different
-      // tracks; both feed the one shared EQ and volume chain.
+      // Each element keeps its own loudness and crossfade gains, since the two
+      // hold different tracks; both feed the one shared EQ and volume chain.
       for (const slot of this.slots) {
         if (!slot.el) continue;
         slot.source = ctx.createMediaElementSource(slot.el);
         slot.normGain = ctx.createGain();
-        slot.source.connect(slot.normGain);
         slot.fadeGain = ctx.createGain();
+        slot.fadeGain.gain.value = slot.fade;
+        slot.source.connect(slot.normGain);
         slot.normGain.connect(slot.fadeGain);
-        slot.fadeGain.connect(this.preampGain);
+        slot.fadeGain.connect(this.chain.input);
       }
 
       this.graphReady = true;
       this.applyGain();
-      this.applyEq();
+      this.chain.apply(this.eqSpec);
       this.applyProcessing();
+      // Turned on mid-song: the context has to run for the element to be heard.
+      if (this.active.el && !this.active.el.paused) void resumeWithin(ctx);
     } catch (err) {
-      console.warn(
-        "[musicAudioEngine] WebAudio graph unavailable — degrading to element volume",
-        err,
-      );
+      console.warn("[musicAudioEngine] WebAudio graph unavailable, playing without the equalizer", err);
       this.webAudioFailed = true;
+      this.notifyAvailability();
       this.applyGain();
     }
   }
 
   // --- transport ----------------------------------------------------------
 
-  async load(url: string): Promise<void> {
-    this.cancelCrossfade();
+  async load(url: string, mime: string | null, listedSeconds: number | null = null): Promise<void> {
     const el = this.active.el;
     if (!el) return;
     this.active.key = null;
+    this.active.mime = mime;
+    this.active.listed = listedSeconds;
+    this.active.listedEndTaken = false;
+    this.applyGain();
     el.src = url;
     try {
       el.load();
@@ -276,14 +213,23 @@ export class MusicAudioEngine {
   /**
    * Start buffering `url` on the standby element for the track `key`, so it can
    * take over the moment the current track ends. A no-op when it already holds
-   * that track.
+   * that track, or while it is still fading out the last one.
    */
-  preload(key: string, url: string, loudnessDb: number | null, format: Slot["format"] = null): void {
-    if (this.fading) return;
+  preload(
+    key: string,
+    url: string,
+    loudnessDb: number | null,
+    mime: string | null,
+    listedSeconds: number | null = null,
+    format: Slot["format"] = null,
+  ): void {
     const slot = this.standby;
-    if (!slot.el || slot.key === key) return;
+    if (!slot.el || slot.key === key || this.fading) return;
     slot.key = key;
     slot.loudnessDb = loudnessDb;
+    slot.mime = mime;
+    slot.listed = listedSeconds;
+    slot.listedEndTaken = false;
     slot.format = format;
     slot.el.src = url;
     try {
@@ -303,7 +249,7 @@ export class MusicAudioEngine {
    * One whose fetch failed or never delivered anything would stall forever if
    * swapped in, so it is skipped and the track loads the normal way.
    */
-  private preloadIsPlayable(key: string): boolean {
+  canPlayPreloaded(key: string): boolean {
     const el = this.standby.el;
     return (
       this.hasPreloaded(key) &&
@@ -313,32 +259,87 @@ export class MusicAudioEngine {
     );
   }
 
+  /** Makes the next `activatePreloaded` a crossfade of `seconds` instead of a cut. */
+  armCrossfade(seconds: number): void {
+    this.armedFadeSeconds = seconds > 0 ? seconds : null;
+  }
+
   /**
    * Make the standby element the active one when it holds `key`. The caller
-   * then plays it; the element that was playing is emptied.
+   * then plays it; the element that was playing is emptied, at once or at the
+   * end of an armed crossfade.
    */
   activatePreloaded(key: string): boolean {
-    if (!this.preloadIsPlayable(key)) return false;
+    const fadeSeconds = this.armedFadeSeconds;
+    this.armedFadeSeconds = null;
+    if (!this.canPlayPreloaded(key)) return false;
+    this.finishFade();
     const previous = this.active;
     this.activeIndex = this.activeIndex === 0 ? 1 : 0;
     this.active.key = null;
-    if (previous.el) unload(previous.el);
-    previous.key = null;
-    previous.loudnessDb = null;
-    previous.format = null;
+    if (fadeSeconds !== null && previous.el && !previous.el.paused) {
+      this.startFade(previous, fadeSeconds);
+    } else {
+      this.release(previous);
+    }
     this.applyGain();
     return true;
   }
 
+  private release(slot: Slot): void {
+    if (slot.el) unload(slot.el);
+    slot.key = null;
+    slot.loudnessDb = null;
+    slot.mime = null;
+    slot.listed = null;
+    slot.listedEndTaken = false;
+    slot.format = null;
+  }
+
+  // The two elements play together while their gains move in opposite directions; the one
+  // fading out is emptied when the fade ends.
+  private startFade(previous: Slot, seconds: number): void {
+    const next = this.active;
+    let cancelSteps: (() => void) | null = null;
+    if (this.ctx && this.routes(previous) && this.routes(next) && previous.fadeGain && next.fadeGain) {
+      const t = this.ctx.currentTime;
+      scheduleFade(previous.fadeGain.gain, "out", t, seconds);
+      scheduleFade(next.fadeGain.gain, "in", t, seconds);
+    } else {
+      cancelSteps = steppedFade(seconds, (progress) => {
+        previous.fade = fadeOutGain(progress);
+        next.fade = fadeInGain(progress);
+        this.applyGain();
+      });
+    }
+    const done = setTimeout(() => this.finishFade(), seconds * 1_000 + 50);
+    this.fading = { previous, done, cancelSteps };
+  }
+
+  /** Ends a crossfade now: the outgoing element is emptied and both gains return to full. */
+  private finishFade(): void {
+    const fading = this.fading;
+    if (!fading) return;
+    this.fading = null;
+    clearTimeout(fading.done);
+    fading.cancelSteps?.();
+    this.release(fading.previous);
+    for (const slot of this.slots) {
+      slot.fade = 1;
+      if (this.ctx && slot.fadeGain) resetFade(slot.fadeGain.gain, this.ctx.currentTime);
+    }
+    this.applyGain();
+    // A speed change made during the fade was held back on Linux; apply it now.
+    this.applySpeed();
+  }
+
   /** Drop whatever the standby element holds, returning the track it was. */
   clearPreload(): string | null {
+    this.finishFade();
     const slot = this.standby;
     const key = slot.key;
     if (key === null) return null;
-    slot.key = null;
-    slot.loudnessDb = null;
-    slot.format = null;
-    if (slot.el) unload(slot.el);
+    this.release(slot);
     return key;
   }
 
@@ -346,7 +347,90 @@ export class MusicAudioEngine {
   getActiveLoudness(): number | null {
     return this.active.loudnessDb;
   }
-  getActiveFormat(): Slot["format"] { return this.active.format ? { ...this.active.format } : null; }
+
+  /** The playing track's format, for the honest source badge. */
+  getActiveFormat(): Slot["format"] {
+    return this.active.format ? { ...this.active.format } : null;
+  }
+
+  /** The shared analyser the visualizer reads; null while the graph is not built. */
+  getAnalyser(): AnalyserNode | null {
+    return this.analyser;
+  }
+
+  // --- Deviants audio processing (dynamics + per-device profiles) -----------
+
+  setProcessingConfig(config: AudioProcessingConfig): void {
+    this.processing = normalizeAudioProcessingConfig(config);
+    this.engageWhilePlaying();
+    this.applyProcessing();
+  }
+
+  getProcessingConfig(): AudioProcessingConfig {
+    return structuredClone(this.processing);
+  }
+
+  setVolumeBoostEnabled(enabled: boolean): void {
+    this.volumeBoostEnabled = enabled;
+    this.applyGain();
+  }
+
+  setSkipSilenceEnabled(enabled: boolean): void {
+    this.skipSilenceEnabled = enabled;
+    this.silentSince = 0;
+  }
+
+  setSourceSampleRate(_sampleRate: number | null): void {
+    // Upstream's createAudioContext() takes no options, so the source rate
+    // cannot size the context; kept as a no-op so callers need no branch.
+  }
+
+  /**
+   * Skips a long silence (intro/outro dead air) once it has lasted 1.4 s.
+   * Called from the player's time-update path while skip-silence is on.
+   */
+  tickSilenceSkip(now = performance.now()): boolean {
+    if (!this.skipSilenceEnabled || !this.analyser || !this.active.el || this.active.el.paused) {
+      this.silentSince = 0;
+      return false;
+    }
+    const samples = new Float32Array(this.analyser.fftSize);
+    this.analyser.getFloatTimeDomainData(samples);
+    const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+    if (rms >= 0.003) {
+      this.silentSince = 0;
+      return false;
+    }
+    if (!this.silentSince) this.silentSince = now;
+    if (now - this.silentSince < 1400) return false;
+    const duration = this.getDuration();
+    this.seek(Math.min(Math.max(0, duration - 0.25), this.getCurrentTime() + 3));
+    this.silentSince = now;
+    return true;
+  }
+
+  /** Applies the dynamics half of the processing config (the EQ half lives in EqChain). */
+  private applyProcessing(): void {
+    if (!this.graphReady || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const config = this.processing;
+    this.preampGain?.gain.setTargetAtTime(Math.pow(10, config.dynamics.preampDb / 20), t, 0.012);
+    this.balanceNode?.pan.setTargetAtTime(config.dynamics.balance, t, 0.012);
+    if (this.compressor) {
+      this.compressor.threshold.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorThreshold : 0, t, 0.012);
+      this.compressor.ratio.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorRatio : 1, t, 0.012);
+      this.compressor.knee.setTargetAtTime(config.dynamics.compressorEnabled ? 12 : 0, t, 0.012);
+      this.compressor.attack.setTargetAtTime(config.dynamics.compressorAttack, t, 0.012);
+      this.compressor.release.setTargetAtTime(config.dynamics.compressorRelease, t, 0.012);
+    }
+    if (this.limiter) {
+      this.limiter.threshold.setTargetAtTime(config.dynamics.limiterEnabled ? -0.8 : 0, t, 0.012);
+      this.limiter.ratio.setTargetAtTime(config.dynamics.limiterEnabled ? 20 : 1, t, 0.012);
+      this.limiter.knee.setTargetAtTime(0, t, 0.012);
+      this.limiter.attack.setTargetAtTime(0.002, t, 0.012);
+      this.limiter.release.setTargetAtTime(0.08, t, 0.012);
+    }
+  }
 
   /**
    * Seek once the element knows its duration. Setting `currentTime` on an
@@ -367,13 +451,8 @@ export class MusicAudioEngine {
   async play(): Promise<void> {
     const el = this.active.el;
     if (!el) return;
-    this.ensureGraph();
-    if (this.ctx && this.ctx.state === "suspended") {
-      try {
-        await this.ctx.resume();
-      } catch {
-      }
-    }
+    if (this.needsGraph()) this.ensureGraph();
+    if (this.ctx) await resumeWithin(this.ctx);
     try {
       await el.play();
     } catch (err) {
@@ -387,25 +466,20 @@ export class MusicAudioEngine {
   }
 
   pause(): void {
-    this.cancelCrossfade();
+    this.finishFade();
     this.active.el?.pause();
   }
 
   stop(): void {
-    this.cancelCrossfade();
-    for (const slot of this.slots) {
-      slot.key = null;
-      slot.loudnessDb = null;
-      slot.format = null;
-      if (slot.el) unload(slot.el);
-    }
+    this.finishFade();
+    for (const slot of this.slots) this.release(slot);
   }
 
   seek(seconds: number): void {
-    this.cancelCrossfade();
     const el = this.active.el;
     if (el && Number.isFinite(seconds)) {
       el.currentTime = Math.max(0, seconds);
+      this.active.listedEndTaken = false;
     }
   }
 
@@ -420,13 +494,54 @@ export class MusicAudioEngine {
     return el.buffered.end(el.buffered.length - 1);
   }
 
+  /** The playing element's `MediaError` code, or null while it has none. */
+  getErrorCode(): number | null {
+    return this.active.el?.error?.code ?? null;
+  }
+
   getDuration(): number {
-    const d = this.active.el?.duration ?? 0;
-    return Number.isFinite(d) ? d : 0;
+    return playableLength(this.active.el?.duration ?? Number.NaN, this.active.listed);
+  }
+
+  /**
+   * True once, when the playing song passes its listed length on an element that reports more
+   * than it holds. The element would play silence until its own end and fire `ended` only then,
+   * so it is paused here and the caller ends the song instead.
+   */
+  takeListedEnd(): boolean {
+    const slot = this.active;
+    const el = slot.el;
+    if (!el || slot.listedEndTaken || !pastListedEnd(el.currentTime, el.duration, slot.listed)) return false;
+    slot.listedEndTaken = true;
+    el.pause();
+    return true;
+  }
+
+  // --- speed --------------------------------------------------------------
+
+  setSpeed(rate: number): void {
+    this.speed = Math.max(0.5, Math.min(2, rate));
+    this.applySpeed();
+  }
+
+  /**
+   * WebKitGTK flushes its GStreamer pipeline on every `playbackRate` write, so the rate is only
+   * written when it differs, and on Linux not while two elements are crossfading. The default
+   * rate carries it across loads, which reset `playbackRate` to it.
+   */
+  private applySpeed(): void {
+    if (IS_LINUX_RUNTIME && this.fading) return;
+    for (const slot of this.slots) {
+      const el = slot.el;
+      if (!el) continue;
+      if (el.defaultPlaybackRate !== this.speed) el.defaultPlaybackRate = this.speed;
+      if (el.playbackRate !== this.speed) el.playbackRate = this.speed;
+    }
   }
 
   // --- gain (volume + loudness normalization) -----------------------------
 
+  /** `volume` is the slider position; it plays on a perceptual curve. */
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1, volume));
     this.applyGain();
@@ -445,118 +560,116 @@ export class MusicAudioEngine {
   }
 
   private normalizationFactor(loudnessDb: number | null): number {
-    if ((!this.normalizationEnabled && !this.fading) || loudnessDb == null) return 1;
-    return Math.min(1, Math.pow(10, -loudnessDb / 20));
+    return loudnessFactor(loudnessDb, this.normalizationEnabled, MUSIC_MAX_CUT_DB);
+  }
+
+  /**
+   * Fades the music to silence by the time `remainingSeconds` have passed,
+   * from `level` now. With WebAudio the ramp runs on the audio clock, so it
+   * keeps going while timers are throttled in a hidden window; without it the
+   * element's volume steps down each time this is called again.
+   */
+  fadeOut(level: number, remainingSeconds: number): void {
+    this.fadeLevel = Math.max(0, Math.min(1, level));
+    if (this.graphReady && this.ctx && this.volGain) {
+      const gain = this.volGain.gain;
+      const t = this.ctx.currentTime;
+      gain.cancelScheduledValues(t);
+      gain.setValueAtTime((this.muted ? 0 : volumeGain(this.volume)) * this.fadeLevel, t);
+      gain.linearRampToValueAtTime(0, t + Math.max(0, remainingSeconds));
+      return;
+    }
+    this.applyGain();
+  }
+
+  /** Back to full volume after a fade-out stopped or was cancelled. */
+  resetFade(): void {
+    if (this.fadeLevel === 1) return;
+    this.fadeLevel = 1;
+    if (this.graphReady && this.ctx && this.volGain) this.volGain.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.applyGain();
   }
 
   private applyGain(): void {
-    const vol = this.muted ? 0 : this.volume * (this.volumeBoostEnabled ? 1.35 : 1);
+    const vol = (this.muted ? 0 : volumeGain(this.volume) * (this.volumeBoostEnabled ? 1.35 : 1)) * this.fadeLevel;
 
-    if (this.graphReady && this.ctx && this.volGain) {
-      const t = this.ctx.currentTime;
-      this.volGain.gain.setTargetAtTime(vol, t, 0.012);
-      for (const slot of this.slots) {
-        if (!this.fading) {
-          slot.fadeGain?.gain.cancelScheduledValues(t);
-          slot.fadeGain?.gain.setTargetAtTime(1, t, .012);
-        }
-        slot.normGain?.gain.setTargetAtTime(this.normalizationFactor(slot.loudnessDb), t, 0.012);
-        if (slot.el) {
-          slot.el.volume = 1;
-          slot.el.muted = false;
-        }
-      }
-    } else {
-      for (const slot of this.slots) {
-        if (!slot.el) continue;
-        const norm = this.normalizationFactor(slot.loudnessDb);
-        slot.el.volume = Math.max(0, Math.min(1, vol * norm));
+    const t = this.ctx?.currentTime ?? 0;
+    if (this.graphReady && this.volGain) this.volGain.gain.setTargetAtTime(vol, t, RAMP_TIME_CONSTANT);
+    // A scheduled crossfade owns the fade gains until it ends; a stepped one moves `slot.fade`.
+    const scheduledFade = !!this.fading && !this.fading.cancelSteps;
+    for (const slot of this.slots) {
+      if (!slot.el) continue;
+      const norm = this.normalizationFactor(slot.loudnessDb);
+      if (this.routes(slot)) {
+        slot.normGain?.gain.setTargetAtTime(norm, t, RAMP_TIME_CONSTANT);
+        if (!scheduledFade) slot.fadeGain?.gain.setTargetAtTime(slot.fade, t, RAMP_TIME_CONSTANT);
+        slot.el.volume = 1;
+        slot.el.muted = false;
+      } else {
+        slot.el.volume = Math.max(0, Math.min(1, vol * norm * slot.fade));
         slot.el.muted = this.muted;
       }
     }
   }
 
+  /** Whether `slot` plays through the graph, rather than past it on its own volume. */
+  private routes(slot: Slot): boolean {
+    return this.graphReady && !!slot.source && webAudioHears(slot.mime);
+  }
+
+  // --- crossfade ----------------------------------------------------------
+
+  /** Crossfades are timed on the audio clock, so turning them on brings WebAudio in. */
+  setCrossfadeEnabled(enabled: boolean): void {
+    this.crossfadeEnabled = enabled;
+    this.engageWhilePlaying();
+  }
+
   // --- equalizer ----------------------------------------------------------
 
-  setEqEnabled(enabled: boolean): void {
-    this.processing = { ...this.processing, enabled };
-    this.applyEq();
+  /**
+   * The curve to run, and whether it changes the sound. The graph is built the first time it
+   * does; after that every change, including switching off, only glides the filters.
+   */
+  setEq(spec: EqGraphSpec, engaged: boolean): void {
+    this.eqSpec = spec;
+    this.eqEngaged = engaged;
+    this.engageWhilePlaying();
+    this.chain?.apply(spec);
   }
 
-  setEqGains(gains: number[]): void {
-    this.eqGains = normalizeEqGains(gains);
-    this.processing = { ...this.processing, mode: "graphic", bandCount: 10, graphicGains: { ...this.processing.graphicGains, 10: [...this.eqGains] } };
-    this.applyEq();
+  private needsGraph(): boolean {
+    return this.eqEngaged || this.crossfadeEnabled || this.processing.enabled;
   }
 
-  setEqBand(index: number, gainDb: number): void {
-    if (index < 0 || index >= this.eqGains.length) return;
-    const next = [...this.eqGains];
-    next[index] = gainDb;
-    this.eqGains = normalizeEqGains(next);
-    this.applyEq();
+  /**
+   * Builds the graph now when music is playing (a change the user just made), otherwise on the
+   * next play: a context made at startup, outside any click, may never be allowed to run.
+   */
+  private engageWhilePlaying(): void {
+    if (this.needsGraph() && this.active.el && !this.active.el.paused) this.ensureGraph();
   }
 
-  private applyEq(): void {
-    this.applyProcessing();
+  /**
+   * Whether streams should come as AAC: on macOS only MP4 audio reaches the graph, and a song
+   * already playing when the equalizer or crossfade comes on must be heard through it.
+   */
+  wantsAac(): boolean {
+    return IS_MACOS_RUNTIME;
   }
 
-  setProcessingConfig(config: AudioProcessingConfig): void {
-    this.processing = normalizeAudioProcessingConfig(config);
-    if (this.processing.mode === "graphic" && this.processing.bandCount === 10) this.eqGains = normalizeEqGains(this.processing.graphicGains[10]);
-    this.applyProcessing();
+  /** False once WebAudio failed here, so the equalizer cannot be heard. */
+  isEqAvailable(): boolean {
+    return !this.webAudioFailed && webAudioSupported();
   }
 
-  getProcessingConfig(): AudioProcessingConfig { return structuredClone(this.processing); }
-
-  setVolumeBoostEnabled(enabled: boolean): void { this.volumeBoostEnabled = enabled; this.applyGain(); }
-  setSkipSilenceEnabled(enabled: boolean): void { this.skipSilenceEnabled = enabled; this.silentSince = 0; }
-  setSourceSampleRate(sampleRate: number | null): void {
-    if (sampleRate && sampleRate >= 8000 && sampleRate <= 192000 && !this.ctx) this.sourceSampleRate = sampleRate;
+  onEqAvailabilityChange(listener: (available: boolean) => void): () => void {
+    this.availabilityListeners.add(listener);
+    return () => this.availabilityListeners.delete(listener);
   }
 
-  tickSilenceSkip(now = performance.now()): boolean {
-    if (!this.skipSilenceEnabled || !this.analyser || !this.active.el || this.active.el.paused) { this.silentSince = 0; return false; }
-    const samples = new Float32Array(this.analyser.fftSize);
-    this.analyser.getFloatTimeDomainData(samples);
-    const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
-    if (rms >= .003) { this.silentSince = 0; return false; }
-    if (!this.silentSince) this.silentSince = now;
-    if (now - this.silentSince < 1400) return false;
-    const duration = this.getDuration();
-    this.seek(Math.min(Math.max(0, duration - .25), this.getCurrentTime() + 3));
-    this.silentSince = now;
-    return true;
-  }
-
-  private applyProcessing(): void {
-    if (!this.graphReady || !this.ctx) return;
-    const t = this.ctx.currentTime;
-    const config = this.processing;
-    const graphic = config.mode === "graphic" ? graphicFrequencies(config.bandCount).map((frequency, index) => ({ frequency, gain: config.graphicGains[config.bandCount][index] ?? 0, q: 1.41, type: index === 0 ? "lowshelf" as const : index === config.bandCount - 1 ? "highshelf" as const : "peaking" as const })) : config.parametricBands;
-    this.filters.forEach((filter, index) => {
-      const band = config.enabled ? graphic[index] : undefined;
-      filter.type = band?.type ?? "allpass";
-      filter.frequency.setTargetAtTime(band?.frequency ?? 1000, t, .012);
-      filter.Q.setTargetAtTime(band?.q ?? .7, t, .012);
-      filter.gain.setTargetAtTime(band?.gain ?? 0, t, .012);
-    });
-    this.preampGain?.gain.setTargetAtTime(Math.pow(10, config.dynamics.preampDb / 20), t, .012);
-    this.balanceNode?.pan.setTargetAtTime(config.dynamics.balance, t, .012);
-    if (this.compressor) {
-      this.compressor.threshold.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorThreshold : 0, t, .012);
-      this.compressor.ratio.setTargetAtTime(config.dynamics.compressorEnabled ? config.dynamics.compressorRatio : 1, t, .012);
-      this.compressor.knee.setTargetAtTime(config.dynamics.compressorEnabled ? 12 : 0, t, .012);
-      this.compressor.attack.setTargetAtTime(config.dynamics.compressorAttack, t, .012);
-      this.compressor.release.setTargetAtTime(config.dynamics.compressorRelease, t, .012);
-    }
-    if (this.limiter) {
-      this.limiter.threshold.setTargetAtTime(config.dynamics.limiterEnabled ? -.8 : 0, t, .012);
-      this.limiter.ratio.setTargetAtTime(config.dynamics.limiterEnabled ? 20 : 1, t, .012);
-      this.limiter.knee.setTargetAtTime(0, t, .012);
-      this.limiter.attack.setTargetAtTime(.002, t, .012);
-      this.limiter.release.setTargetAtTime(.08, t, .012);
-    }
+  private notifyAvailability(): void {
+    for (const listener of this.availabilityListeners) listener(this.isEqAvailable());
   }
 }
 

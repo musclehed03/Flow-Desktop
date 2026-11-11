@@ -1,5 +1,6 @@
 import type { SongItem } from "../types/music";
 import type { MusicAudioQuality } from "./api/music";
+import { listedSeconds } from "./audio/listedLength";
 import { musicAudioEngine } from "./audio/musicAudioEngine";
 import { resolveMusicStream } from "./musicStreamResolution";
 import { findDownloadedRecord } from "./useDownloads";
@@ -34,8 +35,14 @@ export async function preloadTrack(
   preloading = videoId;
   recordPlayerEvent(`music preload start: ${videoId}`);
   try {
-    const info = await resolveMusicStream(videoId, quality);
-    if (stillUpcoming(videoId)) musicAudioEngine.preload(videoId, info.audioUrl, info.loudnessDb, { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null });
+    const info = await resolveMusicStream(videoId, quality, { preferAac: musicAudioEngine.wantsAac() });
+    if (stillUpcoming(videoId)) {
+      musicAudioEngine.preload(videoId, info.audioUrl, info.loudnessDb, info.mimeType, listedSeconds(info, track), {
+        mimeType: info.mimeType,
+        bitrate: info.bitrate,
+        sampleRate: info.sampleRate ?? null,
+      });
+    }
   } catch {
     // Speculative: if it fails, the track resolves again when it is played.
   } finally {

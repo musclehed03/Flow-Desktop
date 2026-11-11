@@ -4,14 +4,19 @@
 use serde_json::{Value, json};
 
 use super::clients;
-use super::parse::endpoint::{WatchNextTab, album_from_menu, browse_id, watch_next_tab};
+use super::parse::endpoint::{
+    WatchNextTab, album_from_menu, album_from_runs, browse_id, has_explicit, music_video_type,
+    watch_next_tab,
+};
 use super::parse::runs::{parse_artists_and_year, parse_duration, runs_text};
 use super::parse::thumbnail::thumbnail_url;
 use super::parse::{continuation, shelves};
 use crate::api::innertube::InnertubeClient;
 use crate::errors::AppResult;
 use crate::models::music::{SongItem, YTItem};
-use crate::models::music_pages::{QueuePage, RelatedPage, RelatedShelf, RelatedShelfType};
+use crate::models::music_pages::{
+    MusicLyrics, QueuePage, RelatedPage, RelatedShelf, RelatedShelfType,
+};
 
 impl InnertubeClient {
     /// Watch queue / radio for a song (the `next` endpoint). Also surfaces the
@@ -22,7 +27,6 @@ impl InnertubeClient {
         playlist_id: Option<&str>,
         params: Option<&str>,
     ) -> AppResult<QueuePage> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({ "isAudioOnly": true });
         if let Some(v) = video_id {
             payload["videoId"] = json!(v);
@@ -34,29 +38,16 @@ impl InnertubeClient {
             payload["params"] = json!(p);
         }
         let res = self
-            .post_music(
-                "next",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                None,
-            )
+            .post_music("next", &clients::WEB_REMIX, &mut payload, None)
             .await?;
         Ok(parse_next_queue(&res))
     }
 
     /// Continue a watch queue.
     pub(crate) async fn music_queue_continuation(&self, token: &str) -> AppResult<QueuePage> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({ "continuation": token });
         let res = self
-            .post_music(
-                "next",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                None,
-            )
+            .post_music("next", &clients::WEB_REMIX, &mut payload, None)
             .await?;
         let panel = &res["continuationContents"]["playlistPanelContinuation"];
         let items = collect_panel_items(panel);
@@ -68,6 +59,7 @@ impl InnertubeClient {
             lyrics_params: None,
             related_browse_id: None,
             radio_playlist_id: None,
+            radio_params: None,
         })
     }
 
@@ -77,7 +69,6 @@ impl InnertubeClient {
         video_ids: &[String],
         playlist_id: Option<&str>,
     ) -> AppResult<QueuePage> {
-        let visitor = self.music_visitor_data().await;
         let mut payload = json!({});
         if !video_ids.is_empty() {
             payload["videoIds"] = json!(video_ids);
@@ -86,13 +77,7 @@ impl InnertubeClient {
             payload["playlistId"] = json!(p);
         }
         let res = self
-            .post_music(
-                "music/get_queue",
-                &clients::WEB_REMIX,
-                &mut payload,
-                visitor.as_deref(),
-                None,
-            )
+            .post_music("music/get_queue", &clients::WEB_REMIX, &mut payload, None)
             .await?;
         let mut items = Vec::new();
         if let Some(arr) = res["queueDatas"].as_array() {
@@ -110,6 +95,7 @@ impl InnertubeClient {
             lyrics_params: None,
             related_browse_id: None,
             radio_playlist_id: playlist_id.map(ToOwned::to_owned),
+            radio_params: None,
         })
     }
 
@@ -120,10 +106,7 @@ impl InnertubeClient {
             return Ok(related_from_sections(Vec::new()));
         };
 
-        let visitor = self.music_visitor_data().await;
-        let res = self
-            .music_browse(Some(&related_browse), None, None, visitor.as_deref())
-            .await?;
+        let res = self.music_browse(Some(&related_browse), None, None).await?;
 
         let sections = shelves::section_list_contents(&res)
             .into_iter()
@@ -139,35 +122,33 @@ impl InnertubeClient {
         Ok(related_from_sections(sections))
     }
 
-    /// Plain lyrics text for a song (via the `next` lyrics tab pointer).
-    pub(crate) async fn music_lyrics_text(&self, video_id: &str) -> AppResult<Option<String>> {
+    /// Plain lyrics for a song (via the `next` lyrics tab pointer), with their credit.
+    pub(crate) async fn music_lyrics_text(&self, video_id: &str) -> AppResult<Option<MusicLyrics>> {
         let queue = self.music_watch_queue(Some(video_id), None, None).await?;
         let Some(browse) = queue.lyrics_browse_id else {
             return Ok(None);
         };
-        let visitor = self.music_visitor_data().await;
         let res = self
-            .music_browse(
-                Some(&browse),
-                queue.lyrics_params.as_deref(),
-                None,
-                visitor.as_deref(),
-            )
+            .music_browse(Some(&browse), queue.lyrics_params.as_deref(), None)
             .await?;
 
         let mut text = String::new();
+        let mut source = None;
         for section in shelves::section_list_contents(&res) {
-            if let Some(runs) =
-                section["musicDescriptionShelfRenderer"]["description"]["runs"].as_array()
-            {
+            let lyrics_shelf = &section["musicDescriptionShelfRenderer"];
+            if let Some(runs) = lyrics_shelf["description"]["runs"].as_array() {
                 for run in runs {
                     if let Some(t) = run["text"].as_str() {
                         text.push_str(t);
                     }
                 }
             }
+            if source.is_none() {
+                source =
+                    runs_text(&lyrics_shelf["footer"]).filter(|footer| !footer.trim().is_empty());
+            }
         }
-        Ok((!text.is_empty()).then_some(text))
+        Ok((!text.is_empty()).then_some(MusicLyrics { text, source }))
     }
 }
 
@@ -251,7 +232,24 @@ fn parse_next_queue(res: &Value) -> QueuePage {
     let current_index = panel["currentIndex"]
         .as_i64()
         .and_then(|v| i32::try_from(v).ok());
-    let radio_playlist_id = panel["playlistId"].as_str().map(ToOwned::to_owned);
+    // The automix row at the end of the queue is the site's own radio: its
+    // playlist id with the params it continues with.
+    let automix = panel["contents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|item| {
+            &item["automixPreviewVideoRenderer"]["content"]["automixPlaylistVideoRenderer"]["navigationEndpoint"]
+                ["watchPlaylistEndpoint"]
+        })
+        .find(|endpoint| endpoint["playlistId"].is_string());
+    let radio_playlist_id = automix
+        .and_then(|endpoint| endpoint["playlistId"].as_str())
+        .or_else(|| panel["playlistId"].as_str())
+        .map(ToOwned::to_owned);
+    let radio_params = automix
+        .and_then(|endpoint| endpoint["params"].as_str())
+        .map(ToOwned::to_owned);
 
     let lyrics_endpoint = &watch_next_tab(tabs, WatchNextTab::Lyrics)["browseEndpoint"];
     let related_endpoint = &watch_next_tab(tabs, WatchNextTab::Related)["browseEndpoint"];
@@ -264,6 +262,7 @@ fn parse_next_queue(res: &Value) -> QueuePage {
         lyrics_params: lyrics_endpoint["params"].as_str().map(ToOwned::to_owned),
         related_browse_id: related_endpoint["browseId"].as_str().map(ToOwned::to_owned),
         radio_playlist_id,
+        radio_params,
     }
 }
 
@@ -282,7 +281,7 @@ fn parse_panel_video(r: &Value) -> Option<SongItem> {
     let video_id = r["videoId"].as_str()?.to_string();
     let title = runs_text(&r["title"])?;
     let artists = parse_artists_and_year(&r["longBylineText"]).0;
-    let album = album_from_menu(r);
+    let album = album_from_runs(&r["longBylineText"]).or_else(|| album_from_menu(r));
     let duration = runs_text(&r["lengthText"]).and_then(|t| parse_duration(&t));
     Some(SongItem {
         id: video_id.clone(),
@@ -290,9 +289,9 @@ fn parse_panel_video(r: &Value) -> Option<SongItem> {
         artists,
         album,
         duration,
-        music_video_type: None,
+        music_video_type: music_video_type(&r["navigationEndpoint"]),
         thumbnail: thumbnail_url(r).unwrap_or_default(),
-        explicit: false,
+        explicit: has_explicit(r),
         video_id: Some(video_id),
         playlist_id: r["navigationEndpoint"]["watchEndpoint"]["playlistId"]
             .as_str()
@@ -324,6 +323,52 @@ mod tests {
         let album = parse_panel_video(&r).unwrap().album.unwrap();
         assert_eq!(album.id, "MPREmenualbum");
         assert!(album.name.is_empty());
+    }
+
+    #[test]
+    fn panel_video_keeps_its_album_name_type_and_badge() {
+        let r = json!({
+            "videoId": "vid4",
+            "title": { "runs": [{ "text": "Starboy" }] },
+            "longBylineText": { "runs": [
+                { "text": "The Weeknd" }, { "text": " \u{2022} " },
+                { "text": "Starboy", "navigationEndpoint": { "browseEndpoint": {
+                    "browseId": "MPREb_FWIMEPTHFsY",
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": { "pageType": "MUSIC_PAGE_TYPE_ALBUM" }
+                    }
+                } } }
+            ] },
+            "badges": [{ "musicInlineBadgeRenderer": { "icon": { "iconType": "MUSIC_EXPLICIT_BADGE" } } }],
+            "navigationEndpoint": { "watchEndpoint": { "videoId": "vid4", "watchEndpointMusicSupportedConfigs": {
+                "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_ATV" } } } }
+        });
+        let song = parse_panel_video(&r).unwrap();
+        assert_eq!(
+            song.album.map(|album| album.name).as_deref(),
+            Some("Starboy")
+        );
+        assert_eq!(
+            song.music_video_type.as_deref(),
+            Some("MUSIC_VIDEO_TYPE_ATV")
+        );
+        assert!(song.explicit);
+    }
+
+    #[test]
+    fn the_automix_row_names_the_radio_and_its_params() {
+        let res = json!({ "contents": { "singleColumnMusicWatchNextResultsRenderer": { "tabbedRenderer": {
+            "watchNextTabbedResultsRenderer": { "tabs": [{ "tabRenderer": { "content": { "musicQueueRenderer": {
+                "content": { "playlistPanelRenderer": { "playlistId": "RDAMVMvid4", "contents": [
+                    { "automixPreviewVideoRenderer": { "content": { "automixPlaylistVideoRenderer": {
+                        "navigationEndpoint": { "watchPlaylistEndpoint": { "playlistId": "RDAMVMvid4", "params": "OAHyAQIIAQ%3D%3D" } }
+                    } } } }
+                ] } }
+            } } } }] }
+        } } } });
+        let page = parse_next_queue(&res);
+        assert_eq!(page.radio_playlist_id.as_deref(), Some("RDAMVMvid4"));
+        assert_eq!(page.radio_params.as_deref(), Some("OAHyAQIIAQ%3D%3D"));
     }
 
     #[test]

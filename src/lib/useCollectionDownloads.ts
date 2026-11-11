@@ -1,17 +1,17 @@
 import { useEffect } from "react";
 
 import { useAlbumLibraryStore } from "../store/useAlbumLibraryStore";
-import { useCollectionDownloadStore } from "../store/useCollectionDownloadStore";
+import { useCollectionDownloadStore, type CollectionMeta } from "../store/useCollectionDownloadStore";
 import { useDownloadCollectionsLibraryStore } from "../store/useDownloadCollectionsLibraryStore";
 import { getMusicAlbumContinuation, getMusicAlbumPage } from "./api/music";
 import { getPlaylistDetails } from "./api/youtube";
 import { getStoredPlaylistById, isProtectedPlaylistId, normalizePlaylist } from "./playlistLibrary";
+import { loadRemainingPlaylistVideos } from "./playlistPages";
 import type { DownloadCollectionKind, DownloadCollectionRecord } from "./api/downloads";
 import type { AlbumItem, SongItem } from "../types/music";
 import type { PlaylistSummary, VideoSummary } from "../types/video";
 
 const ALBUM_PAGE_GUARD = 30;
-const PLAYLIST_PAGE_GUARD = 30;
 
 export interface CollectionDownloadState {
   /** Total items in the playlist/album. */
@@ -72,10 +72,11 @@ export function useCollectionDownloadState(
   };
 }
 
-/** Resolves a playlist's full video list — from its stored tracks or by paging the
- *  remote playlist — and hands it to the collection download run. Self-contained so
- *  any playlist card can download without the caller pre-loading its videos. */
-export async function downloadPlaylist(playlist: PlaylistSummary): Promise<void> {
+/** Resolves a playlist's full video list, from its stored tracks or by paging the
+ *  remote playlist, so any playlist card can offer a download. */
+export async function loadPlaylistDownload(
+  playlist: PlaylistSummary,
+): Promise<{ meta: CollectionMeta; videos: VideoSummary[] }> {
   const stored = await getStoredPlaylistById(playlist.id);
   const normalized = stored ? normalizePlaylist(stored) : null;
 
@@ -85,62 +86,48 @@ export async function downloadPlaylist(playlist: PlaylistSummary): Promise<void>
   let thumbnailUrl = playlist.thumbnailUrl ?? normalized?.thumbnailUrl ?? undefined;
 
   if (videos.length === 0 && !isProtectedPlaylistId(playlist.id)) {
-    let pageToken: string | null | undefined;
-    let guard = 0;
-    do {
-      const details = await getPlaylistDetails(playlist.id, pageToken);
-      videos.push(...(details.videos ?? []));
-      title = details.title || title;
-      author = details.channelName || author;
-      thumbnailUrl = thumbnailUrl ?? details.videos?.[0]?.thumbnailUrl ?? undefined;
-      pageToken = details.nextPageToken;
-      guard += 1;
-    } while (pageToken && guard < PLAYLIST_PAGE_GUARD);
+    const first = await getPlaylistDetails(playlist.id);
+    title = first.title || title;
+    author = first.channelName || author;
+    thumbnailUrl = thumbnailUrl ?? first.videos?.[0]?.thumbnailUrl ?? undefined;
+    videos.push(
+      ...(await loadRemainingPlaylistVideos(playlist.id, first.videos ?? [], first.nextPageToken)),
+    );
   }
 
-  if (videos.length === 0) return;
-
-  await useCollectionDownloadStore.getState().startPlaylist(
-    { collectionId: playlist.id, title, author, thumbnailUrl },
-    videos,
-  );
+  return { meta: { collectionId: playlist.id, title, author, thumbnailUrl }, videos };
 }
 
-/** Downloads an album's full track list. Owned albums live only in the local
- *  library and carry a generated id (not a remote browseId), so their stored tracks
- *  are used directly; remote albums are paged from the album endpoint. */
-export async function downloadAlbum(album: AlbumItem): Promise<void> {
+/** An album's full track list. Owned albums live only in the local library and
+ *  carry a generated id (not a remote browseId), so their stored tracks are used
+ *  directly; remote albums are paged from the album endpoint. */
+export async function loadAlbumSongs(album: AlbumItem): Promise<SongItem[]> {
   const owned = useAlbumLibraryStore
     .getState()
     .albums.find((a) => a.source === "Owned" && a.id === album.browseId);
+  if (owned) return owned.tracks ?? [];
 
-  let songs: SongItem[];
-  if (owned) {
-    songs = owned.tracks ?? [];
-  } else {
-    const page = await getMusicAlbumPage(album.browseId);
-    songs = [...page.songs];
-    let continuation = page.continuation;
-    let guard = 0;
-    while (continuation && guard < ALBUM_PAGE_GUARD) {
-      const [moreSongs, nextContinuation] = await getMusicAlbumContinuation(continuation);
-      songs.push(...moreSongs);
-      continuation = nextContinuation;
-      guard += 1;
-    }
+  const page = await getMusicAlbumPage(album.browseId);
+  const songs = [...page.songs];
+  let continuation = page.continuation;
+  let guard = 0;
+  while (continuation && guard < ALBUM_PAGE_GUARD) {
+    const [moreSongs, nextContinuation] = await getMusicAlbumContinuation(continuation);
+    songs.push(...moreSongs);
+    continuation = nextContinuation;
+    guard += 1;
   }
+  return songs;
+}
 
-  if (songs.length === 0) return;
-
-  await useCollectionDownloadStore.getState().startAlbum(
-    {
-      collectionId: album.browseId,
-      title: album.title,
-      author: album.artists?.[0]?.name ?? undefined,
-      thumbnailUrl: album.thumbnail || undefined,
-    },
-    songs,
-  );
+export function albumCollectionMeta(album: AlbumItem): CollectionMeta {
+  return {
+    collectionId: album.browseId,
+    title: album.title,
+    author: album.artists?.[0]?.name ?? undefined,
+    thumbnailUrl: album.thumbnail || undefined,
+    year: album.year,
+  };
 }
 
 /** Progress for a persisted collection record, merged with any live run. */

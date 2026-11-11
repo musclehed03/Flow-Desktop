@@ -20,6 +20,8 @@ pub enum StreamSessionKind {
 pub struct StreamSession {
     pub kind: StreamSessionKind,
     pub content_type: String,
+    /// When the session was registered, close to when its links were issued.
+    pub registered_at: u64,
     pub expires_at: u64,
     pub user_agent: String,
 }
@@ -103,6 +105,42 @@ fn user_agent_for_media_url(url: &str, session_user_agent: &str) -> String {
         )
 }
 
+/// How long a session lives when its URL names no expiry, as a generated manifest
+/// or an image does: as long as a googlevideo URL's own six hours.
+const UNDATED_SESSION_SECS: u64 = 6 * 3600;
+
+/// A remote session lives as long as its URL does. A fixed hour cut every video
+/// still playing an hour after it resolved off mid-stream.
+pub(crate) fn remote_session_expiry(remote_url: &str, now: u64) -> u64 {
+    crate::api::innertube::core::gate_tracker::url_expiry_secs(remote_url)
+        .filter(|expire| *expire > now)
+        .unwrap_or(now + UNDATED_SESSION_SECS)
+}
+
+/// Media ranges must arrive byte-exact, but manifests and captions are text a
+/// live stream refetches every few seconds: a live playlist is about 880 KB as
+/// text and 12 KB compressed. The proxy's client never decodes, so the response's
+/// `Content-Encoding` is relayed and the webview does. Only gzip is asked for
+/// because the webview sees plain http here, where brotli support is uncertain.
+fn upstream_accept_encoding(content_type: &str) -> &'static str {
+    let content_type = content_type.to_ascii_lowercase();
+    if content_type.contains("mpegurl")
+        || content_type.contains("dash+xml")
+        || content_type.contains("text/vtt")
+    {
+        "gzip"
+    } else {
+        "identity"
+    }
+}
+
+fn session_link_age(session: &StreamSession) -> std::time::Duration {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    std::time::Duration::from_secs(now.saturating_sub(session.registered_at))
+}
+
 impl StreamingManager {
     pub fn new() -> (Self, ProxyListeners) {
         let bind =
@@ -160,9 +198,10 @@ impl StreamingManager {
             .unwrap()
             .as_secs();
         let session = StreamSession {
+            registered_at: now,
+            expires_at: remote_session_expiry(&remote_url, now),
             kind: StreamSessionKind::Remote { remote_url },
             content_type,
-            expires_at: now + 3600,
             user_agent,
         };
         let mut lock = self.sessions.lock().unwrap();
@@ -178,7 +217,8 @@ impl StreamingManager {
         let session = StreamSession {
             kind: StreamSessionKind::Inline { body },
             content_type,
-            expires_at: now + 3600,
+            registered_at: now,
+            expires_at: now + UNDATED_SESSION_SECS,
             user_agent: String::new(),
         };
         let mut lock = self.sessions.lock().unwrap();
@@ -194,6 +234,7 @@ impl StreamingManager {
         let session = StreamSession {
             kind: StreamSessionKind::Local { path },
             content_type,
+            registered_at: now,
             expires_at: now + 24 * 3600,
             user_agent: String::new(),
         };
@@ -270,7 +311,6 @@ struct RequestHead {
     // Path + query as received.
     target: String,
     range: Option<String>,
-    content_length: Option<usize>,
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {
@@ -279,22 +319,19 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
 
 // Returns the parsed head plus any body bytes already read past the header
 // terminator (so a POST body can be drained by the caller).
-async fn read_request_head(
-    socket: &mut TcpStream,
-) -> std::io::Result<Option<(RequestHead, Vec<u8>)>> {
+async fn read_request_head(socket: &mut TcpStream) -> std::io::Result<Option<RequestHead>> {
     let mut buf = Vec::with_capacity(2048);
     let mut tmp = [0u8; 4096];
     loop {
         if let Some(end) = find_header_end(&buf) {
-            let leftover = buf[end + 4..].to_vec();
-            return Ok(parse_head(&buf[..end]).map(|head| (head, leftover)));
+            return Ok(parse_head(&buf[..end]));
         }
         if buf.len() > MAX_HEADER_BYTES {
             return Ok(None);
         }
         let n = socket.read(&mut tmp).await?;
         if n == 0 {
-            return Ok(parse_head(&buf).map(|head| (head, Vec::new())));
+            return Ok(parse_head(&buf));
         }
         buf.extend_from_slice(&tmp[..n]);
     }
@@ -309,22 +346,17 @@ fn parse_head(bytes: &[u8]) -> Option<RequestHead> {
     let target = parts.next()?.to_string();
 
     let mut range = None;
-    let mut content_length = None;
     for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            let name = name.trim();
-            if name.eq_ignore_ascii_case("range") {
-                range = Some(value.trim().to_string());
-            } else if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse::<usize>().ok();
-            }
+        if let Some((name, value)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("range")
+        {
+            range = Some(value.trim().to_string());
         }
     }
     Some(RequestHead {
         method,
         target,
         range,
-        content_length,
     })
 }
 
@@ -452,12 +484,9 @@ async fn handle_connection(
     manager: StreamingManager,
     client: reqwest::Client,
 ) -> std::io::Result<()> {
-    let (head, body_prefix) = match read_request_head(&mut socket).await? {
-        Some(value) => value,
-        None => {
-            write_status_only(&mut socket, 400, "Bad Request", "Malformed request").await?;
-            return Ok(());
-        }
+    let Some(head) = read_request_head(&mut socket).await? else {
+        write_status_only(&mut socket, 400, "Bad Request", "Malformed request").await?;
+        return Ok(());
     };
 
     let method = head.method.to_ascii_uppercase();
@@ -481,66 +510,55 @@ async fn handle_connection(
     };
     let path = request_url.path().to_string();
 
-    // WebView poToken minter (see api::innertube::core::webview_pot). `/potmint`
-    // serves the in-browser mint page; `/potresult` receives the minted token.
-    if path == "/potmint" {
+    // Hidden WebView jobs (see api::innertube::core::hidden_webview): the pages
+    // they open, the player script the n solver runs, and the result sink.
+    if path == "/potmint" || path == "/nsolve" {
+        let page = if path == "/potmint" {
+            crate::api::innertube::core::webview_pot::MINT_PAGE_HTML
+        } else {
+            crate::api::innertube::core::webview_nsig::SOLVE_PAGE_HTML
+        };
         return write_full_body(
             &mut socket,
             "text/html; charset=utf-8",
             "no-store",
-            crate::api::innertube::core::webview_pot::MINT_PAGE_HTML.as_bytes(),
+            page.as_bytes(),
             head_only,
         )
         .await;
     }
-    if path == "/potresult" {
-        let query: HashMap<String, String> = request_url
+    if path == "/nsolve/player.js" {
+        let script = request_url
             .query_pairs()
-            .map(|(key, value)| (key.into_owned(), value.into_owned()))
-            .collect();
-        if let Some(id) = query.get("id") {
-            crate::api::innertube::core::webview_pot::resolve_from_query(
-                id,
-                query.get("poToken").map(String::as_str),
-                query.get("ttl").and_then(|value| value.parse::<u64>().ok()),
-                query.get("error").map(String::as_str),
-            );
-        }
-        return write_full_body(&mut socket, "text/plain", "no-store", b"ok", head_only).await;
-    }
-    // In-page WebView player-response exfil (see webview_player). The youtube.com
-    // page POSTs its ytInitialPlayerResponse here (its CSP has no connect-src, so
-    // a cross-origin fetch to the loopback proxy is allowed).
-    if path == "/ytresult" {
-        let id = request_url
-            .query_pairs()
-            .find(|(key, _)| key == "id")
-            .map(|(_, value)| value.into_owned());
-        let want = head.content_length.unwrap_or(0);
-        let mut body = body_prefix;
-        while body.len() < want {
-            let mut tmp = [0u8; 16384];
-            let n = socket.read(&mut tmp).await.unwrap_or(0);
-            if n == 0 {
-                break;
+            .find_map(|(key, value)| (key == "player").then(|| value.into_owned()))
+            .and_then(|id| crate::api::innertube::core::player_js::script_path(&id));
+        let body = match script {
+            Some(path) => tokio::fs::read(path).await.ok(),
+            None => None,
+        };
+        return match body {
+            Some(body) => {
+                write_full_body(
+                    &mut socket,
+                    "text/javascript; charset=utf-8",
+                    "no-store",
+                    &body,
+                    head_only,
+                )
+                .await
             }
-            body.extend_from_slice(&tmp[..n]);
-        }
-        if let Some(id) = id {
-            crate::api::innertube::core::webview_player::resolve(
-                &id,
-                &String::from_utf8_lossy(&body),
-            );
-        }
+            None => write_status_only(&mut socket, 404, "Not Found", "No such player").await,
+        };
+    }
+    if path == crate::api::innertube::core::hidden_webview::RESULT_PATH {
+        crate::api::innertube::core::hidden_webview::resolve(
+            request_url
+                .query_pairs()
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect(),
+        );
         return write_full_body(&mut socket, "text/plain", "no-store", b"ok", head_only).await;
     }
-    if path == "/ytdiag" {
-        if let Some((_, msg)) = request_url.query_pairs().find(|(key, _)| key == "msg") {
-            info!(msg = %msg, "yt extract diag");
-        }
-        return write_full_body(&mut socket, "text/plain", "no-store", b"ok", head_only).await;
-    }
-
     if path.starts_with("/sabr/") {
         return handle_sabr_route(&mut socket, &manager, &path, head_only).await;
     }
@@ -559,6 +577,7 @@ async fn handle_connection(
                 remote_url: target_url.clone(),
             },
             content_type: super::images::image_content_type(&target_url),
+            registered_at: 0,
             expires_at: 0,
             user_agent: crate::api::http::BROWSER_USER_AGENT.to_string(),
         };
@@ -770,6 +789,19 @@ async fn relay_local_file(
     Ok(())
 }
 
+/// For testing recovery: with `FLOW_DEBUG_REFUSE_AFTER_BYTES=N` set, media past
+/// byte N is refused as googlevideo refuses a walled client.
+fn debug_refusal_due(offset: u64) -> bool {
+    static AFTER: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    AFTER
+        .get_or_init(|| {
+            std::env::var("FLOW_DEBUG_REFUSE_AFTER_BYTES")
+                .ok()
+                .and_then(|value| value.parse().ok())
+        })
+        .is_some_and(|after| offset >= after)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn relay_remote(
     socket: &mut TcpStream,
@@ -782,6 +814,7 @@ async fn relay_remote(
     head_only: bool,
 ) -> std::io::Result<()> {
     let (range_start, range_end) = parse_range_spec(client_range);
+    let started = std::time::Instant::now();
     // Match the fetch UA to the URL's `c=` client (mobile parity); the target URL
     // is stable across recovery attempts, so resolve it once.
     let upstream_user_agent = user_agent_for_media_url(target_url, &session.user_agent);
@@ -807,7 +840,6 @@ async fn relay_remote(
     let mut bytes_relayed: u64 = 0;
     let mut attempt: u32 = 0;
     let mut content_length_value: usize = 0;
-    let mut should_cache = false;
     let mut content_type_value = session.content_type.clone();
     let mut content_range_value: Option<String> = None;
     let mut accept_ranges_value = "bytes".to_string();
@@ -833,7 +865,10 @@ async fn relay_remote(
         let mut req = client
             .get(target_url)
             .header("User-Agent", &upstream_user_agent)
-            .header("Accept-Encoding", "identity");
+            .header(
+                "Accept-Encoding",
+                upstream_accept_encoding(&session.content_type),
+            );
         if is_image {
             req = req
                 .header(
@@ -855,6 +890,18 @@ async fn relay_remote(
         } else {
             None
         };
+
+        if stall_guarded && debug_refusal_due(effective_start) {
+            warn!(
+                effective_start,
+                "FLOW_DEBUG_REFUSE_AFTER_BYTES: refusing the relay"
+            );
+            crate::api::innertube::core::gate_tracker::record_refused_url(
+                target_url,
+                session_link_age(session),
+            );
+            return write_status_only(socket, 403, "Forbidden", "Refused for testing").await;
+        }
 
         let response = match req.send().await {
             Ok(res) => res,
@@ -917,6 +964,12 @@ async fn relay_remote(
                     ua = %upstream_user_agent,
                     "Upstream rejected stream relay"
                 );
+                if stall_guarded && matches!(status.as_u16(), 401 | 403) {
+                    crate::api::innertube::core::gate_tracker::record_refused_url(
+                        target_url,
+                        session_link_age(session),
+                    );
+                }
             }
             let headers = response.headers();
             content_type_value = headers
@@ -951,7 +1004,7 @@ async fn relay_remote(
                 || ct_lower.contains("text/vtt");
             let is_cacheable_kind = ct_lower.starts_with("image/");
 
-            should_cache = status.is_success()
+            let should_cache = status.is_success()
                 && !is_manifest
                 && is_cacheable_kind
                 && content_length_header.is_some()
@@ -971,6 +1024,14 @@ async fn relay_remote(
             if let Some(range_val) = content_range_value.as_deref() {
                 response_headers.push_str(&format!("Content-Range: {range_val}\r\n"));
             }
+            if let Some(encoding) = headers
+                .get("Content-Encoding")
+                .and_then(|h| h.to_str().ok())
+            {
+                response_headers.push_str("Content-Encoding: ");
+                response_headers.push_str(encoding);
+                response_headers.push_str("\r\n");
+            }
             response_headers.push_str(&format!("Accept-Ranges: {accept_ranges_value}\r\n"));
             response_headers.push_str(CORS_HEADERS);
             if is_manifest {
@@ -983,6 +1044,14 @@ async fn relay_remote(
 
             socket.write_all(response_headers.as_bytes()).await?;
             headers_written = true;
+            debug!(
+                range = ?client_range,
+                status = status.as_u16(),
+                content_range = ?content_range_value,
+                content_length = content_length_value,
+                first_byte_ms = started.elapsed().as_millis(),
+                "proxy answered"
+            );
 
             if head_only {
                 return Ok(());
@@ -1052,6 +1121,12 @@ async fn relay_remote(
         tokio::time::sleep(std::time::Duration::from_millis(150 * u64::from(attempt))).await;
     }
 
+    debug!(
+        range = ?client_range,
+        bytes = bytes_relayed,
+        total_ms = started.elapsed().as_millis(),
+        "proxy relay ended"
+    );
     if let Some(body) = cached_body {
         if body.len() == content_length_value && content_length_value > 0 {
             manager.store_cached_response(
@@ -1288,6 +1363,7 @@ mod range_recovery_tests {
                     remote_url: url.clone(),
                 },
                 content_type: "audio/mp4".into(),
+                registered_at: 0,
                 expires_at: u64::MAX,
                 user_agent: "test".into(),
             };
@@ -1345,6 +1421,7 @@ mod range_recovery_tests {
                     remote_url: url.clone(),
                 },
                 content_type: content_type.into(),
+                registered_at: 0,
                 expires_at: u64::MAX,
                 user_agent: "test".into(),
             };
@@ -1428,6 +1505,83 @@ mod range_recovery_tests {
     }
 
     #[tokio::test]
+    async fn relays_a_compressed_playlist_with_its_encoding() {
+        let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/playlist", upstream.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = upstream.accept().await.unwrap();
+            let mut request = [0; 2048];
+            let count = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Encoding: gzip\r\nContent-Length: 4\r\nConnection: close\r\n\r\n\x1f\x8b\x08\x00")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&request[..count]).to_lowercase()
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut downstream = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let relay = tokio::spawn(async move {
+            let (manager, _) = StreamingManager::new();
+            let session = StreamSession {
+                kind: StreamSessionKind::Remote {
+                    remote_url: url.clone(),
+                },
+                content_type: "application/vnd.apple.mpegurl".into(),
+                registered_at: 0,
+                expires_at: u64::MAX,
+                user_agent: "test".into(),
+            };
+            let client = reqwest::Client::builder()
+                .no_gzip()
+                .no_brotli()
+                .no_deflate()
+                .build()
+                .unwrap();
+            relay_remote(
+                &mut socket,
+                &client,
+                &manager,
+                &session,
+                &url,
+                None,
+                "/stream/test",
+                false,
+            )
+            .await
+        });
+        let mut received = Vec::new();
+        downstream.read_to_end(&mut received).await.unwrap();
+        relay.await.unwrap().unwrap();
+        assert!(server.await.unwrap().contains("accept-encoding: gzip"));
+        let body_start = received
+            .windows(4)
+            .position(|part| part == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let head = String::from_utf8_lossy(&received[..body_start]);
+        assert!(head.contains("Content-Encoding: gzip\r\n"));
+        assert_eq!(&received[body_start..], b"\x1f\x8b\x08\x00");
+    }
+
+    #[test]
+    fn only_text_sessions_ask_for_compression() {
+        for text in [
+            "application/vnd.apple.mpegurl",
+            "application/x-mpegURL",
+            "application/dash+xml",
+            "text/vtt",
+        ] {
+            assert_eq!(super::upstream_accept_encoding(text), "gzip");
+        }
+        for media in ["video/mp4", "audio/webm", "image/jpeg"] {
+            assert_eq!(super::upstream_accept_encoding(media), "identity");
+        }
+    }
+
+    #[tokio::test]
     async fn waits_out_a_slow_playlist_instead_of_failing_it() {
         // Longer than the media stall window: a live playlist on a congested
         // link must still arrive whole.
@@ -1495,5 +1649,30 @@ mod range_recovery_tests {
             100,
             None
         ));
+    }
+}
+
+#[cfg(test)]
+mod session_expiry_tests {
+    use super::{UNDATED_SESSION_SECS, remote_session_expiry};
+
+    #[test]
+    fn a_session_lives_as_long_as_its_url() {
+        let url = "https://rr1.googlevideo.com/videoplayback?expire=30000&c=VISIONOS";
+        assert_eq!(remote_session_expiry(url, 1000), 30000);
+    }
+
+    #[test]
+    fn an_undated_or_expired_url_gets_six_hours() {
+        let undated = "https://example.com/manifest.mpd";
+        assert_eq!(
+            remote_session_expiry(undated, 1000),
+            1000 + UNDATED_SESSION_SECS
+        );
+        let expired = "https://rr1.googlevideo.com/videoplayback?expire=500";
+        assert_eq!(
+            remote_session_expiry(expired, 1000),
+            1000 + UNDATED_SESSION_SECS
+        );
     }
 }

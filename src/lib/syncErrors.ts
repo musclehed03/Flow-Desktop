@@ -15,12 +15,49 @@ const SYNC_ERROR_KEYS: Record<string, StringKey> = {
   syncCorrupted: "sync_error_corrupted",
   syncApplyFailed: "sync_error_apply_failed",
   syncProtocol: "sync_error_protocol",
+  // Mirrors `EngineError::kind` in src-tauri/src/sync2/engine.rs.
+  linkedInsecure: "linked_error_insecure",
+  linkedUnreachable: "linked_error_unreachable",
+  linkedRefused: "linked_error_refused",
+  linkedGroupMissing: "linked_error_group_missing",
+  linkedRecoveryDue: "linked_error_recovery_due",
+  linkedInstanceChanged: "linked_error_instance_changed",
+  linkedAlreadyClaimed: "linked_error_already_claimed",
+  linkedAdminRefused: "linked_error_admin_refused",
+  linkedAdminBanned: "linked_error_admin_banned",
+  linkedSignInRefused: "linked_error_sign_in_refused",
+  linkedJoinDeclined: "linked_error_join_declined",
+  linkedStoreUnauthorized: "linked_error_store_unauthorized",
+  linkedProtocol: "linked_error_protocol",
+  linkedLocal: "linked_error_local",
+  linkedKeychain: "linked_error_keychain",
+  linkedNotLinked: "linked_error_not_linked",
+  linkedRemoved: "linked_error_removed",
+  linkedRemovalUnconfirmed: "linked_error_removal_unconfirmed",
+  linkedContested: "linked_error_contested",
+  linkedRolledBack: "linked_error_rolled_back",
+  linkedRosterChanged: "linked_error_roster_changed",
+  linkedGroupOutdated: "linked_error_group_outdated",
+  linkedDeclined: "linked_error_declined",
+  linkedTimedOut: "linked_error_timed_out",
+  linkedWrongWords: "linked_error_wrong_words",
+  linkedRecoveryUsed: "linked_error_recovery_used",
+  linkedRestorePending: "linked_error_restore_pending",
+  linkedAlreadyLinked: "linked_error_already_linked",
+  linkedLanUnreachable: "linked_error_lan_unreachable",
+  linkedOtherFolder: "linked_error_other_folder",
+  linkedLastProfile: "linked_error_last_profile",
+  linkedProfileTaken: "linked_error_profile_taken",
+  linkedProfileNotRunning: "linked_error_profile_not_running",
 };
 
 /** The actionable, translated message for a sync failure, falling back to the backend's text. */
 export function syncErrorMessage(kind: string | null | undefined, detail: string | null | undefined): string {
   if (kind === "syncPeerError") {
     return getString("sync_error_peer", detail ?? "");
+  }
+  if (kind === "syncNotDefaultProfile") {
+    return getString("sync_error_not_default_profile", detail?.trim() || getString("profiles_default_name"));
   }
   const key = kind ? SYNC_ERROR_KEYS[kind] : undefined;
   if (key) return getString(key);

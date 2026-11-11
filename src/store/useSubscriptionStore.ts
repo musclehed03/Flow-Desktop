@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getSetting, setSetting } from "../lib/api/db";
+import { noteSubscription } from "../lib/api/recommendation";
 
 export interface SubscribedChannel {
   id: string;
@@ -21,13 +22,26 @@ export interface SubscriptionGroup {
   sortOrder: number;
 }
 
+interface FollowOptions {
+  learn?: boolean;
+}
+
+/** What an unsubscribe took away, so Undo can put it back. */
+export interface UnsubscribedChannel {
+  channel: SubscribedChannel;
+  groupNames: string[];
+}
+
 interface SubscriptionState {
   subscriptions: SubscribedChannel[];
   subscriptionGroups: SubscriptionGroup[];
   loading: boolean;
   loadSubscriptions: () => Promise<void>;
-  subscribe: (channelId: string, channelName: string, avatarUrl?: string) => Promise<void>;
-  unsubscribe: (channelId: string) => Promise<void>;
+  /** `learn` tells the recommendation engine; bulk imports and music artists leave it off. */
+  subscribe: (channelId: string, channelName: string, avatarUrl?: string, options?: FollowOptions) => Promise<void>;
+  unsubscribe: (channelId: string, options?: FollowOptions) => Promise<UnsubscribedChannel | null>;
+  /** Undoes an unsubscribe, with a fresh timestamp so the tombstone it left loses on every device. */
+  restoreSubscription: (removed: UnsubscribedChannel, options?: FollowOptions) => Promise<void>;
   updateSubscription: (channelId: string, updates: Partial<Omit<SubscribedChannel, "id">>) => Promise<void>;
   mergeSubscriptions: (updates: Record<string, Partial<Omit<SubscribedChannel, "id">>>) => Promise<void>;
   loadSubscriptionGroups: () => Promise<void>;
@@ -135,7 +149,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     }
   },
 
-  subscribe: async (channelId, channelName, avatarUrl) => {
+  subscribe: async (channelId, channelName, avatarUrl, options) => {
     const { subscriptions } = get();
     const cleanId = cleanChannelId(channelId);
     const existing = subscriptions.find((c) => c.id === cleanId);
@@ -152,11 +166,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     ];
     set({ subscriptions: updated });
     await persistSubscriptions(updated);
+    if (options?.learn) {
+      void noteSubscription(cleanId, channelName, true).catch((err) => console.warn("Failed to learn a subscription", err));
+    }
   },
 
-  unsubscribe: async (channelId) => {
+  unsubscribe: async (channelId, options) => {
     const { subscriptions, subscriptionGroups } = get();
     const cleanId = cleanChannelId(channelId);
+    const removed = subscriptions.find((c) => c.id === cleanId) ?? null;
+    const groupNames = subscriptionGroups.filter((group) => group.channelIds.includes(cleanId)).map((group) => group.name);
+    const channelName = removed?.name ?? "";
     const updated = subscriptions.filter((c) => c.id !== cleanId);
     const updatedGroups = subscriptionGroups.map((group, index) =>
       cleanGroup(
@@ -172,6 +192,30 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     await recordUnsubscribe(cleanId);
     set({ subscriptionGroups: updatedGroups });
     await persistGroups(updatedGroups);
+    if (options?.learn) {
+      void noteSubscription(cleanId, channelName, false).catch((err) => console.warn("Failed to learn an unsubscribe", err));
+    }
+    return removed ? { channel: removed, groupNames } : null;
+  },
+
+  restoreSubscription: async ({ channel, groupNames }, options) => {
+    const { subscriptions, subscriptionGroups } = get();
+    await clearTombstone(channel.id);
+    if (!subscriptions.some((c) => c.id === channel.id)) {
+      const updated = [...subscriptions, { ...channel, subscribedAt: Date.now() }];
+      set({ subscriptions: updated });
+      await persistSubscriptions(updated);
+    }
+    if (groupNames.length > 0) {
+      const updatedGroups = subscriptionGroups.map((group, index) =>
+        groupNames.includes(group.name) ? cleanGroup({ ...group, channelIds: [...group.channelIds, channel.id] }, index) : group,
+      );
+      set({ subscriptionGroups: updatedGroups });
+      await persistGroups(updatedGroups);
+    }
+    if (options?.learn) {
+      void noteSubscription(channel.id, channel.name, true).catch((err) => console.warn("Failed to learn a subscription", err));
+    }
   },
 
   updateSubscription: async (channelId, updates) => {

@@ -9,8 +9,10 @@
 //!
 //! Device-local/derived fields that are intentionally NOT synced (and are taken from `base` when
 //! reconstructing): `consecutive_skips`, `last_persona`, `persona_stability`,
-//! `recent_query_tokens`, `last_rotation_decay`, the language profile and key language with their
-//! votes, the display forms, and per-`ContentVector` `topic_confidence` / `anchor_topics`.
+//! `recent_query_tokens`, `cluster_rotation`, `stale_queries`, `recent_related_seeds`, `seen_shorts_history`, `interest_chips`, `format_affinity`,
+//! `category_affinity`, `last_rotation_decay`, the language profile and key language with their
+//! votes, the display forms, the recent taste and time-bucket counts, and per-`ContentVector`
+//! `topic_confidence` / `anchor_topics`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -95,6 +97,7 @@ fn wire_to_cv(w: &ContentVectorWire, base: &ContentVector) -> ContentVector {
         // derived signals are recomputed locally; keep whatever the base had.
         topic_confidence: base.topic_confidence.clone(),
         anchor_topics: base.anchor_topics.clone(),
+        formats: HashSet::new(),
         duration: dim("duration", base.duration),
         pacing: dim("pacing", base.pacing),
         complexity: dim("complexity", base.complexity),
@@ -224,7 +227,9 @@ pub fn userbrain_to_snapshot(ub: &UserBrain, device_id: &str, hlc: Hlc) -> FlowN
         vectors: BrainVectors {
             global_vector: cv_to_wire(&ub.global_vector),
             time_vectors,
-            shorts_vector: None,
+            // Android syncs its Shorts taste; an empty one says nothing, so it is left out.
+            shorts_vector: (!ub.shorts_vector.topics.is_empty())
+                .then(|| cv_to_wire(&ub.shorts_vector)),
             topic_affinities: to_btree_f64(&ub.topic_affinities),
             channel_scores: to_btree_f64(&ub.channel_scores),
             channel_topic_profiles,
@@ -282,7 +287,15 @@ pub fn merged_flow_to_userbrain(m: &MergedFlowNeuroBrain, base: &UserBrain) -> U
 
     UserBrain {
         time_vectors,
+        time_bucket_counts: base.time_bucket_counts.clone(),
         global_vector: wire_to_cv(&ev.global_vector, &base.global_vector),
+        recent_vector: base.recent_vector.clone(),
+        format_affinity: base.format_affinity.clone(),
+        category_affinity: base.category_affinity.clone(),
+        shorts_vector: ev.shorts_vector.as_ref().map_or_else(
+            || base.shorts_vector.clone(),
+            |w| wire_to_cv(w, &base.shorts_vector),
+        ),
         channel_scores: to_hash_f64(&ev.channel_scores),
         topic_affinities: to_hash_f64(&ev.topic_affinities),
         total_interactions: m.counters.total_interactions.total() as i32,
@@ -358,6 +371,11 @@ pub fn merged_flow_to_userbrain(m: &MergedFlowNeuroBrain, base: &UserBrain) -> U
             })
             .collect(),
         recent_query_tokens: base.recent_query_tokens.clone(),
+        cluster_rotation: base.cluster_rotation.clone(),
+        stale_queries: base.stale_queries.clone(),
+        recent_related_seeds: base.recent_related_seeds.clone(),
+        seen_shorts_history: base.seen_shorts_history.clone(),
+        interest_chips: base.interest_chips.clone(),
         topic_evidence: m
             .lww_maps
             .topic_evidence
@@ -613,5 +631,32 @@ pub fn merged_music_to_musicbrain(m: &MergedMusicBrain, base: &MusicBrain) -> Mu
         total_plays: m.total_plays.total().min(u64::from(u32::MAX)) as u32,
         last_rotation_decay: base.last_rotation_decay,
         schema_version: m.schema.max(base.schema_version),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::merge::MergedFlowNeuroBrain;
+
+    #[test]
+    fn the_shorts_taste_travels_through_sync_and_the_recent_taste_stays_home() {
+        let mut phone = UserBrain::default();
+        phone.shorts_vector.topics.insert("skate".into(), 0.4);
+        phone.recent_vector.topics.insert("chess".into(), 0.7);
+        let snapshot = userbrain_to_snapshot(&phone, "phone", Hlc::new(1, 0, "phone"));
+        assert!(snapshot.vectors.shorts_vector.is_some());
+
+        let mut merged = MergedFlowNeuroBrain::default();
+        merged.merge_snapshot(&snapshot);
+        let desktop = merged_flow_to_userbrain(&merged, &UserBrain::default());
+        assert!((desktop.shorts_vector.topics["skate"] - 0.4).abs() < 1e-9);
+        assert!(desktop.recent_vector.topics.is_empty());
+    }
+
+    #[test]
+    fn an_empty_shorts_taste_is_not_sent() {
+        let snapshot = userbrain_to_snapshot(&UserBrain::default(), "desk", Hlc::new(1, 0, "desk"));
+        assert!(snapshot.vectors.shorts_vector.is_none());
     }
 }

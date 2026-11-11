@@ -7,7 +7,8 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: "17 3 * * *"
+    # Weekly, inside the 7-day cache eviction and 14-day artifact retention.
+    - cron: "17 3 * * 1"
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -30,21 +31,22 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            pkg-config \
-            wget \
+        uses: ./.github/actions/apt-install
+        with:
+          cache-key: build-deps-ubuntu-22.04-x64
+          packages: |
+            build-essential
+            curl
+            file
+            libayatana-appindicator3-dev
+            libgtk-3-dev
+            librsvg2-dev
+            libssl-dev
+            libwebkit2gtk-4.1-dev
+            libxdo-dev
+            patchelf
+            pkg-config
+            wget
             xdg-utils
 
       - name: Install pnpm
@@ -65,6 +67,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # PRs restore main's caches; saving from every branch overflows the
+          # repo's 10 GB and evicts main's.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -90,16 +95,19 @@ jobs:
   platform-build:
     name: Compile (${{ matrix.name }})
     if: github.event_name == 'pull_request'
-    needs: quality
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Same runner and target as a nightly leg, so each restores that
+          # leg's cache from main.
           - name: Windows x64
             runner: windows-2025
+            target: x86_64-pc-windows-msvc
           - name: Linux x64
             runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
 
     runs-on: ${{ matrix.runner }}
 
@@ -109,21 +117,23 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            pkg-config \
-            wget \
+        uses: ./.github/actions/apt-install
+        with:
+          # Same packages and image as the quality job, so it restores that cache.
+          cache-key: build-deps-ubuntu-22.04-x64
+          packages: |
+            build-essential
+            curl
+            file
+            libayatana-appindicator3-dev
+            libgtk-3-dev
+            librsvg2-dev
+            libssl-dev
+            libwebkit2gtk-4.1-dev
+            libxdo-dev
+            patchelf
+            pkg-config
+            wget
             xdg-utils
 
       - name: Install pnpm
@@ -142,17 +152,18 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: nightly-${{ matrix.target }}-${{ matrix.runner }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Compile desktop application
-        run: pnpm tauri build --no-bundle
+        run: pnpm tauri build --target ${{ matrix.target }} --no-bundle -- --profile nightly
 
   nightly-package:
     name: Nightly (${{ matrix.name }})
     if: github.event_name != 'pull_request'
-    needs: quality
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -203,30 +214,31 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            gstreamer1.0-alsa \
-            gstreamer1.0-gl \
-            gstreamer1.0-libav \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-pulseaudio \
-            libayatana-appindicator3-dev \
-            libfuse2 \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            pkg-config \
-            rpm \
-            wget \
+        uses: ./.github/actions/apt-install
+        with:
+          cache-key: nightly-${{ matrix.runner }}
+          packages: |
+            build-essential
+            curl
+            file
+            gstreamer1.0-alsa
+            gstreamer1.0-gl
+            gstreamer1.0-libav
+            gstreamer1.0-plugins-bad
+            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-good
+            gstreamer1.0-pulseaudio
+            libayatana-appindicator3-dev
+            libfuse2
+            libgtk-3-dev
+            librsvg2-dev
+            libssl-dev
+            libwebkit2gtk-4.1-dev
+            libxdo-dev
+            patchelf
+            pkg-config
+            rpm
+            wget
             xdg-utils
 
       - name: Install pnpm
@@ -250,6 +262,7 @@ jobs:
           # Per runner image: build scripts compiled against 24.04's glibc
           # can't run on 22.04.
           shared-key: nightly-${{ matrix.target }}-${{ matrix.runner }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -258,7 +271,13 @@ jobs:
         run: node scripts/write-nightly-config.mjs
 
       - name: Build nightly packages
-        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.nightly.generated.json
+        env:
+          # Read at compile time; without them Last.fm sign-in stays off in the build.
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+        # [profile.nightly] trades fat LTO for thin LTO; tagged releases keep
+        # [profile.release].
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.nightly.generated.json -- --profile nightly
 
       - name: Log the bundled media stack versions
         if: matrix.appimage
@@ -270,18 +289,18 @@ jobs:
         if: matrix.appimage
         shell: bash
         run: |
-          appimage="$(ls src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage | head -n1)"
+          appimage="$(ls src-tauri/target/${{ matrix.target }}/nightly/bundle/appimage/*.AppImage | head -n1)"
           bash scripts/postprocess-appimage.sh "$appimage" "${{ matrix.appimage }}"
 
       - name: Report package sizes
-        run: node scripts/report-bundle-sizes.mjs src-tauri/target/${{ matrix.target }}/release/bundle
+        run: node scripts/report-bundle-sizes.mjs src-tauri/target/${{ matrix.target }}/nightly/bundle
 
       - name: Upload Windows nightly installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
           name: Flow-nightly-${{ matrix.slug }}-${{ github.run_number }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          path: src-tauri/target/${{ matrix.target }}/nightly/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -290,7 +309,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Flow-nightly-${{ matrix.slug }}-appimage-${{ github.run_number }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          path: src-tauri/target/${{ matrix.target }}/nightly/bundle/appimage/*.AppImage
           if-no-files-found: error
           retention-days: 14
 
@@ -299,7 +318,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Flow-nightly-${{ matrix.slug }}-deb-${{ github.run_number }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+          path: src-tauri/target/${{ matrix.target }}/nightly/bundle/deb/*.deb
           if-no-files-found: error
           retention-days: 14
 
@@ -308,7 +327,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Flow-nightly-${{ matrix.slug }}-rpm-${{ github.run_number }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+          path: src-tauri/target/${{ matrix.target }}/nightly/bundle/rpm/*.rpm
           if-no-files-found: error
           retention-days: 14
 
@@ -317,7 +336,6 @@ jobs:
   flatpak-sources:
     name: Nightly (Linux x64 Flatpak sources)
     if: github.event_name != 'pull_request'
-    needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Prototype: drop continue-on-error here and in nightly-flatpak before the

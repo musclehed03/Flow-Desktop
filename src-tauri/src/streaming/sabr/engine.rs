@@ -82,10 +82,12 @@ impl TrackBuffer {
             ..Default::default()
         }
     }
+    #[cfg(test)]
     fn done(&self) -> bool {
         (self.end_seq > 0 && i64::from(self.max_seq) >= self.end_seq)
             || (self.total_ms > 0 && self.init.is_some() && self.segments_cover_total())
     }
+    #[cfg(test)]
     fn segments_cover_total(&self) -> bool {
         // crude: rely on max_seq vs end_seq; total_ms handled by state
         self.end_seq > 0 && i64::from(self.max_seq) >= self.end_seq
@@ -198,14 +200,11 @@ impl SabrEngine {
             .or_else(|| audio_tracks.first());
         let (active_key, active_itag) = match initial {
             Some(t) => {
-                state.set_audio_format(
-                    FormatId::new(
-                        t.format.itag,
-                        t.format.last_modified,
-                        t.format.xtags.clone(),
-                    ),
-                    t.format.mime_type.clone(),
-                );
+                state.set_audio_format(FormatId::new(
+                    t.format.itag,
+                    t.format.last_modified,
+                    t.format.xtags.clone(),
+                ));
                 (t.key.clone(), t.format.itag)
             }
             None => (String::new(), selected.audio.itag),
@@ -445,7 +444,6 @@ impl SabrEngine {
                 {
                     match action {
                         CycleAction::Reload => return Err(SabrError::ReloadRequired),
-                        CycleAction::Stop => return Ok(false),
                     }
                 }
             }
@@ -569,6 +567,14 @@ impl SabrEngine {
                 }
             }
             ump::RELOAD_PLAYER_RESPONSE => {
+                // ReloadPlayerResponse { 1: ReloadPlaybackParams { 1: token } }: the
+                // next player request sends it back to keep this session's state.
+                if let Some(token) = reload_token(data) {
+                    crate::api::innertube::core::playback_session::store_reload_token(
+                        &self.descriptor.video_id,
+                        token,
+                    );
+                }
                 return Ok(Some(CycleAction::Reload));
             }
             ump::END_OF_TRACK => {
@@ -727,14 +733,11 @@ impl SabrEngine {
             .store(track.format.itag, Ordering::Relaxed);
         {
             let mut st = self.state.lock().await;
-            st.set_audio_format(
-                FormatId::new(
-                    track.format.itag,
-                    track.format.last_modified,
-                    track.format.xtags.clone(),
-                ),
-                track.format.mime_type.clone(),
-            );
+            st.set_audio_format(FormatId::new(
+                track.format.itag,
+                track.format.last_modified,
+                track.format.xtags.clone(),
+            ));
         }
         {
             let mut store = self.store.lock().await;
@@ -922,7 +925,6 @@ impl SabrEngine {
 
 enum CycleAction {
     Reload,
-    Stop,
 }
 
 // Decode standard or URL-safe base64 (with or without padding).
@@ -952,5 +954,40 @@ mod tests {
         tb.end_seq = 3;
         tb.max_seq = 3;
         assert!(tb.done());
+    }
+}
+
+/// The token inside a `RELOAD_PLAYER_RESPONSE` part.
+fn reload_token(data: &[u8]) -> Option<String> {
+    let mut reader = super::pb::PbReader::new(data);
+    while let Some(field) = reader.next_field() {
+        if field.number == 1 && field.wire_type == 2 {
+            let mut params = super::pb::PbReader::new(field.bytes);
+            while let Some(param) = params.next_field() {
+                if param.number == 1 {
+                    return param.as_str().map(ToOwned::to_owned);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod reload_tests {
+    use super::*;
+    use crate::streaming::sabr::pb::PbWriter;
+
+    #[test]
+    fn reads_the_reload_token() {
+        let mut params = PbWriter::new();
+        params.write_string(1, "reload-token");
+        let mut message = PbWriter::new();
+        message.write_message(1, params.as_slice());
+        assert_eq!(
+            reload_token(message.as_slice()).as_deref(),
+            Some("reload-token")
+        );
+        assert_eq!(reload_token(&[]), None);
     }
 }

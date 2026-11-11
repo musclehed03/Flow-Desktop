@@ -35,8 +35,7 @@ export function UpdateManager({ enabled }: { enabled: boolean }) {
         if (!cancelled && release) useUiStore.getState().showToast({
           title: getString("fork_update_available"),
           message: getString("fork_update_version", release.version),
-          actionLabel: getString("fork_update_view"),
-          onAction: () => void openExternal(release.url),
+          actions: [{ label: getString("fork_update_view"), onSelect: () => void openExternal(release.url) }],
           durationMs: 12000,
         });
       } catch (error) { console.warn("Fork update check failed", error); }

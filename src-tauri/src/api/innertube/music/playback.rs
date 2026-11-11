@@ -13,15 +13,19 @@
 
 use std::time::Duration;
 
+use crate::api::innertube::json::loudness::music_loudness_db;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use super::clients;
 use crate::api::innertube::InnertubeClient;
 use crate::api::innertube::core::botguard::generate_po_token;
-use crate::api::innertube::extractors::player::{
-    is_bot_wall, is_reportable_refusal, map_playability_error, playback_priority,
+use crate::api::innertube::core::gate_tracker::gated_last;
+use crate::api::innertube::extractors::playability::{
+    Refusal, ends_the_ladder, is_better_report, is_bot_wall, map_playability_error,
 };
+use crate::api::innertube::extractors::player::playback_priority;
+use crate::api::innertube::json::xtags::decode_xtags;
 use crate::errors::{AppError, AppResult};
 use crate::models::music_stream::{MusicAudioQuality, MusicStreamInfo};
 
@@ -32,7 +36,7 @@ const MUSIC_CLIENT_TIMEOUT: Duration = Duration::from_secs(6);
 /// What one client answered for a track.
 enum ClientAnswer {
     Playable(Box<MusicStreamInfo>),
-    Refused(Value),
+    Refused(Refusal),
     Unusable,
 }
 
@@ -45,10 +49,14 @@ impl InnertubeClient {
     /// under a fresh visitor identity, and a refusal that belongs to the track
     /// itself (region, privacy, removal) ends the walk, since every client would
     /// give the same answer.
+    ///
+    /// `prefer_aac` asks for AAC over Opus where a client offers both: the
+    /// player's retry after the media element could not decode the first one.
     pub(crate) async fn resolve_music_stream(
         &self,
         video_id: &str,
         audio_quality: MusicAudioQuality,
+        prefer_aac: bool,
     ) -> AppResult<MusicStreamInfo> {
         let video_id = video_id.trim();
         if video_id.is_empty() {
@@ -57,39 +65,55 @@ impl InnertubeClient {
 
         // Bulk metadata lookups wait while a track is being resolved.
         let _priority = playback_priority().start_stream();
-        let mut visitor = self.music_visitor_data().await;
+        let mut visitor = self.fetch_visitor_data().await;
         let mut identity_refreshed = false;
-        let mut last_error: Option<AppError> = None;
+        let mut reported: Option<Refusal> = None;
 
-        for client in clients::DIRECT_AUDIO_CLIENTS {
+        for client in gated_last(clients::DIRECT_AUDIO_CLIENTS, |client| client.name) {
             let mut answer = self
-                .ask_music_client(client, video_id, audio_quality, visitor.as_deref())
+                .ask_music_client(
+                    client,
+                    video_id,
+                    audio_quality,
+                    prefer_aac,
+                    visitor.as_deref(),
+                )
                 .await;
             if !identity_refreshed
-                && matches!(&answer, ClientAnswer::Refused(playability) if is_bot_wall(playability))
+                && matches!(&answer, ClientAnswer::Refused(refusal) if is_bot_wall(&refusal.playability))
             {
                 identity_refreshed = true;
-                if let Some(fresh) = self.refresh_visitor_data().await {
+                if let Some(fresh) = self.refresh_visitor_data(visitor.as_deref()).await {
                     info!(
                         client = client.name,
                         "Music bot wall; retrying under a fresh visitor identity"
                     );
                     visitor = Some(fresh);
                     answer = self
-                        .ask_music_client(client, video_id, audio_quality, visitor.as_deref())
+                        .ask_music_client(
+                            client,
+                            video_id,
+                            audio_quality,
+                            prefer_aac,
+                            visitor.as_deref(),
+                        )
                         .await;
                 }
             }
 
             match answer {
                 ClientAnswer::Playable(info) => return Ok(*info),
-                ClientAnswer::Refused(playability) => {
-                    let error = music_refusal_error(&playability);
-                    warn!(client = client.name, reason = %error, "non-OK music playability");
-                    let track_level =
-                        is_reportable_refusal(&playability) && !is_bot_wall(&playability);
-                    last_error = Some(error);
-                    if track_level {
+                ClientAnswer::Refused(refusal) => {
+                    warn!(
+                        client = client.name,
+                        reason = %music_refusal_error(&refusal.playability),
+                        "non-OK music playability"
+                    );
+                    let ends = ends_the_ladder(&refusal);
+                    if is_better_report(reported.as_ref(), &refusal) {
+                        reported = Some(refusal);
+                    }
+                    if ends {
                         break;
                     }
                 }
@@ -97,11 +121,14 @@ impl InnertubeClient {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            AppError::Extractor(format!(
-                "Failed to resolve music stream for {video_id} after trying all clients"
-            ))
-        }))
+        Err(reported.map_or_else(
+            || {
+                AppError::Extractor(format!(
+                    "Failed to resolve music stream for {video_id} after trying all clients"
+                ))
+            },
+            |refusal| music_refusal_error(&refusal.playability),
+        ))
     }
 
     async fn ask_music_client(
@@ -109,6 +136,7 @@ impl InnertubeClient {
         client: &clients::MusicClient,
         video_id: &str,
         audio_quality: MusicAudioQuality,
+        prefer_aac: bool,
         visitor: Option<&str>,
     ) -> ClientAnswer {
         // Only a client Flow can attest gets a token, and it is bound to the same
@@ -139,11 +167,11 @@ impl InnertubeClient {
 
         let status = res["playabilityStatus"]["status"].as_str().unwrap_or("");
         if !status.eq_ignore_ascii_case("OK") {
-            return ClientAnswer::Refused(res["playabilityStatus"].clone());
+            return ClientAnswer::Refused(Refusal::of(&res));
         }
 
         let streaming = &res["streamingData"];
-        let Some((format, url)) = pick_audio_format(streaming, audio_quality) else {
+        let Some((format, url)) = pick_audio_format(streaming, audio_quality, prefer_aac) else {
             debug!(client = client.name, "no clean direct audio format");
             return ClientAnswer::Unusable;
         };
@@ -170,9 +198,9 @@ impl InnertubeClient {
         let approx_duration_ms = format["approxDurationMs"]
             .as_str()
             .and_then(|s| s.parse::<u64>().ok());
-        let loudness_db = res["playerConfig"]["audioConfig"]["loudnessDb"].as_f64();
-        let perceptual_loudness_db =
-            res["playerConfig"]["audioConfig"]["perceptualLoudnessDb"].as_f64();
+        let audio_config = &res["playerConfig"]["audioConfig"];
+        let loudness_db = music_loudness_db(audio_config, &format);
+        let perceptual_loudness_db = audio_config["perceptualLoudnessDb"].as_f64();
         let expires_in_seconds = streaming["expiresInSeconds"]
             .as_str()
             .and_then(|s| s.parse::<u64>().ok())
@@ -183,6 +211,7 @@ impl InnertubeClient {
             itag,
             ?bitrate,
             audio_quality = audio_quality.as_str(),
+            prefer_aac,
             "music stream resolved"
         );
 
@@ -218,6 +247,25 @@ struct AudioCandidate {
     bitrate: u64,
     score: i64,
     is_original: bool,
+    /// A dynamic-range compressed copy or an auto-dubbed track: only played
+    /// when nothing else is on offer.
+    is_fallback_copy: bool,
+}
+
+/// The dynamic-range compressed copy of a track, or an auto-dubbed one.
+fn is_fallback_copy(format: &Value) -> bool {
+    let xtags = format["xtags"]
+        .as_str()
+        .map(decode_xtags)
+        .unwrap_or_default();
+    format["isDrc"].as_bool().unwrap_or(false)
+        || xtags.get("drc").is_some_and(|value| value == "1")
+        || xtags
+            .get("acont")
+            .is_some_and(|value| value == "dubbed-auto")
+        || format["audioTrack"]["isAutoDubbed"]
+            .as_bool()
+            .unwrap_or(false)
 }
 
 fn format_bitrate(format: &Value) -> u64 {
@@ -315,10 +363,17 @@ fn pick_targeted_quality(
         })
 }
 
+fn is_aac(format: &Value) -> bool {
+    format["mimeType"]
+        .as_str()
+        .is_some_and(|mime| mime.starts_with("audio/mp4"))
+}
+
 /// Choose a directly-playable audio-only format. Returns `(format, url)`.
 fn pick_audio_format(
     streaming: &Value,
     audio_quality: MusicAudioQuality,
+    prefer_aac: bool,
 ) -> Option<(Value, String)> {
     let formats = streaming["adaptiveFormats"].as_array()?;
     let mut candidates: Vec<AudioCandidate> = Vec::new();
@@ -341,7 +396,19 @@ fn pick_audio_format(
             bitrate: format_bitrate(format),
             score: audio_score(format),
             is_original: format_is_original_audio(format),
+            is_fallback_copy: is_fallback_copy(format),
         });
+    }
+    // The DRC twin differs from the normal copy by a few bytes a second, so
+    // ranking by bitrate alone could pick the loudness-flattened one.
+    if candidates
+        .iter()
+        .any(|candidate| !candidate.is_fallback_copy)
+    {
+        candidates.retain(|candidate| !candidate.is_fallback_copy);
+    }
+    if prefer_aac && candidates.iter().any(|candidate| is_aac(&candidate.format)) {
+        candidates.retain(|candidate| is_aac(&candidate.format));
     }
 
     let selected = match audio_quality {
@@ -378,6 +445,45 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn music_loudness_takes_the_perceptual_value_before_the_others() {
+        let top =
+            json!({ "loudnessDb": 1.5, "perceptualLoudnessDb": -9.0, "loudnessTargetLkfs": -14.0 });
+        assert_eq!(
+            music_loudness_db(&top, &json!({ "loudnessDb": 3.0 })),
+            Some(5.0)
+        );
+
+        let visionos = json!({ "perceptualLoudnessDb": -10.59, "loudnessTargetLkfs": -14.0 });
+        let perceptual = music_loudness_db(&visionos, &json!({ "loudnessDb": 1.0 })).unwrap();
+        assert!((perceptual - 3.41).abs() < 1e-9);
+
+        assert_eq!(
+            music_loudness_db(&json!({ "loudnessDb": 1.5 }), &json!({ "loudnessDb": 3.0 })),
+            Some(1.5)
+        );
+        assert_eq!(music_loudness_db(&json!({}), &json!({})), None);
+    }
+
+    #[test]
+    fn the_drc_copy_is_never_picked_over_the_normal_one() {
+        let format = |bitrate: u64, drc: bool| {
+            json!({
+                "itag": 251,
+                "mimeType": "audio/webm; codecs=\"opus\"",
+                "bitrate": bitrate,
+                "isDrc": drc,
+                "url": format!("https://rr1.googlevideo.com/videoplayback?itag=251&b={bitrate}"),
+            })
+        };
+        let streaming =
+            json!({ "adaptiveFormats": [format(140_000, false), format(140_005, true)] });
+        let (picked, _) = pick_audio_format(&streaming, MusicAudioQuality::High, false).unwrap();
+        assert_eq!(picked["isDrc"], false);
+        let only_drc = json!({ "adaptiveFormats": [format(140_005, true)] });
+        assert!(pick_audio_format(&only_drc, MusicAudioQuality::High, false).is_some());
+    }
+
+    #[test]
     fn premium_wording_is_reported_as_music_premium() {
         let playability = json!({
             "status": "UNPLAYABLE",
@@ -404,7 +510,10 @@ mod tests {
             music_refusal_error(&removed),
             AppError::ContentNotAvailable(_)
         ));
-        assert!(is_reportable_refusal(&removed));
+        assert!(ends_the_ladder(&Refusal {
+            playability: removed,
+            has_video_details: false,
+        }));
     }
 
     #[test]
@@ -419,8 +528,28 @@ mod tests {
                   "url": "https://rr1.googlevideo.com/videoplayback?c=VISIONOS" },
             ],
         });
-        let (format, _) =
-            pick_audio_format(&streaming, MusicAudioQuality::Auto).expect("one clean format");
+        let (format, _) = pick_audio_format(&streaming, MusicAudioQuality::Auto, false)
+            .expect("one clean format");
         assert_eq!(format["itag"], 139);
+    }
+
+    #[test]
+    fn a_decoder_retry_takes_aac_when_it_is_offered() {
+        let streaming = json!({
+            "adaptiveFormats": [
+                { "itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150_000,
+                  "url": "https://rr1.googlevideo.com/videoplayback?itag=251" },
+                { "itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130_000,
+                  "url": "https://rr1.googlevideo.com/videoplayback?itag=140" },
+            ],
+        });
+        let (opus, _) = pick_audio_format(&streaming, MusicAudioQuality::Auto, false).unwrap();
+        assert_eq!(opus["itag"], 251);
+        let (aac, _) = pick_audio_format(&streaming, MusicAudioQuality::Auto, true).unwrap();
+        assert_eq!(aac["itag"], 140);
+
+        let opus_only = json!({ "adaptiveFormats": [streaming["adaptiveFormats"][0].clone()] });
+        let (fallback, _) = pick_audio_format(&opus_only, MusicAudioQuality::Auto, true).unwrap();
+        assert_eq!(fallback["itag"], 251);
     }
 }

@@ -16,20 +16,27 @@ import {
 } from "./themes";
 import { useAppSettingsStore } from "../store/useAppSettingsStore";
 import { COLOR_BLIND_PALETTES, resolveColorBlindPalette } from "./colorBlindPalettes";
+import { useThemeFileStore } from "../store/useThemeFileStore";
+import { THEME_FILE_ID } from "./themeFile";
+import { useThemeFileSync } from "./useThemeFile";
+import { saveBootTheme } from "./profiles/bootTheme";
 
 export function useTheme() {
   const themeId = useAppSettingsStore((state) => state.values[SETTINGS.THEME_ID] ?? "default");
   const variantValue = useAppSettingsStore((state) => state.values[SETTINGS.THEME_VARIANT] ?? "dark");
   const serializedCustomThemes = useAppSettingsStore((state) => state.values[SETTINGS.CUSTOM_THEMES] ?? "[]");
   const setSettingValue = useAppSettingsStore((state) => state.setSettingValue);
-  const variant: ThemeVariant = isThemeVariant(variantValue) ? variantValue : "dark";
+  const fileTheme = useThemeFileStore((state) => (themeId === THEME_FILE_ID ? state.applied : null));
+  const chosenVariant: ThemeVariant = isThemeVariant(variantValue) ? variantValue : "dark";
+  // The theme file sets its own light or dark, so a shell switching schemes switches Flow too.
+  const variant: ThemeVariant = fileTheme?.scheme ?? chosenVariant;
   const customThemes = useMemo(
     () => parseCustomThemes(serializedCustomThemes),
     [serializedCustomThemes],
   );
   const theme = useMemo(
-    () => resolveTheme(themeId, customThemes),
-    [customThemes, themeId],
+    () => fileTheme?.theme ?? resolveTheme(themeId, customThemes),
+    [customThemes, fileTheme, themeId],
   );
 
   return {
@@ -46,8 +53,17 @@ export function useTheme() {
 
 export function ThemeController() {
   const { theme, variant } = useTheme();
+  const themeId = useAppSettingsStore((state) => state.values[SETTINGS.THEME_ID] ?? "default");
   const colorBlindEnabled = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_ENABLED] === "true");
   const paletteValue = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_PALETTE] ?? "deuteranomaly");
+  const settingsLoaded = useAppSettingsStore((state) => state.loaded);
+  useThemeFileSync(themeId === THEME_FILE_ID);
+
+  // Only once settings are in: the schema defaults shown before must not replace the snapshot.
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    saveBootTheme(theme.id, theme.variants[variant] ?? DEFAULT_THEME.variants.dark, variant);
+  }, [settingsLoaded, theme, variant]);
 
   useEffect(() => {
     const root = document.documentElement;

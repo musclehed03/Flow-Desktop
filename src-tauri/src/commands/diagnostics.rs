@@ -120,14 +120,21 @@ pub fn logs_dir_path(app: tauri::AppHandle) -> Result<String, ErrorResponse> {
 /// on Linux/WebKitGTK, where `navigator.clipboard` copy can silently fail — the
 /// user can always grab the `flow*.log` files directly and attach them.
 #[tauri::command]
-pub fn reveal_logs_folder(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
-    use tauri_plugin_opener::OpenerExt;
+pub async fn reveal_logs_folder(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     let dir = logs_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(AppError::from)?;
-    app.opener()
-        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
-        .map_err(|error| AppError::Internal(format!("Failed to open logs folder: {error}")))?;
+    super::external::open_folder(&app, &dir).await?;
     Ok(())
+}
+
+/// Forgets the anonymous visitor identity Flow sends with every request, so the next
+/// request starts under a new one.
+#[tauri::command]
+pub fn reset_visitor_identity(
+    client: tauri::State<'_, std::sync::Arc<crate::api::innertube::InnertubeClient>>,
+) {
+    client.reset_visitor_identity();
+    tracing::info!("visitor identity reset from Diagnostics");
 }
 
 /// Signals that the webview mounted and rendered, so the next Linux launch

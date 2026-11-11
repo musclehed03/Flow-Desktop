@@ -1,33 +1,21 @@
-use serde::Serialize;
-use std::collections::HashSet;
-use tauri::State;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
+use sqlx::SqlitePool;
+use tauri::{AppHandle, Manager, State};
+
+use crate::commands::linked::err as linked_err;
 use crate::errors::ErrorResponse;
+use crate::flow_neuro::bootstrap::ImportedVideo;
 use crate::flow_neuro::signals::InteractionType;
+use crate::flow_neuro::watch_session::{END_GRACE_SECONDS, WatchReport};
 use crate::models::video::VideoSummary;
-use crate::services::recommendation_service::{FeedQuotas, RecommendationService};
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PersonaDetails {
-    pub name: String,
-    pub title: String,
-    pub description: String,
-    pub icon: String,
-}
-
-#[tauri::command]
-pub async fn rank_videos(
-    candidates: Vec<VideoSummary>,
-    user_subs: Vec<String>,
-    recommendation_service: State<'_, RecommendationService>,
-) -> Result<Vec<VideoSummary>, ErrorResponse> {
-    let subs_set = user_subs.into_iter().collect::<HashSet<String>>();
-    recommendation_service
-        .rank_candidates(candidates, subs_set)
-        .await
-        .map_err(ErrorResponse::from)
-}
+use crate::services::blocked_channel_names::{self, BlockedChannelNames};
+use crate::services::profile_interests::{PersonaDetails, ProfileInterests, stored_interests};
+use crate::services::profile_service::ProfileService;
+use crate::services::recommendation_service::RecommendationService;
+use crate::sync2::actions::leave_if_linked;
+use crate::sync2::profile_actions::syncs_link;
 
 #[tauri::command]
 pub async fn log_interaction(
@@ -49,6 +37,7 @@ pub async fn log_interaction(
         "WATCHED" => InteractionType::Watched,
         "SKIPPED" => InteractionType::Skipped,
         "DISLIKED" => InteractionType::Disliked,
+        "SAVED" => InteractionType::Saved,
         _ => {
             return Err(ErrorResponse::from(crate::errors::AppError::Validation(
                 "Invalid interaction type provided".to_string(),
@@ -68,9 +57,44 @@ pub async fn log_interaction(
             is_short,
             interaction,
             percent_watched,
+            None,
         )
         .await
         .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn report_watch_progress(
+    report: WatchReport,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<(), ErrorResponse> {
+    recommendation_service
+        .report_watch_progress(report)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn end_watch_session(
+    report: WatchReport,
+    natural: bool,
+    app: AppHandle,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<(), ErrorResponse> {
+    let pending = recommendation_service
+        .end_watch_session(report, natural)
+        .await
+        .map_err(ErrorResponse::from)?;
+    if let Some(generation) = pending {
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(END_GRACE_SECONDS)).await;
+            let service = app.state::<RecommendationService>();
+            if let Err(error) = service.settle_watch_session(Some(generation)).await {
+                tracing::warn!(%error, "[FlowNeuro] failed to settle a watch session");
+            }
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -95,8 +119,9 @@ pub async fn mark_not_interested(
             duration_seconds,
             is_live,
             is_short,
-            InteractionType::Disliked,
+            InteractionType::NotInterested,
             0.0,
+            None,
         )
         .await
         .map_err(ErrorResponse::from)
@@ -104,11 +129,41 @@ pub async fn mark_not_interested(
 
 #[tauri::command]
 pub async fn record_feed_impressions(
+    app: AppHandle,
     videos: Vec<VideoSummary>,
     recommendation_service: State<'_, RecommendationService>,
+    home: State<'_, crate::services::home_feed::HomeFeedService>,
+    pool: State<'_, SqlitePool>,
 ) -> Result<(), ErrorResponse> {
+    let ids: Vec<String> = videos.iter().map(|video| video.id.clone()).collect();
+    home.note_impressions(&app, &ids).await;
+    let _ =
+        crate::db::seen_videos::remember(&pool, &ids, chrono::Utc::now().timestamp_millis()).await;
     recommendation_service
         .record_feed_impressions(videos)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// Cards seen in a list the ranker does not learn from (the Watch page's related videos): kept
+/// only so "Hide videos you've already seen" can leave them out.
+#[tauri::command]
+pub async fn record_seen_videos(
+    ids: Vec<String>,
+    pool: State<'_, SqlitePool>,
+) -> Result<(), ErrorResponse> {
+    crate::db::seen_videos::remember(&pool, &ids, chrono::Utc::now().timestamp_millis())
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// Which of these videos were already seen.
+#[tauri::command]
+pub async fn seen_video_ids_among(
+    ids: Vec<String>,
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<String>, ErrorResponse> {
+    crate::db::seen_videos::among(&pool, &ids)
         .await
         .map_err(ErrorResponse::from)
 }
@@ -135,16 +190,6 @@ pub async fn get_onboarding_status(
 }
 
 #[tauri::command]
-pub async fn generate_discovery_queries(
-    recommendation_service: State<'_, RecommendationService>,
-) -> Result<Vec<String>, ErrorResponse> {
-    recommendation_service
-        .generate_discovery_queries()
-        .await
-        .map_err(ErrorResponse::from)
-}
-
-#[tauri::command]
 pub async fn get_flow_persona(
     recommendation_service: State<'_, RecommendationService>,
 ) -> Result<PersonaDetails, ErrorResponse> {
@@ -152,13 +197,22 @@ pub async fn get_flow_persona(
         .get_personality()
         .await
         .map_err(ErrorResponse::from)?;
+    Ok(persona.into())
+}
 
-    Ok(PersonaDetails {
-        name: persona.name().to_string(),
-        title: persona.title().to_string(),
-        description: persona.description().to_string(),
-        icon: persona.icon().to_string(),
-    })
+/// Another profile's brain, persona and music taste, read from its database on this device.
+#[tauri::command]
+pub async fn get_profile_interests(
+    profile: String,
+    profiles: State<'_, ProfileService>,
+) -> Result<ProfileInterests, ErrorResponse> {
+    let (pool, _) = profiles
+        .open_closed(&profile)
+        .await
+        .map_err(ErrorResponse::from)?;
+    let interests = stored_interests(&pool, now_ms()).await;
+    pool.close().await;
+    interests.map_err(ErrorResponse::from)
 }
 
 #[tauri::command]
@@ -171,14 +225,53 @@ pub async fn get_brain_snapshot(
         .map_err(ErrorResponse::from)
 }
 
+/// Your taste: picks, learned interest groups and hidden channels by name.
 #[tauri::command]
-pub async fn get_feed_quotas(
+pub async fn get_taste_overview(
     recommendation_service: State<'_, RecommendationService>,
-) -> Result<FeedQuotas, ErrorResponse> {
-    recommendation_service
-        .get_feed_quotas()
+) -> Result<crate::services::taste_service::TasteOverview, ErrorResponse> {
+    Ok(recommendation_service.taste_overview().await)
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
+}
+
+/// Home stops drawing on a channel the viewer keeps watching until they watch it again.
+#[tauri::command]
+pub async fn forget_remembered_channel(
+    channel_id: String,
+    pool: State<'_, SqlitePool>,
+) -> Result<(), ErrorResponse> {
+    crate::services::home_feed::channel_memory::forget(&pool, &channel_id, now_ms())
         .await
         .map_err(ErrorResponse::from)
+}
+
+/// Forgets every channel the viewer kept watching; the ones they turned down stay turned down.
+#[tauri::command]
+pub async fn clear_channel_memory(pool: State<'_, SqlitePool>) -> Result<(), ErrorResponse> {
+    crate::services::home_feed::channel_memory::clear(&pool, now_ms())
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// Looks up on their RSS feeds the names of hidden channels this device does not know.
+#[tauri::command]
+pub async fn resolve_hidden_channel_names(
+    channel_ids: Vec<String>,
+    pool: State<'_, SqlitePool>,
+    names: State<'_, BlockedChannelNames>,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<HashMap<String, String>, ErrorResponse> {
+    let blocked: HashSet<String> = recommendation_service
+        .get_brain_snapshot()
+        .await
+        .map_err(ErrorResponse::from)?
+        .blocked_channels
+        .into_iter()
+        .collect();
+    Ok(names.resolve(&pool, channel_ids, &blocked).await)
 }
 
 #[tauri::command]
@@ -239,8 +332,12 @@ pub async fn remove_preferred_topic(
 #[tauri::command]
 pub async fn unblock_channel(
     channel_id: String,
+    pool: State<'_, SqlitePool>,
     recommendation_service: State<'_, RecommendationService>,
 ) -> Result<(), ErrorResponse> {
+    blocked_channel_names::forget(&pool, &channel_id)
+        .await
+        .map_err(ErrorResponse::from)?;
     recommendation_service
         .unblock_channel(channel_id)
         .await
@@ -250,8 +347,16 @@ pub async fn unblock_channel(
 #[tauri::command]
 pub async fn block_channel(
     channel_id: String,
+    channel_name: Option<String>,
+    pool: State<'_, SqlitePool>,
     recommendation_service: State<'_, RecommendationService>,
 ) -> Result<(), ErrorResponse> {
+    // The name the block was made with, so Hidden channels can show it without a lookup.
+    if let Some(name) = channel_name {
+        blocked_channel_names::remember(&pool, &channel_id, &name)
+            .await
+            .map_err(ErrorResponse::from)?;
+    }
     recommendation_service
         .block_channel(channel_id)
         .await
@@ -259,9 +364,83 @@ pub async fn block_channel(
 }
 
 #[tauri::command]
-pub async fn reset_brain(
+pub async fn learn_from_search(
+    query: String,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<bool, ErrorResponse> {
+    recommendation_service
+        .learn_from_search(query)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn note_subscription(
+    channel_id: String,
+    channel_name: String,
+    subscribed: bool,
     recommendation_service: State<'_, RecommendationService>,
 ) -> Result<(), ErrorResponse> {
+    recommendation_service
+        .note_subscription(channel_id, channel_name, subscribed)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn observe_channel_uploads(
+    uploads: Vec<VideoSummary>,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<(), ErrorResponse> {
+    recommendation_service
+        .observe_channel_uploads(uploads)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn bootstrap_from_history(
+    videos: Vec<ImportedVideo>,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<usize, ErrorResponse> {
+    recommendation_service
+        .bootstrap_from_history(videos)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn bootstrap_from_subscriptions(
+    channel_names: Vec<String>,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<usize, ErrorResponse> {
+    recommendation_service
+        .bootstrap_from_subscriptions(channel_names)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn import_brain(
+    brain: serde_json::Value,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<(), ErrorResponse> {
+    recommendation_service
+        .import_brain(brain)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// In the profile that syncs, this device leaves its sync group first, so the reset brain never
+/// reaches the other devices.
+#[tauri::command]
+pub async fn reset_brain(
+    app: AppHandle,
+    recommendation_service: State<'_, RecommendationService>,
+) -> Result<(), ErrorResponse> {
+    if syncs_link(&app).await {
+        leave_if_linked(&app).await.map_err(|e| linked_err(&e))?;
+    }
     recommendation_service
         .reset_brain()
         .await

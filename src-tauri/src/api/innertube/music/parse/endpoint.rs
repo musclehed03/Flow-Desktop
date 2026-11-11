@@ -56,6 +56,54 @@ pub fn music_video_type(nav: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// A list row's `musicVideoType`, from wherever the row carries a watch
+/// endpoint: its title run, the row, or the play button over its thumbnail
+/// (the only place an episode says it is one).
+#[must_use]
+pub fn row_video_type(r: &Value) -> Option<String> {
+    music_video_type(
+        &r["flexColumns"][0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]
+            ["navigationEndpoint"],
+    )
+    .or_else(|| music_video_type(&r["navigationEndpoint"]))
+    .or_else(|| {
+        music_video_type(
+            &r["overlay"]["musicItemThumbnailOverlayRenderer"]["content"]["musicPlayButtonRenderer"]
+                ["playNavigationEndpoint"],
+        )
+    })
+}
+
+/// Whether a row's menu offers `icon` (`MIX` for an artist's radio).
+#[must_use]
+pub fn menu_has_icon(r: &Value, icon: &str) -> bool {
+    r["menu"]["menuRenderer"]["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|item| {
+            item.as_object()
+                .and_then(|item| item.values().next())
+                .is_some_and(|inner| inner["icon"]["iconType"].as_str() == Some(icon))
+        })
+}
+
+/// The album a byline links to ("Artist • Album • 2020"), with its real name.
+#[must_use]
+pub fn album_from_runs(text: &Value) -> Option<Album> {
+    text["runs"].as_array()?.iter().find_map(|run| {
+        let nav = &run["navigationEndpoint"];
+        let page = page_type(nav)?;
+        if !(page.contains("ALBUM") || page.contains("AUDIOBOOK")) {
+            return None;
+        }
+        Some(Album {
+            name: run["text"].as_str()?.to_string(),
+            id: browse_id(nav)?,
+        })
+    })
+}
+
 /// Album from a row's "Go to album" menu, when the byline has no album link. Name
 /// is left empty — the menu label is the localized action text, not the title.
 #[must_use]
@@ -75,13 +123,16 @@ pub fn album_from_menu(r: &Value) -> Option<Album> {
     })
 }
 
-/// `MUSIC_EXPLICIT_BADGE` presence on a renderer's `badges`.
+/// `MUSIC_EXPLICIT_BADGE` presence on a renderer's `badges`, or on `subtitleBadges`, which
+/// two-row cards and the top-result card use instead.
 #[must_use]
 pub fn has_explicit(r: &Value) -> bool {
-    r["badges"].as_array().is_some_and(|badges| {
-        badges.iter().any(|b| {
-            b["musicInlineBadgeRenderer"]["icon"]["iconType"].as_str()
-                == Some("MUSIC_EXPLICIT_BADGE")
+    ["badges", "subtitleBadges"].iter().any(|key| {
+        r[*key].as_array().is_some_and(|badges| {
+            badges.iter().any(|b| {
+                b["musicInlineBadgeRenderer"]["icon"]["iconType"].as_str()
+                    == Some("MUSIC_EXPLICIT_BADGE")
+            })
         })
     })
 }
@@ -113,4 +164,18 @@ pub fn watch_next_tab(tabs: &Value, tab: WatchNextTab) -> &Value {
                     .is_some_and(|id| id.starts_with(prefix))
         })
         .unwrap_or(&Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn explicit_is_read_from_badges_and_subtitle_badges() {
+        let badge = json!([{ "musicInlineBadgeRenderer": { "icon": { "iconType": "MUSIC_EXPLICIT_BADGE" } } }]);
+        assert!(has_explicit(&json!({ "badges": badge })));
+        assert!(has_explicit(&json!({ "subtitleBadges": badge })));
+        assert!(!has_explicit(&json!({ "badges": [] })));
+    }
 }

@@ -2,9 +2,9 @@ import { hydrateDjSession } from "./lib/djSession";
 import { SensoryRoot } from "./lib/useSensorySuite";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
+import { TabRouter } from "./components/layout/TabRouter";
 import { PipWindowApp } from "./components/pip/PipWindowApp";
 import { DeviantTracer } from "./components/accessibility/DeviantTracer";
 import { GlobalTooltip } from "./components/ui/GlobalTooltip";
@@ -34,9 +34,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       {isPopoutPlayerWindow ? (
         <SensoryRoot><GlobalTooltip /><DeviantTracer /><PipWindowApp /></SensoryRoot>
       ) : (
-        <BrowserRouter>
+        <TabRouter>
           <SensoryRoot><GlobalTooltip /><DeviantTracer /><App /></SensoryRoot>
-        </BrowserRouter>
+        </TabRouter>
       )}
     </ErrorBoundary>
   </React.StrictMode>,

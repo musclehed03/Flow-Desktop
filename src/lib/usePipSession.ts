@@ -6,13 +6,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppSettingsStore, setSettingValue } from "../store/useAppSettingsStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { usePlayerStore } from "../store/usePlayerStore";
-import { seekToTime } from "./linkify";
+import { seekToTime } from "./playerSeek";
 import { SETTINGS } from "./settings/schema";
 import { PIP_RETURN_REQUEST_EVENT } from "./pipHandoff";
 import { primeStreamInfo } from "./streamResolution";
 import {
   PIP_EVENTS,
-  focusMainWindow,
+  focusPipSourceWindow,
   getPipSession,
   markPipWindowReady,
   setPipAlwaysOnTop,
@@ -208,7 +208,7 @@ export function usePipSession() {
 
   const returnToMainWindow = useCallback(async () => {
     await handBack(true);
-    await focusMainWindow().catch(() => {});
+    await focusPipSourceWindow().catch(() => {});
     // destroy() skips the close-requested handler, so the handback above is the
     // only one that fires.
     await getCurrentWindow().destroy().catch(() => {});

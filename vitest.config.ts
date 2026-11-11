@@ -6,6 +6,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     css: { include: [/App\.css/] },
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
   },
 });

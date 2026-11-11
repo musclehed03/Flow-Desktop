@@ -12,6 +12,11 @@ import type { CaptionTrack, RelatedContentItem, VideoDetails, VideoSummary } fro
 import { prefetchStreamInfo } from "../lib/streamResolution";
 import { showQueueFeedback } from "../lib/queueFeedback";
 import { dispatchMixedMediaEnded, dispatchMixedMediaPrevious } from "../lib/mixedMediaEvents";
+import { moveAfterId, orderByIds } from "../lib/listOrder";
+import { fisherYates } from "../lib/musicShuffle";
+import { appendUniqueVideos } from "../lib/playlistPages";
+import { queueWith, remoteControl } from "./useRemoteControlStore";
+import { profileStorage } from "../lib/storage/profileStorage";
 
 import type { SponsorBlockSegment, DeArrowOverride, RydData } from "../lib/api/foss";
 
@@ -28,11 +33,22 @@ export type PlayMode = "video" | "music";
 export type VideoPlayerMode = "watch" | "pip" | "window";
 export type VideoPipIntent = "auto" | "manual";
 
+/** The playlist a queue was started from, named in the queue panel. */
+export interface PlaylistContext {
+  id: string;
+  title: string;
+  /** Removing a video in the panel removes it from the playlist too (Watch Later, the user's own). */
+  editable: boolean;
+  /** Started in the playlist's Manual order, so a drag in the panel is saved to it too. */
+  reorderable: boolean;
+}
+
 export interface WatchPageCache {
   videoId: string;
   videoDetails: VideoDetails | null;
-  channelDetails: unknown | null;
   relatedVideos: RelatedContentItem[];
+  /** The token for the related lane's next page. */
+  relatedContinuation: string | null;
   updatedAt: number;
 }
 
@@ -62,7 +78,7 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
 
 const getSavedSubtitleStyle = (): SubtitleStyle => {
   try {
-    const saved = localStorage.getItem("flow_subtitle_style");
+    const saved = profileStorage.getItem("flow_subtitle_style");
     if (saved) {
       // A style saved by an older build lacks the newer fields; they take the defaults.
       return { ...DEFAULT_SUBTITLE_STYLE, ...JSON.parse(saved) };
@@ -75,14 +91,14 @@ const getSavedSubtitleStyle = (): SubtitleStyle => {
 
 const getSavedTheaterMode = (): boolean => {
   try {
-    return localStorage.getItem("flow_theater_mode") === "true";
+    return profileStorage.getItem("flow_theater_mode") === "true";
   } catch (e) {
     console.error("Failed to load saved theater mode", e);
   }
   return false;
 };
 
-interface PlayerState {
+export interface PlayerState {
   currentVideo: VideoSummary | null;
   playedIds: string[];
   musicStation: MusicStation | null;
@@ -96,8 +112,13 @@ interface PlayerState {
   playbackRate: PlaybackRate;
   queue: VideoSummary[];
   currentIndex: number;
+  playlistContext: PlaylistContext | null;
   repeatMode: RepeatMode;
   isShuffle: boolean;
+  /** The order turning shuffle off restores; null while shuffle is off. */
+  unshuffledQueue: VideoSummary[] | null;
+  /** Videos added with Add to queue during a playlist: they play next and are never saved to it. */
+  manualQueueIds: Set<string>;
   playMode: PlayMode;
   currentTime: number;
   duration: number;
@@ -135,11 +156,20 @@ interface PlayerState {
   setMuted: (muted: boolean | ((previous: boolean) => boolean)) => void;
   setIsVideoFullscreenTransitioning: (transitioning: boolean) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
-  setQueue: (queue: VideoSummary[], startIndex?: number) => void;
+  setQueue: (
+    queue: VideoSummary[],
+    startIndex?: number,
+    playlistContext?: PlaylistContext | null,
+    unshuffledQueue?: VideoSummary[] | null,
+  ) => void;
   restoreSession: (queue: VideoSummary[], currentIndex: number, position: number, autoplay: boolean) => void;
+  /** Replaces the queue around the video playing, which carries on; it goes first when `videos` leaves it out. */
+  replaceQueue: (videos: VideoSummary[]) => void;
   addToQueue: (video: VideoSummary) => QueueAddResult;
   playNextInQueue: (video: VideoSummary) => QueueAddResult;
   removeFromQueue: (index: number) => void;
+  /** Puts a removed video back at its old place, for Undo. */
+  restoreQueueItem: (video: VideoSummary, index: number) => void;
   moveQueueItem: (fromIndex: number, toIndex: number) => void;
   playQueueItem: (index: number, automatic?: boolean) => void;
   playNext: (allowAutoplayFallback?: boolean) => VideoSummary | null;
@@ -184,7 +214,19 @@ interface PlayerState {
   setIsChaptersPanelOpen: (open: boolean) => void;
   isQueuePanelOpen: boolean;
   setIsQueuePanelOpen: (open: boolean) => void;
+  /**
+   * The side panel shown beside the video in fullscreen. It starts closed on every entry, so a
+   * queue panel left open in the sidebar does not shrink the picture; opening chapters or the
+   * queue here also leaves it open in the sidebar afterwards. Chat only appears here.
+   */
+  fullscreenPanel: FullscreenPanel | null;
+  setFullscreenPanel: (panel: FullscreenPanel | null) => void;
+  /** The watch page has a live chat or chat replay to show. */
+  isLiveChatAvailable: boolean;
+  setIsLiveChatAvailable: (available: boolean) => void;
 }
+
+export type FullscreenPanel = "chapters" | "queue" | "chat";
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentVideo: null,
@@ -199,8 +241,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   playbackRate: 1,
   queue: [],
   currentIndex: -1,
+  playlistContext: null,
   repeatMode: "none",
   isShuffle: false,
+  unshuffledQueue: null,
+  manualQueueIds: new Set<string>(),
   playMode: "video",
   currentTime: 0,
   duration: 0,
@@ -220,6 +265,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   captions: [],
   isChaptersPanelOpen: false,
   isQueuePanelOpen: false,
+  fullscreenPanel: null,
+  isLiveChatAvailable: false,
 
   setCurrentVideo: (video) => {
     const isNew = get().currentVideo?.id !== video?.id;
@@ -230,6 +277,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isPlaying: !!video,
       isChaptersPanelOpen: false,
       isQueuePanelOpen: false,
+      fullscreenPanel: null,
       ...(isNew ? { videoPlayerMode: "watch", videoPipIntent: null, watchPageCache: null } : {}),
       ...(isNew ? { autoplayCandidates: [] } : {}),
       ...(isNew ? { currentTime: 0, duration: video?.durationSeconds ?? 0 } : {}),
@@ -246,6 +294,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   enrichCurrentVideo: (videoId, patch) => {
     const { currentVideo, queue } = get();
     if (!currentVideo || currentVideo.id !== videoId) return;
+    // A patch that changes nothing must not hand subscribers a new object: the
+    // watch page re-enriches whenever the title is still empty.
+    const changes = (Object.keys(patch) as (keyof VideoSummary)[]).some(
+      (key) => currentVideo[key] !== patch[key],
+    );
+    if (!changes) return;
     set({
       currentVideo: { ...currentVideo, ...patch },
       queue: queue.map((item) => (item.id === videoId ? { ...item, ...patch } : item)),
@@ -267,12 +321,36 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setPlaybackRate: (playbackRate) => set({ playbackRate: Math.min(4, Math.max(0.25, playbackRate)) }),
 
-  setQueue: (queue, startIndex = 0) => {
+  replaceQueue: (videos) => {
+    const { currentVideo, isShuffle } = get();
+    if (!currentVideo) return;
+    const unique = appendUniqueVideos([], videos);
+    const at = unique.findIndex((item) => item.id === currentVideo.id);
+    const queue = at >= 0 ? unique.map((item, i) => (i === at ? currentVideo : item)) : [currentVideo, ...unique];
+    set({
+      queue,
+      currentIndex: Math.max(0, at),
+      playlistContext: null,
+      manualQueueIds: new Set<string>(),
+      unshuffledQueue: isShuffle ? queue : null,
+    });
+  },
+
+  setQueue: (rawQueue, startIndex = 0, playlistContext = null, unshuffledQueue = null) => {
+    const remote = remoteControl();
+    if (remote) return remote.play(rawQueue.map((item) => item.id), startIndex, false);
+    // A fresh queue invalidates any in-flight Genius refill for the old video.
     videoTransportGeneration++;
     videoRefill = null;
-    const safeIndex = queue.length > 0
-      ? Math.max(0, Math.min(startIndex, queue.length - 1))
-      : -1;
+    // Rows and drag handles are keyed by video id, and a YouTube playlist can list one twice.
+    const queue = appendUniqueVideos([], rawQueue);
+    const startId = rawQueue[startIndex]?.id;
+    const startIdIndex = startId ? queue.findIndex((item) => item.id === startId) : -1;
+    const safeIndex = queue.length === 0
+      ? -1
+      : startIdIndex >= 0
+        ? startIdIndex
+        : Math.max(0, Math.min(startIndex, queue.length - 1));
     const nextVideo = safeIndex >= 0 ? queue[safeIndex] || null : null;
     const isNew = get().currentVideo?.id !== nextVideo?.id;
     set({
@@ -282,12 +360,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       autoplayLoading: false,
       autoplayError: false,
       currentIndex: safeIndex,
+      playlistContext,
+      isShuffle: unshuffledQueue !== null,
+      unshuffledQueue: unshuffledQueue && appendUniqueVideos([], unshuffledQueue),
+      manualQueueIds: new Set<string>(),
       currentVideo: nextVideo,
       isPlaying: queue.length > 0,
       videoPlayerMode: "watch",
       videoPipIntent: null,
       isChaptersPanelOpen: false,
-      isQueuePanelOpen: false,
+      isQueuePanelOpen: Boolean(playlistContext) || queue.length > 1,
       ...(isNew ? { watchPageCache: null } : {}),
       ...(isNew ? { autoplayCandidates: [] } : {}),
       currentTime: 0,
@@ -322,19 +404,51 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   addToQueue: (video) => {
+    const remote = remoteControl();
+    if (remote) {
+      remote.command("queue", { queue: queueWith(remote, [video.id], false) });
+      return "added";
+    }
+    // Genius DJ normally filters ids already heard this session from automatic
+    // candidates, but an explicit add is a replay request: allow it once.
     const replay = geniusEnabled() && sessionPlayed().includes(video.id);
     allowReplay(video.id);
     set({ playedIds: get().playedIds.filter((id) => id !== video.id) });
-    const { queue, currentVideo, currentIndex } = get();
+    const { queue, currentVideo, currentIndex, playlistContext, manualQueueIds } = get();
     const idle = !currentVideo || currentIndex < 0;
     if (!replay && (queue.some((item) => item.id === video.id) || currentVideo?.id === video.id)) {
       if (idle && queue.length > 0) get().playQueueItem(0);
       return showQueueFeedback("duplicate");
     }
 
+    // With nothing playing, a queued video would never show, so it plays in the mini player.
+    if (queue.length === 0 && !currentVideo) {
+      get().setQueue([video], 0);
+      get().enterVideoPip("auto");
+      return showQueueFeedback("added");
+    }
+
+    // The queue and chapters panels share one slot.
+    const openQueuePanel = { isQueuePanelOpen: true, isChaptersPanelOpen: false };
+
     if (queue.length === 0 && currentVideo) {
-      set({ queue: [currentVideo, video], currentIndex: 0 });
+      set({ queue: [currentVideo, video], currentIndex: 0, ...openQueuePanel });
       if (idle) get().playQueueItem(0);
+      return showQueueFeedback("added");
+    }
+
+    // After the current video and earlier additions, not behind the whole playlist.
+    if (playlistContext && currentIndex >= 0) {
+      let insertAt = currentIndex + 1;
+      while (insertAt < queue.length && manualQueueIds.has(queue[insertAt]?.id ?? "")) {
+        insertAt += 1;
+      }
+      const nextQueue = [...queue.slice(0, insertAt), video, ...queue.slice(insertAt)];
+      set({
+        queue: nextQueue,
+        manualQueueIds: new Set(manualQueueIds).add(video.id),
+        ...openQueuePanel,
+      });
       return showQueueFeedback("added");
     }
 
@@ -342,6 +456,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({
       queue: nextQueue,
       currentIndex: currentVideo && currentIndex < 0 ? 0 : currentIndex,
+      ...openQueuePanel,
     });
     if (idle) get().playQueueItem(0);
     return showQueueFeedback("added");
@@ -366,7 +481,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   removeFromQueue: (index) => {
-    const { queue, currentIndex } = get();
+    const { queue, currentIndex, manualQueueIds } = get();
+    const removedId = queue[index]?.id;
     const newQueue = queue.filter((_, i) => i !== index);
     let newIndex = currentIndex;
     if (index < currentIndex) {
@@ -374,10 +490,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     } else if (index === currentIndex) {
       newIndex = Math.min(currentIndex, newQueue.length - 1);
     }
+    const nextManual = new Set(manualQueueIds);
+    if (removedId) nextManual.delete(removedId);
     set({
       queue: newQueue,
       currentIndex: newIndex,
       currentVideo: newQueue[newIndex] || null,
+      manualQueueIds: nextManual,
+    });
+  },
+
+  restoreQueueItem: (video, index) => {
+    const { queue, currentIndex } = get();
+    if (queue.some((item) => item.id === video.id)) return;
+    const at = Math.max(0, Math.min(index, queue.length));
+    set({
+      queue: [...queue.slice(0, at), video, ...queue.slice(at)],
+      currentIndex: at <= currentIndex ? currentIndex + 1 : currentIndex,
     });
   },
 
@@ -431,6 +560,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playNext: (allowAutoplayFallback = false) => {
+    const remote = remoteControl();
+    if (remote) {
+      remote.command("next");
+      return null;
+    }
     const { queue, currentIndex, repeatMode, autoplayCandidates } = get();
     if (queue.length === 0) return null;
 
@@ -461,6 +595,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         const nextQueue = [...queue, nextCandidate];
         set({
           queue: nextQueue,
+          // Autoplay has gone past the end of the playlist.
+          playlistContext: null,
           autoplayCandidates: autoplayCandidates.filter((item) => item.id !== nextCandidate.id),
         });
         get().playQueueItem(nextQueue.length - 1, true);
@@ -511,6 +647,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playPrevious: () => {
+    const remote = remoteControl();
+    if (remote) return remote.command("previous");
     const { queue, currentIndex, currentTime, repeatMode } = get();
     if (queue.length === 0) return;
 
@@ -566,15 +704,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   toggleShuffle: () => {
-    const { isShuffle, queue, currentIndex } = get();
-    if (!isShuffle) {
-      const fixed = currentIndex >= 0 ? queue.slice(0, currentIndex + 1) : [];
-      const upcoming = queue.slice(currentIndex + 1);
-      const shuffled = [...upcoming].sort(() => Math.random() - 0.5);
-      set({ isShuffle: true, queue: [...fixed, ...shuffled] });
-    } else {
-      set({ isShuffle: false });
+    const { queue, currentIndex, currentVideo, unshuffledQueue, manualQueueIds } = get();
+    const played = queue.slice(0, currentIndex + 1);
+    const upcoming = queue.slice(currentIndex + 1);
+    // Videos added during the playlist keep their place right after the current one.
+    const pinned = upcoming.filter((item) => manualQueueIds.has(item.id));
+    const rest = upcoming.filter((item) => !manualQueueIds.has(item.id));
+
+    if (!unshuffledQueue) {
+      set({ isShuffle: true, unshuffledQueue: queue, queue: [...played, ...pinned, ...fisherYates(rest)] });
+      return;
     }
+
+    // Matched by id so details filled in meanwhile survive; videos added while shuffled go last.
+    const savedIds = new Set(unshuffledQueue.map((item) => item.id));
+    let restored = orderByIds([...played, ...rest], [...savedIds]);
+    if (currentVideo && !savedIds.has(currentVideo.id)) {
+      // Except the one playing now: sent last, it would leave every unplayed video behind it.
+      const anchor = played.slice(0, -1).reverse().find((item) => savedIds.has(item.id));
+      restored = moveAfterId(restored, currentVideo.id, anchor?.id ?? null);
+    }
+    const restoredIndex = restored.findIndex((item) => item.id === currentVideo?.id);
+    const pinAt = restoredIndex + 1;
+    set({
+      isShuffle: false,
+      unshuffledQueue: null,
+      queue: [...restored.slice(0, pinAt), ...pinned, ...restored.slice(pinAt)],
+      currentIndex: restoredIndex >= 0 ? restoredIndex : currentIndex,
+    });
   },
   setAutoplayCandidates: (videos) => {
     const currentId = get().currentVideo?.id;
@@ -604,27 +761,32 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     videoTransportGeneration++;
     videoRefill = null;
     set({
-    playedIds: [],
-    musicStation: null,
-    autoplayLoading: false,
-    autoplayError: false,
-    queue: [],
-    currentIndex: -1,
-    currentVideo: null,
-    isPlaying: false,
-    currentTime: 0,
-    duration: 0,
-    videoPlayerMode: "watch",
-    videoPipIntent: null,
-    isVideoFullscreen: false,
-    pipHandoff: null,
-    isHandoffSilent: false,
-    watchPageCache: null,
-    autoplayCandidates: [],
-    playbackStartedVideoId: null,
-    isChaptersPanelOpen: false,
-    isQueuePanelOpen: false,
-  });
+      playedIds: [],
+      musicStation: null,
+      autoplayLoading: false,
+      autoplayError: false,
+      queue: [],
+      currentIndex: -1,
+      playlistContext: null,
+      isShuffle: false,
+      unshuffledQueue: null,
+      manualQueueIds: new Set<string>(),
+      currentVideo: null,
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      videoPlayerMode: "watch",
+      videoPipIntent: null,
+      isVideoFullscreen: false,
+      pipHandoff: null,
+      isHandoffSilent: false,
+      watchPageCache: null,
+      autoplayCandidates: [],
+      playbackStartedVideoId: null,
+      isChaptersPanelOpen: false,
+      isQueuePanelOpen: false,
+      fullscreenPanel: null,
+    });
   },
   
   setCurrentTime: (currentTime) => set({ currentTime }),
@@ -696,8 +858,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       watchPageCache: {
         videoId,
         videoDetails: cache.videoDetails ?? (previous?.videoId === videoId ? previous.videoDetails : null),
-        channelDetails: cache.channelDetails ?? (previous?.videoId === videoId ? previous.channelDetails : null),
         relatedVideos: cache.relatedVideos ?? (previous?.videoId === videoId ? previous.relatedVideos : []),
+        relatedContinuation:
+          cache.relatedContinuation !== undefined
+            ? cache.relatedContinuation
+            : previous?.videoId === videoId
+              ? previous.relatedContinuation
+              : null,
         updatedAt: Date.now(),
       },
     });
@@ -710,24 +877,32 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setIsTheaterMode: (isTheaterMode) => {
-    localStorage.setItem("flow_theater_mode", String(isTheaterMode));
+    profileStorage.setItem("flow_theater_mode", String(isTheaterMode));
     set({ isTheaterMode });
   },
   setSponsorBlockSegments: (sponsorBlockSegments) => set({ sponsorBlockSegments }),
   setDearrowData: (dearrowData) => set({ dearrowData }),
   setRydData: (rydData) => set({ rydData }),
   setCaptions: (captions) => set({ captions }),
-  setIsChaptersPanelOpen: (isChaptersPanelOpen) => set({
+  setIsChaptersPanelOpen: (isChaptersPanelOpen) => set((state) => ({
     isChaptersPanelOpen,
     ...(isChaptersPanelOpen ? { isQueuePanelOpen: false } : {}),
-  }),
-  setIsQueuePanelOpen: (isQueuePanelOpen) => set({
+    ...(!isChaptersPanelOpen && state.fullscreenPanel === "chapters" ? { fullscreenPanel: null } : {}),
+  })),
+  setIsQueuePanelOpen: (isQueuePanelOpen) => set((state) => ({
     isQueuePanelOpen,
     ...(isQueuePanelOpen ? { isChaptersPanelOpen: false } : {}),
+    ...(!isQueuePanelOpen && state.fullscreenPanel === "queue" ? { fullscreenPanel: null } : {}),
+  })),
+  setFullscreenPanel: (fullscreenPanel) => set({
+    fullscreenPanel,
+    ...(fullscreenPanel === "chapters" ? { isChaptersPanelOpen: true, isQueuePanelOpen: false } : {}),
+    ...(fullscreenPanel === "queue" ? { isQueuePanelOpen: true, isChaptersPanelOpen: false } : {}),
   }),
+  setIsLiveChatAvailable: (isLiveChatAvailable) => set({ isLiveChatAvailable }),
   subtitleStyle: getSavedSubtitleStyle(),
   setSubtitleStyle: (style) => {
-    localStorage.setItem("flow_subtitle_style", JSON.stringify(style));
+    profileStorage.setItem("flow_subtitle_style", JSON.stringify(style));
     set({ subtitleStyle: style });
   },
 }));

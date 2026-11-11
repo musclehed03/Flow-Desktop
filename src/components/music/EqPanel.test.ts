@@ -11,17 +11,36 @@ vi.mock("../../lib/api/db", () => ({ getSetting: vi.fn(async () => null), setSet
 
 afterEach(() => document.body.replaceChildren());
 
-it("uses a dockable live panel with synchronized graphic controls and explainers", async () => {
+it("keeps the Deviants dynamics, per-device save and playback tools in the quick panel", async () => {
   useMusicPlayerStore.setState({ audioProcessing: defaultAudioProcessingConfig(), eqEnabled: false });
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(EqPanel, { open: true, onClose: vi.fn(), triggerRef: { current: null } })));
-  expect(document.querySelector('[data-dockable-panel="equalizer-editor"]')).not.toBeNull();
-  const button31 = [...document.querySelectorAll("button")].find((button) => button.textContent === "31")!;
-  await act(async () => button31.click());
-  expect(document.querySelectorAll(`[aria-label$="${getString("eq_slider")}"]`)).toHaveLength(31);
-  expect(document.querySelectorAll(`[aria-label$="${getString("eq_dial")}"]`)).toHaveLength(31);
-  expect([...document.querySelectorAll<HTMLInputElement>('input[type="number"]')].filter((input) => input.getAttribute("aria-label") !== getString("eq_gain_db"))).toHaveLength(31);
-  expect(document.body.textContent).toContain(getString("eq_band_control_desc"));
+  await act(async () => root.render(createElement(EqPanel, { open: true, onClose: vi.fn() })));
+  // Upstream EQ base: response graph, preset chips and bass boost.
+  expect(document.body.textContent).toContain(getString("music_equalizer"));
+  expect(document.body.textContent).toContain(getString("eq_bass_boost"));
+  // Deviants dynamics stage: preamp + balance sliders with plain-language explainers.
+  expect(document.body.textContent).toContain(getString("eq_dynamics"));
+  expect(document.querySelector(`[aria-label="${getString("eq_preamp")}"]`)).not.toBeNull();
+  expect(document.querySelector(`[aria-label="${getString("eq_balance")}"]`)).not.toBeNull();
+  expect(document.body.textContent).toContain(getString("eq_preamp_desc"));
+  // Deviants playback tools and per-device profile save.
+  expect(document.body.textContent).toContain(getString("eq_playback_tools"));
+  expect(document.body.textContent).toContain(getString("settings_skip_silence"));
+  expect(document.body.textContent).toContain(getString("eq_save_device"));
+  await act(async () => root.unmount());
+});
+
+it("reveals the compressor controls when the compressor is switched on", async () => {
+  const processing = defaultAudioProcessingConfig();
+  processing.dynamics.compressorEnabled = true;
+  useMusicPlayerStore.setState({ audioProcessing: processing, eqEnabled: false });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(EqPanel, { open: true, onClose: vi.fn() })));
+  expect(document.querySelector(`[aria-label="${getString("eq_threshold")}"]`)).not.toBeNull();
+  expect(document.querySelector(`[aria-label="${getString("eq_ratio")}"]`)).not.toBeNull();
+  expect(document.querySelector(`[aria-label="${getString("eq_attack")}"]`)).not.toBeNull();
+  expect(document.querySelector(`[aria-label="${getString("eq_release")}"]`)).not.toBeNull();
   await act(async () => root.unmount());
 });

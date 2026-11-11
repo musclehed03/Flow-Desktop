@@ -1,0 +1,158 @@
+//! The store a group syncs through: its Flow server, its `WebDAV` folder, or what its devices hold
+//! on the LAN.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::held::HeldStore;
+use super::hybrid::HybridStore;
+use super::mailbox::Mailbox;
+use super::roster::Entry;
+use super::server::{Appended, ChangedObject, Result, ServerStore};
+use super::store::Store;
+use super::webdav::WebDavStore;
+
+pub enum GroupStore {
+    Server(Box<HybridStore<ServerStore>>),
+    WebDav(Box<WebDavStore>),
+    Held(HeldStore),
+}
+
+/// The same call on whichever store this is.
+macro_rules! each {
+    ($self:ident, $store:ident => $call:expr) => {
+        match $self {
+            Self::Server($store) => $call,
+            Self::WebDav($store) => $call,
+            Self::Held($store) => $call,
+        }
+    };
+}
+
+impl GroupStore {
+    /// The Flow server, for a server group.
+    pub fn server(&self) -> Option<&ServerStore> {
+        match self {
+            Self::Server(store) => Some(&store.store),
+            Self::WebDav(_) | Self::Held(_) => None,
+        }
+    }
+
+    /// Uploads what a server group wrote while its server was out of reach.
+    pub async fn upload_pending(&self) -> Result<()> {
+        match self {
+            Self::Server(store) => store.upload_pending().await,
+            Self::WebDav(_) | Self::Held(_) => Ok(()),
+        }
+    }
+}
+
+impl Store for GroupStore {
+    async fn roster_after(&self, after: i64) -> Result<Vec<Entry>> {
+        each!(self, store => store.roster_after(after).await)
+    }
+
+    async fn roster_view(&self) -> Result<Vec<Entry>> {
+        each!(self, store => store.roster_view().await)
+    }
+
+    fn is_linear(&self) -> bool {
+        each!(self, store => store.is_linear())
+    }
+
+    async fn store_answers(&self) -> Result<()> {
+        each!(self, store => store.store_answers().await)
+    }
+
+    fn use_pins(&self, pins: &BTreeSet<String>) {
+        each!(self, store => store.use_pins(pins));
+    }
+
+    async fn append_roster(
+        &self,
+        head: &str,
+        entry: &Entry,
+        wraps: &BTreeMap<String, String>,
+        chain: Option<&str>,
+    ) -> Result<Appended> {
+        each!(self, store => store.append_roster(head, entry, wraps, chain).await)
+    }
+
+    async fn key(&self, epoch: u32, kc: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        each!(self, store => store.key(epoch, kc, name).await)
+    }
+
+    async fn keep_key(&self, epoch: u32, kc: &str, name: &str, bytes: &[u8]) -> Result<()> {
+        each!(self, store => store.keep_key(epoch, kc, name, bytes).await)
+    }
+
+    async fn drop_key(&self, epoch: u32, kc: &str, name: &str) -> Result<()> {
+        each!(self, store => store.drop_key(epoch, kc, name).await)
+    }
+
+    async fn keep_object(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        each!(self, store => store.keep_object(path, bytes).await)
+    }
+
+    async fn drop_object(&self, path: &str) -> Result<()> {
+        each!(self, store => store.drop_object(path).await)
+    }
+
+    async fn put_object(&self, path: &str, bytes: Vec<u8>) -> Result<()> {
+        each!(self, store => store.put_object(path, bytes).await)
+    }
+
+    async fn get_object(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        each!(self, store => store.get_object(path).await)
+    }
+
+    async fn delete_object(&self, path: &str) -> Result<bool> {
+        each!(self, store => store.delete_object(path).await)
+    }
+
+    async fn changes(&self, cursor: u64) -> Result<(Vec<ChangedObject>, u64)> {
+        each!(self, store => store.changes(cursor).await)
+    }
+
+    async fn new_objects(
+        &self,
+        cursor: u64,
+        read: &BTreeMap<String, u64>,
+    ) -> Result<(Vec<ChangedObject>, u64)> {
+        each!(self, store => store.new_objects(cursor, read).await)
+    }
+}
+
+/// A LAN group has no mailbox: its slot never receives anything, so pairing runs over the LAN.
+impl Mailbox for GroupStore {
+    async fn open_slot(&self, slot: &str) -> Result<()> {
+        match self {
+            Self::Server(store) => store.open_slot(slot).await,
+            Self::WebDav(store) => store.open_slot(slot).await,
+            Self::Held(_) => Ok(()),
+        }
+    }
+
+    async fn put_message(&self, slot: &str, name: &str, bytes: Vec<u8>) -> Result<()> {
+        match self {
+            Self::Server(store) => store.put_message(slot, name, bytes).await,
+            Self::WebDav(store) => store.put_message(slot, name, bytes).await,
+            Self::Held(_) => Ok(()),
+        }
+    }
+
+    async fn get_message(&self, slot: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        match self {
+            Self::Server(store) => store.get_message(slot, name).await,
+            Self::WebDav(store) => store.get_message(slot, name).await,
+            Self::Held(_) => Ok(None),
+        }
+    }
+
+    async fn close_slot(&self, slot: &str) -> Result<()> {
+        match self {
+            Self::Server(store) => store.close_slot(slot).await,
+            Self::WebDav(store) => store.close_slot(slot).await,
+            Self::Held(_) => Ok(()),
+        }
+    }
+}

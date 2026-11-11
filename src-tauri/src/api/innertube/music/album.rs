@@ -12,27 +12,32 @@ use super::parse::thumbnail::thumbnail_url;
 use super::parse::{continuation, shelves};
 use crate::api::innertube::InnertubeClient;
 use crate::errors::AppResult;
-use crate::models::music::{Album, AlbumItem, SongItem, YTItem};
+use crate::models::music::{Album, AlbumItem, Artist, SongItem, YTItem};
 use crate::models::music_pages::AlbumPage;
+
+/// Artists and release year from the album header.
+///
+/// The strapline holds the artist link and the subtitle "Album • 2025", so the year usually
+/// comes from the subtitle even when the strapline named the artists.
+fn header_artists_and_year(header: &Value) -> (Vec<Artist>, Option<i32>) {
+    let (mut artists, strapline_year) = parse_artists_and_year(&header["straplineTextOne"]);
+    let (subtitle_artists, subtitle_year) = parse_artists_and_year(&header["subtitle"]);
+    if artists.is_empty() {
+        artists = subtitle_artists;
+    }
+    (artists, strapline_year.or(subtitle_year))
+}
 
 impl InnertubeClient {
     /// Fetch an album page by its browse id (`MPRE…`).
     pub(crate) async fn music_album_page(&self, browse_id: &str) -> AppResult<AlbumPage> {
-        let visitor = self.music_visitor_data().await;
-        let res = self
-            .music_browse(Some(browse_id), None, None, visitor.as_deref())
-            .await?;
+        let res = self.music_browse(Some(browse_id), None, None).await?;
 
         let header = find_album_header(&res);
         let title = runs_text(&header["title"]).unwrap_or_default();
         let thumbnail = thumbnail_url(header);
 
-        let (mut artists, mut year) = parse_artists_and_year(&header["straplineTextOne"]);
-        if artists.is_empty() {
-            let (a, y) = parse_artists_and_year(&header["subtitle"]);
-            artists = a;
-            year = year.or(y);
-        }
+        let (artists, year) = header_artists_and_year(header);
 
         let description =
             runs_text(&header["description"]["musicDescriptionShelfRenderer"]["description"]);
@@ -53,16 +58,13 @@ impl InnertubeClient {
 
         let (mut songs, mut continuation_token) = collect_album_tracks(&res, &ctx);
         let looks_capped = continuation_token.is_some() || songs.len() >= 100;
-        if looks_capped && !playlist_id.is_empty() {
-            if let Ok(full) = self
-                .music_album_songs(&playlist_id, &ctx, visitor.as_deref())
-                .await
-            {
-                if full.len() >= songs.len() {
-                    songs = full;
-                    continuation_token = None;
-                }
-            }
+        if looks_capped
+            && !playlist_id.is_empty()
+            && let Ok(full) = self.music_album_songs(&playlist_id, &ctx).await
+            && full.len() >= songs.len()
+        {
+            songs = full;
+            continuation_token = None;
         }
 
         let album = AlbumItem {
@@ -92,10 +94,9 @@ impl InnertubeClient {
         &self,
         playlist_id: &str,
         ctx: &AlbumTrackCtx,
-        visitor: Option<&str>,
     ) -> AppResult<Vec<SongItem>> {
         let pl = endpoints::vl(playlist_id);
-        let res = self.music_browse(Some(&pl), None, None, visitor).await?;
+        let res = self.music_browse(Some(&pl), None, None).await?;
 
         let mut seen = HashSet::new();
         let (page, mut next) = collect_album_tracks(&res, ctx);
@@ -115,7 +116,7 @@ impl InnertubeClient {
                 break;
             }
             requests += 1;
-            let res = self.music_browse(None, None, Some(&token), visitor).await?;
+            let res = self.music_browse(None, None, Some(&token)).await?;
             next = parse_album_continuation(&res, Some(ctx), &mut songs, &mut seen);
         }
 
@@ -126,10 +127,7 @@ impl InnertubeClient {
         &self,
         token: &str,
     ) -> AppResult<(Vec<SongItem>, Option<String>)> {
-        let visitor = self.music_visitor_data().await;
-        let res = self
-            .music_browse(None, None, Some(token), visitor.as_deref())
-            .await?;
+        let res = self.music_browse(None, None, Some(token)).await?;
         let mut songs = Vec::new();
         let mut seen = HashSet::new();
         let next = parse_album_continuation(&res, None, &mut songs, &mut seen);
@@ -365,6 +363,26 @@ fn parse_count_and_duration(second: Option<&str>) -> (Option<u32>, Option<String
 mod version_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn year_comes_from_the_subtitle_when_the_strapline_names_the_artist() {
+        let header = json!({
+            "straplineTextOne": { "runs": [{
+                "text": "Ed Sheeran",
+                "navigationEndpoint": { "browseEndpoint": {
+                    "browseId": "UCx",
+                    "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    } }
+                } }
+            }] },
+            "subtitle": { "runs": [{ "text": "Album" }, { "text": " • " }, { "text": "2025" }] },
+        });
+        let (artists, year) = header_artists_and_year(&header);
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].name, "Ed Sheeran");
+        assert_eq!(year, Some(2025));
+    }
 
     #[test]
     fn explicit_badge_and_other_versions_are_structural() {

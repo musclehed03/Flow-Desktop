@@ -53,12 +53,17 @@ export interface ArtistItem {
   title: string;
   thumbnail: string | null;
   channelId: string | null;
+  /** A plain channel ("Profile"): it opens a channel page, not an artist page. */
+  isProfile?: boolean;
 }
 
 export interface EpisodeItem {
   id: string;
   title: string;
+  /** The show, by name. */
   author: Artist | null;
+  /** The show's playlist id. */
+  podcastId?: string | null;
   thumbnail: string;
   explicit: boolean;
   publishDateText: string | null;
@@ -83,17 +88,46 @@ export type YTItem =
 
 // --- Sections / pages -----------------------------------------------------
 
+/** What an artist section holds, read by the backend from its structure. */
+export type ArtistSectionKind =
+  | 'topSongs'
+  | 'albums'
+  | 'singles'
+  | 'videos'
+  | 'featuredOn'
+  | 'relatedArtists'
+  | 'other';
+
 export interface ArtistSection {
   title: string;
   items: YTItem[];
   moreEndpointBrowseId: string | null;
   moreEndpointParams: string | null;
+  kind?: ArtistSectionKind;
+}
+
+/** A queue a header button starts: a playlist id and the params it asks with. */
+export interface MusicWatchTarget {
+  playlistId: string;
+  params: string | null;
+}
+
+/** A linked stretch of a description, in string indices. */
+export interface DescriptionLink {
+  start: number;
+  end: number;
+  url: string;
 }
 
 export interface ArtistPage {
   artist: ArtistItem;
   sections: ArtistSection[];
   description: string | null;
+  descriptionLinks?: DescriptionLink[];
+  /** The site's own Shuffle of the artist's catalogue. */
+  shuffle?: MusicWatchTarget | null;
+  /** The artist's radio station. */
+  radio?: MusicWatchTarget | null;
   subscriberCountText: string | null;
   monthlyListenerCount: string | null;
   isSubscribed: boolean;
@@ -161,15 +195,21 @@ export interface CachedMusicHomePage {
 export interface MusicSearchSection {
   title: string;
   items: YTItem[];
+  /** The top-result card and the rows it holds. */
+  isTopResult?: boolean;
 }
 
 export interface MusicSearchResponse {
   sections: MusicSearchSection[];
   continuation: string | null;
+  /** The filters offered for this query, in the site's order. */
+  filters?: string[];
 }
 
 export interface SearchSummaryPage {
   summaries: MusicSearchSection[];
+  /** The filters offered for this query, in the site's order. */
+  filters?: string[];
 }
 
 export interface MusicSearchSuggestions {
@@ -289,12 +329,27 @@ export interface QueuePage {
   lyricsParams: string | null;
   relatedBrowseId: string | null;
   radioPlaylistId: string | null;
+  /** The params the site's own automix continues with. */
+  radioParams?: string | null;
+}
+
+export interface MoodGenreSection {
+  title: string;
+  items: YTItem[];
 }
 
 export interface MoodGenrePage {
   title: string;
   items: YTItem[];
   continuation: string | null;
+  /** The page's shelves with their titles, when it has more than one. */
+  sections?: MoodGenreSection[];
+}
+
+/** A song's plain lyrics and the credit shown under them. */
+export interface MusicLyrics {
+  text: string;
+  source: string | null;
 }
 
 export interface MusicStreamInfo {

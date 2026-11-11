@@ -15,6 +15,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::errors::{AppError, ErrorResponse};
 use crate::music_brain::store::MusicBrainStore;
+use crate::services::profile_service::{MasterManifest, ProfileService, RestoreTarget};
 use crate::services::recommendation_service::RecommendationService;
 use crate::sync::apply;
 use crate::sync::canonical::{
@@ -61,6 +62,7 @@ fn sync_err(e: SyncError) -> ErrorResponse {
     ErrorResponse {
         message: e.to_string(),
         kind: "sync".to_string(),
+        starts_at_ms: None,
     }
 }
 
@@ -300,10 +302,16 @@ pub async fn import_backup(pool: &SqlitePool, payload: &Value) -> Result<ImportS
 
 // Mirror the sync session's flush/reload choreography: flush the resident brains so the
 // export/merge sees the freshest learning, and reload them after a merge wrote the DB so
-// the next debounced flush can't clobber the merged result.
-async fn flush_brains(app: &AppHandle) {
+// the next debounced flush can't clobber the merged result. An import holds the video
+// brain's saves in between, so its background save cannot land mid-merge either.
+async fn flush_brains(app: &AppHandle, hold: bool) {
     if let Some(svc) = app.try_state::<RecommendationService>() {
-        if let Err(e) = svc.flush_brain().await {
+        let flushed = if hold {
+            svc.flush_and_hold_brain().await
+        } else {
+            svc.flush_brain().await
+        };
+        if let Err(e) = flushed {
             tracing::warn!(%e, "[backup] flush flow_neuro brain failed");
         }
     }
@@ -336,8 +344,123 @@ pub async fn export_backup_data(
     if scope_collections(&scope).is_none() {
         return Err(AppError::Validation(format!("unknown backup scope: {scope}")).into());
     }
-    flush_brains(&app).await;
+    flush_brains(&app, false).await;
     export_backup(&pool, &scope).await.map_err(sync_err)
+}
+
+/// One profile's part of a master backup: its raw settings and its collections.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileBackupPart {
+    pub id: String,
+    pub settings: std::collections::HashMap<String, String>,
+    pub export: BackupExport,
+}
+
+async fn raw_settings(
+    pool: &SqlitePool,
+    keys: &[String],
+    with_device_keys: bool,
+) -> Result<std::collections::HashMap<String, String>, SyncError> {
+    let mut settings = std::collections::HashMap::new();
+    for key in keys {
+        // Device settings travel once, in Default's part, where older builds read them.
+        if !with_device_keys && crate::profiles::device_keys::is_device_key(key) {
+            continue;
+        }
+        if let Some(value) = get_setting_value(pool, key).await? {
+            settings.insert(key.clone(), value);
+        }
+    }
+    Ok(settings)
+}
+
+/// Exports any profile for the master backup: the running one through its live pool (brains
+/// flushed first), any other from its closed database.
+#[tauri::command]
+pub async fn export_profile_backup(
+    id: String,
+    setting_keys: Vec<String>,
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    profiles: State<'_, ProfileService>,
+) -> Result<ProfileBackupPart, ErrorResponse> {
+    let running = profiles.running_profile_id().map_err(ErrorResponse::from)?;
+    let default_id = profiles.list().map_err(ErrorResponse::from)?.default_id;
+    if id == running {
+        flush_brains(&app, false).await;
+        let settings = raw_settings(&pool, &setting_keys, id == default_id)
+            .await
+            .map_err(sync_err)?;
+        let export = export_backup(&pool, "MASTER").await.map_err(sync_err)?;
+        return Ok(ProfileBackupPart {
+            id,
+            settings,
+            export,
+        });
+    }
+    let (closed, is_default) = profiles
+        .open_closed(&id)
+        .await
+        .map_err(ErrorResponse::from)?;
+    let part = async {
+        let settings = raw_settings(&closed, &setting_keys, is_default).await?;
+        let export = export_backup(&closed, "MASTER").await?;
+        Ok::<_, SyncError>(ProfileBackupPart {
+            id: id.clone(),
+            settings,
+            export,
+        })
+    }
+    .await;
+    closed.close().await;
+    part.map_err(sync_err)
+}
+
+/// Adds a master backup's profiles to the registry; see `ProfileService::restore_master`.
+#[tauri::command]
+pub async fn profiles_restore_master(
+    manifest: MasterManifest,
+    avatars: std::collections::HashMap<String, String>,
+    profiles: State<'_, ProfileService>,
+) -> Result<Vec<RestoreTarget>, ErrorResponse> {
+    profiles
+        .restore_master(manifest, avatars)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+/// Restores one profile's part of a master backup into that profile while it isn't running.
+/// Settings arrive already validated by the frontend; device settings only land in Default.
+#[tauri::command]
+pub async fn import_profile_backup(
+    id: String,
+    payload: Value,
+    settings: std::collections::HashMap<String, String>,
+    profiles: State<'_, ProfileService>,
+) -> Result<ImportSummary, ErrorResponse> {
+    if id == profiles.running_profile_id().map_err(ErrorResponse::from)? {
+        return Err(AppError::Validation(
+            "the running profile restores through import_backup_data".into(),
+        )
+        .into());
+    }
+    let (closed, is_default) = profiles
+        .open_closed(&id)
+        .await
+        .map_err(ErrorResponse::from)?;
+    let restored = async {
+        let summary = import_backup(&closed, &payload).await?;
+        for (key, value) in &settings {
+            if is_default || !crate::profiles::device_keys::is_device_key(key) {
+                set_setting_value(&closed, key, value).await?;
+            }
+        }
+        Ok::<_, SyncError>(summary)
+    }
+    .await;
+    closed.close().await;
+    restored.map_err(sync_err)
 }
 
 #[tauri::command]
@@ -346,10 +469,11 @@ pub async fn import_backup_data(
     app: AppHandle,
     pool: State<'_, SqlitePool>,
 ) -> Result<ImportSummary, ErrorResponse> {
-    flush_brains(&app).await;
-    let summary = import_backup(&pool, &payload).await.map_err(sync_err)?;
+    flush_brains(&app, true).await;
+    let imported = import_backup(&pool, &payload).await;
+    // Also after a failed import, which releases the held brain.
     reload_brains(&app).await;
-    Ok(summary)
+    imported.map_err(sync_err)
 }
 
 // The pool-backed round-trip tests live in `tests/backup_roundtrip.rs` (the same integration

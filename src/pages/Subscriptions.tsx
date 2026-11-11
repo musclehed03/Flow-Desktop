@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, BellOff, Check, ChevronDown, ChevronUp, ListChecks, Loader2, Pencil, Plus, Trash2, Upload, User } from "lucide-react";
+import { BellOff, BellRing, ChevronDown, ChevronUp, ListChecks, Loader2, Pencil, Plus, Trash2, Upload, User } from "lucide-react";
 import { parseSubscriptionExport } from "../lib/api/youtube";
+import { bootstrapFromSubscriptions } from "../lib/api/recommendation";
 import { SETTINGS } from "../lib/settings/schema";
 import { useSubscriptionStore } from "../store/useSubscriptionStore";
 import { useNotificationStore } from "../store/useNotificationStore";
@@ -13,13 +14,16 @@ import { SearchInput } from "../components/ui/SearchInput";
 import { CategoryChips } from "../components/layout/CategoryChips";
 import { ChannelSwiper } from "../components/subscriptions/ChannelSwiper";
 import { ScanProgressBar } from "../components/subscriptions/ScanProgressBar";
+import { FeedFailedNotice } from "../components/subscriptions/FeedFailedNotice";
 import { VideoGrid } from "../components/video/VideoGrid";
 import { ShortsShelf } from "../components/shelf/ShortsShelf";
 import { useSubscriptionChannelDetails, useSubscriptionFeed } from "../lib/useSubscriptionFeed";
+import { useUnplayableVideoIds } from "../lib/useUnplayableVideoIds";
 import { upgradeAvatarUrl } from "../lib/thumbnails";
 import { useProxiedImageUrl } from "../lib/useProxiedImageUrl";
 import type { SubscribedChannel, SubscriptionGroup } from "../store/useSubscriptionStore";
 import type { ShortVideoSummary, VideoSummary } from "../types/video";
+import { Checkbox } from "../components/ui/Checkbox";
 
 interface SubscriptionsProps {
   onPlay: (video: VideoSummary) => void;
@@ -67,13 +71,30 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
   const channelPrefsLoaded = useNotificationStore((state) => state.channelPrefsLoaded);
   const loadChannelPreferences = useNotificationStore((state) => state.loadChannelPreferences);
   const setChannelNotification = useNotificationStore((state) => state.setChannelNotification);
-  const { videos, rssChannels, loading: feedLoading, error: feedError, scanProgress } = useSubscriptionFeed(subscriptions);
+  const {
+    videos,
+    rssChannels,
+    loading: feedLoading,
+    error: feedError,
+    scanProgress,
+    failedChannelIds,
+    refresh: refreshFeed,
+  } = useSubscriptionFeed(subscriptions);
+  const failedChannelNames = useMemo(
+    () =>
+      failedChannelIds.map(
+        (channelId) => subscriptions.find((channel) => channel.id === channelId)?.name ?? channelId,
+      ),
+    [failedChannelIds, subscriptions],
+  );
   const channelDetails = useSubscriptionChannelDetails(subscriptions);
   const showSubscriptionVideos = useAppSettingsStore((state) => state.values[SETTINGS.SUBSCRIPTION_SHOW_VIDEOS] !== "false");
   const showSubscriptionShorts = useAppSettingsStore((state) => state.values[SETTINGS.SUBSCRIPTION_SHOW_SHORTS] !== "false");
   const showSubscriptionLive = useAppSettingsStore((state) => state.values[SETTINGS.SUBSCRIPTION_SHOW_LIVE] !== "false");
   const hideWatchedVideos = useAppSettingsStore((state) => state.values[SETTINGS.HIDE_WATCHED_VIDEOS] === "true");
   const isHidden = useFeedHiddenFilter({ hideWatched: hideWatchedVideos });
+  const hideUnplayable = useAppSettingsStore((state) => state.values[SETTINGS.HIDE_UNPLAYABLE_SUBSCRIPTIONS] === "true");
+  const unplayableIds = useUnplayableVideoIds(hideUnplayable);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
@@ -143,6 +164,9 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
         for (const [id, name] of parsed) {
           await subscribe(id, name);
         }
+        void bootstrapFromSubscriptions(parsed.map(([, name]) => name)).catch((err) =>
+          console.warn("Failed to seed topics from subscriptions", err),
+        );
         setImportText("");
         setShowImportModal(false);
       } else {
@@ -201,7 +225,7 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
 
   const filteredVideos = useMemo(() => {
     return videos.filter((video) => {
-      if (isHidden(video)) return false;
+      if (isHidden(video) || unplayableIds.has(video.id)) return false;
 
       const matchesSearch = !query
         || video.title.toLowerCase().includes(query)
@@ -212,11 +236,8 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
 
       return matchesSearch && matchesChannel && matchesGroup;
     });
-  }, [isHidden, query, selectedChannelId, selectedGroup, videos]);
+  }, [isHidden, query, selectedChannelId, selectedGroup, unplayableIds, videos]);
 
-  const isShortVideo = (video: VideoSummary) => {
-    return video.durationSeconds != null && video.durationSeconds > 0 && video.durationSeconds <= 60;
-  };
 
   const isLiveVideo = (video: VideoSummary) => {
     const published = video.publishedText?.toLowerCase() ?? "";
@@ -228,7 +249,7 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
     const shorts: ShortVideoSummary[] = [];
     const regular: VideoSummary[] = [];
     for (const video of filteredVideos) {
-      if (isShortVideo(video)) {
+      if (video.isShort) {
         if (showSubscriptionShorts) {
           shorts.push({
             type: "short",
@@ -341,6 +362,9 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
                 </div>
 
                 {scanProgress ? <ScanProgressBar progress={scanProgress} /> : null}
+                {!feedLoading && (
+                  <FeedFailedNotice names={failedChannelNames} onRetry={refreshFeed} retrying={scanProgress != null} />
+                )}
 
                 <section className="pt-2">
                   <h2 className="mb-4 text-xl font-semibold text-chrome-neutral-100">
@@ -446,7 +470,7 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
                                 className={notifOn ? "text-[var(--color-primary)]" : "text-chrome-neutral-400"}
                                 onClick={() => setChannelNotification(channel.id, !notifOn)}
                               >
-                                {notifOn ? <Bell size={16} /> : <BellOff size={16} />}
+                                {notifOn ? <BellRing size={16} /> : <BellOff size={16} />}
                               </Button>
                             );
                           })()}
@@ -706,21 +730,12 @@ function GroupsModal({
                 const initial = channel.name.charAt(0).toUpperCase();
 
                 return (
-                  <label
+                  <Checkbox
                     key={channel.id}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-200 ease-out hover:bg-surface-container"
+                    checked={selected}
+                    onChange={() => toggleChannel(channel.id)}
+                    className="px-3 py-2 transition-colors duration-200 ease-out hover:bg-surface-container"
                   >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => toggleChannel(channel.id)}
-                      className="peer sr-only"
-                    />
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-chrome-neutral-700 bg-surface-container transition-colors duration-200 ease-out peer-checked:border-[var(--color-primary)] peer-checked:bg-[var(--color-primary)]">
-                      {selected ? (
-                        <Check size={14} className="text-[var(--color-on-primary)]" />
-                      ) : null}
-                    </span>
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high text-xs font-semibold text-chrome-neutral-300">
                       {avatarUrl ? (
                         <ChannelAvatarImage src={avatarUrl} name={channel.name} />
@@ -734,7 +749,7 @@ function GroupsModal({
                         {channel.subscriberCountText || getString("subscriptions_subscribers_unavailable")}
                       </span>
                     </span>
-                  </label>
+                  </Checkbox>
                 );
               })}
             </div>

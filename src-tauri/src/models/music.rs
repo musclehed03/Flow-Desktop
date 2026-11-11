@@ -62,6 +62,10 @@ pub struct ArtistItem {
     pub title: String,
     pub thumbnail: Option<String>,
     pub channel_id: Option<String>,
+    /// A plain channel ("Profile"), not an artist: it has a channel page, not
+    /// an artist page with music to play.
+    #[serde(default)]
+    pub is_profile: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +73,11 @@ pub struct ArtistItem {
 pub struct EpisodeItem {
     pub id: String,
     pub title: String,
+    /// The show, by name; its page is [`Self::podcast_id`].
     pub author: Option<Artist>,
+    /// The show's playlist id (`PL…`).
+    #[serde(default)]
+    pub podcast_id: Option<String>,
     pub thumbnail: String,
     pub explicit: bool,
     pub publish_date_text: Option<String>,
@@ -103,6 +111,39 @@ pub struct ArtistSection {
     pub items: Vec<YTItem>,
     pub more_endpoint_browse_id: Option<String>,
     pub more_endpoint_params: Option<String>,
+    /// What the section holds, read from its structure: titles are localised.
+    #[serde(default)]
+    pub kind: ArtistSectionKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArtistSectionKind {
+    TopSongs,
+    Albums,
+    Singles,
+    Videos,
+    FeaturedOn,
+    RelatedArtists,
+    #[default]
+    Other,
+}
+
+/// A queue the site starts from a button: a playlist id and the params it asks with.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicWatchTarget {
+    pub playlist_id: String,
+    pub params: Option<String>,
+}
+
+/// A linked stretch of a description, in UTF-16 units as the page counts them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptionLink {
+    pub start: usize,
+    pub end: usize,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +152,15 @@ pub struct ArtistPage {
     pub artist: ArtistItem,
     pub sections: Vec<ArtistSection>,
     pub description: Option<String>,
+    /// The bio's links, such as its Wikipedia source.
+    #[serde(default)]
+    pub description_links: Vec<DescriptionLink>,
+    /// The header's Shuffle: the artist's whole catalogue, shuffled by the site.
+    #[serde(default)]
+    pub shuffle: Option<MusicWatchTarget>,
+    /// The header's Radio: the artist's station.
+    #[serde(default)]
+    pub radio: Option<MusicWatchTarget>,
     pub subscriber_count_text: Option<String>,
     pub monthly_listener_count: Option<String>,
     pub is_subscribed: bool,

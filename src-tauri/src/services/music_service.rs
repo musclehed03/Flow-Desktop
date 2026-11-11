@@ -1,7 +1,6 @@
-//! Thin service over the concrete [`InnertubeClient`] exposing the additive
-//! YouTube Music surface. Kept separate from [`crate::services::youtube_service`]
-//! (which is a `dyn YoutubeExtractor` and drives the video path) so the music
-//! feature is independently wired and the video path is untouched.
+//! Thin service over [`InnertubeClient`] exposing the music surface,
+//! kept apart from [`crate::services::youtube_service`], which drives the video
+//! path.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -145,6 +144,15 @@ struct GraphSource<'a, T> {
 
 const fn always<T>(_: &T) -> bool {
     true
+}
+
+/// An artist page cached before sections carried their kind would show nothing.
+fn artist_sections_classified(page: &ArtistPage) -> bool {
+    page.sections.is_empty()
+        || page
+            .sections
+            .iter()
+            .any(|section| section.kind != crate::models::music::ArtistSectionKind::Other)
 }
 
 #[derive(Clone)]
@@ -376,7 +384,7 @@ impl MusicService {
                 kind: "artist",
                 id: browse_id,
                 max_age_seconds: PAGE_MAX_AGE_SECONDS,
-                usable: always,
+                usable: artist_sections_classified,
             },
             freshness,
             || self.client.music_artist_page(browse_id),
@@ -445,7 +453,10 @@ impl MusicService {
         )
         .await
     }
-    pub async fn lyrics(&self, video_id: &str) -> AppResult<Option<String>> {
+    pub async fn lyrics(
+        &self,
+        video_id: &str,
+    ) -> AppResult<Option<crate::models::music_pages::MusicLyrics>> {
         self.client.music_lyrics_text(video_id).await
     }
 
@@ -454,9 +465,10 @@ impl MusicService {
         &self,
         video_id: &str,
         audio_quality: MusicAudioQuality,
+        prefer_aac: bool,
     ) -> AppResult<MusicStreamInfo> {
         self.client
-            .resolve_music_stream(video_id, audio_quality)
+            .resolve_music_stream(video_id, audio_quality, prefer_aac)
             .await
     }
 }
@@ -499,6 +511,7 @@ mod tests {
                         title: "A".into(),
                         thumbnail: None,
                         channel_id: None,
+                        is_profile: false,
                     })],
                 },
                 ChartSection {

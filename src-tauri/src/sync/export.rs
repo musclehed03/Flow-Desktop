@@ -66,8 +66,13 @@ async fn export_watch_history(pool: &SqlitePool, device_id: &str) -> Result<Vec<
     let rows: Vec<WatchRow> = sqlx::query_as::<_, WatchRow>(WATCH_SELECT)
         .fetch_all(pool)
         .await?;
-    let mut records: Vec<WatchHistoryRecord> =
-        rows.iter().map(|r| r.to_canonical(device_id)).collect();
+    let mut records: Vec<WatchHistoryRecord> = rows
+        .iter()
+        .map(|r| WatchHistoryRecord {
+            thumbnail_url: Some(mapping::video_thumbnail(&r.video_id)),
+            ..r.to_canonical(device_id)
+        })
+        .collect();
     let live: BTreeSet<String> = records.iter().map(|r| r.video_id.clone()).collect();
     let stamps = load_changes(pool, changes::WATCH_HISTORY).await?;
     records.extend(tombstones::watch_history(&stamps, &live, device_id));
@@ -179,7 +184,8 @@ async fn export_subscriptions(pool: &SqlitePool, device_id: &str) -> Result<Vec<
         None => Vec::new(),
     };
     let stamps = load_changes(pool, changes::GROUPS).await?;
-    tombstones::stamp_groups(&mut groups, &stamps, device_id);
+    let member_stamps = load_changes(pool, changes::GROUP_MEMBERS).await?;
+    tombstones::stamp_groups(&mut groups, &stamps, &member_stamps, device_id);
     let live: BTreeSet<String> = groups.iter().map(|g| g.name.clone()).collect();
     groups.extend(tombstones::groups(&stamps, &live, device_id));
     groups.sort_by(|a, b| a.name.cmp(&b.name));

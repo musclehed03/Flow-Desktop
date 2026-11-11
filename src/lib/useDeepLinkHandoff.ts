@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
+import { sessionStore } from "./storage/profileStorage";
+import { holdLinkForNextProfile, takeHeldLink } from "./api/profiles";
+import { useProfilesStore } from "../store/useProfilesStore";
 
 import { getVideoDetails } from "./api/youtube";
 import { getMusicQueue } from "./api/music";
 import { addWatchRecord } from "./api/db";
 import { shouldRecordWatchHistory } from "./deepFlow";
-import { seekToTime } from "./linkify";
+import { seekWhenVideoReady } from "./playerSeek";
 import { prefetchStreamInfo } from "./streamResolution";
 import { getString } from "./i18n/index";
 import { useDownloadStore } from "../store/useDownloadStore";
@@ -65,22 +68,6 @@ async function resolveSong(videoId: string): Promise<SongItem | null> {
   } catch {
     return null;
   }
-}
-
-// The video element only accepts a seek once it knows its duration. Poll briefly
-// after navigation, then hand off to the player's existing seek event bus.
-function applyStartOffset(seconds: number) {
-  let attempts = 0;
-  const tick = () => {
-    attempts += 1;
-    const video = document.querySelector<HTMLVideoElement>("video");
-    if (video && Number.isFinite(video.duration) && video.duration > 0) {
-      seekToTime(seconds);
-      return;
-    }
-    if (attempts < 20) window.setTimeout(tick, 300);
-  };
-  window.setTimeout(tick, 400);
 }
 
 /**
@@ -189,7 +176,7 @@ export function useDeepLinkHandoff() {
 
       prefetchStreamInfo(handoff.v);
       navigate(`/watch/${handoff.v}`);
-      if (handoff.t && handoff.t > 0) applyStartOffset(handoff.t);
+      if (handoff.t && handoff.t > 0) seekWhenVideoReady(handoff.t);
     },
     [navigate],
   );
@@ -212,6 +199,13 @@ export function useDeepLinkHandoff() {
   acceptRef.current = (raw: string) => {
     const handoff = parseFlowUrl(raw);
     if (!handoff) return;
+    // During a profile switch the link belongs to the next profile, not this dying process.
+    if (useProfilesStore.getState().switchingTo) {
+      void holdLinkForNextProfile(raw).then((held) => {
+        if (!held) acceptRef.current(raw);
+      });
+      return;
+    }
     pendingRef.current = handoff;
     flush();
   };
@@ -230,8 +224,8 @@ export function useDeepLinkHandoff() {
     // download dialog. sessionStorage is cleared on a real relaunch, so the next
     // genuine cold start is still handled.
     const COLD_START_KEY = "flow_handoff_cold_start_done";
-    if (!sessionStorage.getItem(COLD_START_KEY)) {
-      sessionStorage.setItem(COLD_START_KEY, "1");
+    if (!sessionStore.getItem(COLD_START_KEY)) {
+      sessionStore.setItem(COLD_START_KEY, "1");
       void getCurrent()
         .then((urls) => {
           const url = latest(urls);
@@ -239,6 +233,11 @@ export function useDeepLinkHandoff() {
         })
         .catch(() => {});
     }
+    void takeHeldLink()
+      .then((url) => {
+        if (url) acceptRef.current(url);
+      })
+      .catch(() => {});
     void onOpenUrl((urls) => {
       const url = latest(urls);
       if (url) acceptRef.current(url);
