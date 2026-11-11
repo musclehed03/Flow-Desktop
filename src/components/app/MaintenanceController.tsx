@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { getString } from "../../lib/i18n/index";
 import { refreshSubscriptionsOnStartup, runScheduledBackup } from "../../lib/maintenance";
 import { useUiStore } from "../../store/useUiStore";
+import { useSupporterStore } from "../../store/useSupporterStore";
 import { runLibraryMetadataBackfill } from "../../lib/libraryMetadataBackfill";
 
 /** Runs opt-in, low-priority launch maintenance after playback restoration settles. */
@@ -18,6 +19,9 @@ export function MaintenanceController() {
         if (!cancelled) useUiStore.getState().showToast({ variant: "error", message: getString("scheduled_backup_failed") });
       }
       try { await refreshSubscriptionsOnStartup(); } catch (error) { console.warn("Subscription refresh failed", error); }
+      // Reserved monetization space (fixes batch #15): re-reads the supporter status.
+      // Free until a verifier plugs in, so this changes nothing today.
+      useSupporterStore.getState().refresh();
     }, 6000);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, []);
