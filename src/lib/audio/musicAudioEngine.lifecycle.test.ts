@@ -164,3 +164,101 @@ describe("musicAudioEngine graph lifecycle (fixes batch #4)", () => {
     expect(engine.getContextState()).toBe("running");
   });
 });
+
+describe("musicAudioEngine Direct mode (fixes batch #8)", () => {
+  const OPUS = 'audio/webm; codecs="opus"';
+  const AAC = 'audio/mp4; codecs="mp4a.40.2"';
+
+  it("never builds a graph for an Opus 48 kHz track, even with crossfade on", async () => {
+    const engine = await freshEngine();
+    const pair = elements();
+    engine.attach(pair);
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(48_000, OPUS);
+    engine.setCrossfadeEnabled(true);
+    expect(contexts).toHaveLength(0);
+    expect(engine.getAnalyser()).toBeNull();
+    expect(engine.isDirect()).toBe(true);
+    await engine.play();
+    expect(contexts).toHaveLength(0);
+    expect(engine.getAnalyser()).toBeNull();
+  });
+
+  it("falls back to Standard for AAC, and the graph builds", async () => {
+    const engine = await freshEngine();
+    const pair = elements();
+    engine.attach(pair);
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(44_100, AAC);
+    expect(engine.isDirect()).toBe(false);
+    engine.setCrossfadeEnabled(true);
+    expect(contexts).toHaveLength(1);
+    expect(engine.getAnalyser()).not.toBeNull();
+  });
+
+  it("falls back to Standard when the rate is unknown", async () => {
+    const engine = await freshEngine();
+    engine.attach(elements());
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(null, OPUS);
+    expect(engine.isDirect()).toBe(false);
+  });
+
+  it("never arms a crossfade into or out of a Direct track", async () => {
+    const engine = await freshEngine();
+    const pair = elements();
+    engine.attach(pair);
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(48_000, OPUS);
+    engine.armCrossfade(6);
+    expect((engine as unknown as { armedFadeSeconds: number | null }).armedFadeSeconds).toBeNull();
+    engine.setDirectMode(false);
+    engine.armCrossfade(6);
+    expect((engine as unknown as { armedFadeSeconds: number | null }).armedFadeSeconds).toBe(6);
+  });
+
+  it("forces playback speed to 1.0 while Direct", async () => {
+    const engine = await freshEngine();
+    const pair = elements();
+    engine.attach(pair);
+    engine.setSpeed(1.5);
+    expect(pair[0].playbackRate).toBe(1.5);
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(48_000, OPUS);
+    engine.setSpeed(1.5);
+    expect(pair[0].playbackRate).toBe(1);
+    engine.setDirectMode(false);
+    engine.setSpeed(1.5);
+    expect(pair[0].playbackRate).toBe(1.5);
+  });
+
+  it("keeps normalization on its own flag: other setters never switch it", async () => {
+    const engine = await freshEngine();
+    const pair = elements();
+    engine.attach(pair);
+    engine.setVolume(1);
+    // No graph: the element volume carries the normalization cut directly.
+    engine.setLoudness(8, true);
+    const normalized = pair[0].volume;
+    expect(normalized).toBeGreaterThan(0);
+    expect(normalized).toBeLessThan(1);
+    // Skip-silence must not touch the gain at all.
+    engine.setSkipSilenceEnabled(true);
+    expect(pair[0].volume).toBe(normalized);
+    // Volume boost scales the gain, but the normalization flag survives it:
+    // switching the boost back off returns to exactly the normalized value.
+    engine.setVolumeBoostEnabled(true);
+    expect(pair[0].volume).toBeGreaterThan(normalized);
+    engine.setVolumeBoostEnabled(false);
+    expect(pair[0].volume).toBe(normalized);
+    // And Direct overrides the flag entirely.
+    engine.setDirectMode(true);
+    engine.setSourceSampleRate(48_000, OPUS);
+    engine.setLoudness(8, true);
+    expect(pair[0].volume).toBe(1);
+    // Turning normalization off returns the element to full volume.
+    engine.setDirectMode(false);
+    engine.setLoudness(8, false);
+    expect(pair[0].volume).toBe(1);
+  });
+});

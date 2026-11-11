@@ -12,6 +12,7 @@ const formatSpeed = (rate: number) => getString("music_speed_value", Number(rate
 /** Music audio settings beside the equalizer: loudness normalization, speed and crossfade. */
 export function MusicAudioOptions() {
   const [normalization, setNormalization] = useBoolPref(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION);
+  const [directMode, setDirectMode] = useBoolPref(SETTINGS.MUSIC_DIRECT_MODE, false);
   const [speed, setSpeed] = useNumberPref(SETTINGS.MUSIC_PLAYBACK_SPEED);
   const [crossfade, setCrossfade] = useBoolPref(SETTINGS.CROSSFADE_ENABLED);
   const [crossfadeSeconds, setCrossfadeSeconds] = useNumberPref(SETTINGS.CROSSFADE_SECONDS);
@@ -24,6 +25,14 @@ export function MusicAudioOptions() {
           <span className="text-xs text-chrome-neutral-500">{getString("music_loudness_normalization_desc")}</span>
         </span>
         <ToggleSwitch checked={normalization} onChange={setNormalization} />
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 flex-col">
+          <span className="text-sm text-chrome-neutral-200">{getString("music_direct_mode")}</span>
+          <span className="text-xs text-chrome-neutral-500">{getString("music_direct_mode_desc")}</span>
+        </span>
+        <ToggleSwitch checked={directMode} onChange={setDirectMode} />
       </div>
 
       <div className="flex flex-col gap-2">

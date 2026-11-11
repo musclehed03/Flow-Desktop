@@ -298,6 +298,12 @@ interface MusicPlayerState {
   eqGains: number[]; // 10 bands, dB
   audioProcessing: AudioProcessingConfig;
   streamFormat: { mimeType: string; bitrate: number | null; sampleRate: number | null } | null;
+  /**
+   * Whether the track now playing runs Direct (fixes batch #8): the mode is
+   * on AND the track is Opus at 48 kHz. The badge reads this, not the
+   * setting, so an AAC track that fell back to Standard says so.
+   */
+  directActive: boolean;
 
   // --- modes (persisted) ---
   repeatMode: MusicRepeatMode;
@@ -435,6 +441,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   eqGains: initialConfig.eqGains,
   audioProcessing: initialProcessing,
   streamFormat: null,
+  directActive: false,
 
   repeatMode: initialConfig.repeatMode,
   isShuffle: initialConfig.isShuffle,
@@ -701,7 +708,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       if (plan) musicAudioEngine.armCrossfade(plan.seconds);
       if (musicAudioEngine.activatePreloaded(videoId)) {
         const loudnessDb = musicAudioEngine.getActiveLoudness();
-        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null });
+        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null, directActive: musicAudioEngine.isDirect?.() ?? false });
         musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
         await start();
         if (plan && plan.incomingStart > 0) {
@@ -745,13 +752,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           set({
             loudnessDb: offline.loudnessDb,
             streamFormat: null,
+            directActive: false,
             loadingStreamId: null,
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
               : {}),
           });
           musicAudioEngine.setLoudness(offline.loudnessDb, get().normalizationEnabled);
-          await musicAudioEngine.load(offline.url, offline.contentType, track.duration ?? null);
+          await musicAudioEngine.load(offline.url, offline.contentType, track.duration ?? null, { mimeType: offline.contentType, bitrate: null, sampleRate: null });
           musicAudioEngine.seekWhenReady(resumeAt);
           await start();
           afterStart();
@@ -777,11 +785,11 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       if (get().loadingStreamId !== videoId) return;
 
       set({ streamFormat: { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null } });
-      musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null);
-      set({ loudnessDb: info.loudnessDb, loadingStreamId: null });
+      musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null, info.mimeType);
+      set({ loudnessDb: info.loudnessDb, loadingStreamId: null, directActive: musicAudioEngine.isDirect?.() ?? false });
       if (loadStartedAt?.videoId === videoId) loadStartedAt.resolvedAt = performance.now();
       musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
-      await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track));
+      await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track), { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null });
       musicAudioEngine.seekWhenReady(resumeAt);
       await start();
       afterStart();
@@ -873,6 +881,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       duration: 0,
       loudnessDb: null,
       streamFormat: null,
+      directActive: false,
       loadingStreamId: null,
       streamError: null,
       streamErrorKind: null,

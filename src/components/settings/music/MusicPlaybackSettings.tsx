@@ -9,6 +9,7 @@ import { isSettingDisabledUntilWired } from '../../../lib/settings/values';
 
 export function MusicPlaybackSettings() {
   const [audioQuality, setAudioQuality] = usePreference(SETTINGS.MUSIC_AUDIO_QUALITY, 'Auto');
+  const [directMode, setDirectMode] = useBoolPref(SETTINGS.MUSIC_DIRECT_MODE, false);
   const [restoreQueue, setRestoreQueue] = useBoolPref(SETTINGS.MUSIC_RESTORE_QUEUE, true);
   const [resumeLongTracks, setResumeLongTracks] = useBoolPref(SETTINGS.MUSIC_RESUME_LONG_TRACKS, false);
   const [sleepTimerButton, setSleepTimerButton] = useBoolPref(SETTINGS.MUSIC_SLEEP_TIMER_BUTTON, false);
@@ -31,6 +32,9 @@ export function MusicPlaybackSettings() {
       </SettingItem>
       <SettingItem title={getString('settings_music_restore_queue')} description={getString('settings_music_restore_queue_desc')}>
         <ToggleSwitch checked={restoreQueue} onChange={setRestoreQueue} />
+      </SettingItem>
+      <SettingItem title={getString('music_direct_mode')} description={getString('music_direct_mode_desc')}>
+        <ToggleSwitch checked={directMode} onChange={setDirectMode} />
       </SettingItem>
       <SettingItem title={getString('settings_music_resume_long_tracks')} description={getString('settings_music_resume_long_tracks_desc')}>
         <ToggleSwitch checked={resumeLongTracks} onChange={setResumeLongTracks} />

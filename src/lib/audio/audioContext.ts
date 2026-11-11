@@ -11,9 +11,9 @@ function audioContextCtor(): AudioContextCtor | null {
 
 export const webAudioSupported = (): boolean => audioContextCtor() !== null;
 
-export function createAudioContext(): AudioContext | null {
+export function createAudioContext(options?: AudioContextOptions): AudioContext | null {
   const Ctor = audioContextCtor();
-  return Ctor ? new Ctor() : null;
+  return Ctor ? new Ctor(options) : null;
 }
 
 /**
