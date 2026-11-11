@@ -1,4 +1,5 @@
 import { DailyStations } from "../../components/radio/DailyStations";
+import { MultiArtistStationBuilder } from "../../components/radio/MultiArtistStationBuilder";
 import { SavedStations } from "../../components/radio/SavedStations";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -295,6 +296,7 @@ export default function MusicHome() {
         className="mt-1 mb-8"
       />
       <SavedStations />
+      <MultiArtistStationBuilder />
       <DailyStations />
       {renderBody()}
 

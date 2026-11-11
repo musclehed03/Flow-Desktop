@@ -102,7 +102,21 @@
     "mixNumber": "Mix {{number}}",
     "mixNeedsHistory": "Listen to build this station",
     "mixFringe": "Fringe · discovery along co-listen connections",
-    "mixComfort": "Current favorites · endless station"
+    "mixComfort": "Current favorites · endless station",
+    "multiArtist": "Multi-artist station",
+    "multiArtistDescription": "Pick two or more artists. Playback starts from the first few and keeps discovering across all of them — and artists like them.",
+    "multiArtistNew": "New multi-artist station",
+    "multiArtistHide": "Hide station builder",
+    "multiArtistSearch": "Search artists",
+    "multiArtistLibraryEmpty": "No library artists yet — search the catalog above.",
+    "multiArtistEmpty": "No artists found. Try another search.",
+    "multiArtistSelected": "Selected artists",
+    "multiArtistAdd": "Add {{name}}",
+    "multiArtistRemove": "Remove {{name}}",
+    "multiArtistStart": "Start station",
+    "multiArtistStarting": "Starting…",
+    "multiArtistLoading": "Loading artists…",
+    "multiArtistFailed": "Could not load artists."
   },
   "sensory": {
     "title": "Dollhouse Deviants Sensory Suite",

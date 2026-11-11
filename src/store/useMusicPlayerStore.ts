@@ -1,6 +1,6 @@
 import { planCrossfade, crossfadeSeconds, shouldCrossfade } from "../lib/audio/crossfade";
 import { sessionPlayed, rememberPlayed, allowReplay } from "../lib/djSession";
-import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, geniusLaneFor, targetNovelty, trackStation, type MusicStation } from "../lib/musicStation";
+import { fetchStationPage, expandStationCandidates, rankStationBatch, stationFallback, geniusEnabled, geniusLaneFor, targetNovelty, trackStation, multiArtistStation, recallMultiArtistSeeds, discoveryLevel, type MusicStation } from "../lib/musicStation";
 import { recallArtist, audioMusicOnly } from "../lib/musicRecall";
 import { getMusicMoodGenre } from "../lib/api/music";
 import type { ArtistItem } from "../types/music";
@@ -362,6 +362,7 @@ interface MusicPlayerState {
   startRadio: (seed?: SongItem) => Promise<void>;
   resumeStation: (station: MusicStation, discovery: import("../lib/musicStation").DiscoveryLevel) => Promise<boolean>;
   startArtistRadio: (artist: ArtistItem) => Promise<void>;
+  startMultiArtistStation: (roots: ArtistItem[]) => Promise<void>;
   startMixStation: (mix: import("../types/music").DailyMixSeed, songs: SongItem[], index?: number) => Promise<void>;
   startGenreRadio: (genre: { browseId: string; params: string | null; title: string }) => Promise<void>;
 
@@ -1084,8 +1085,15 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     try {
       let songs: SongItem[] = [];
       let next: MusicStation = fresh;
-      if (fresh.type === "artist" && fresh.artist) songs = (await recallArtist(fresh.artist.id))?.topSongs ?? [];
-      else { const page = await fetchStationPage(fresh, fresh.seed); songs = page.songs; next = { ...next, ...page.station }; }
+      if (fresh.type === "multi-artist" && (fresh.roots?.length ?? 0) > 0) {
+        // Startup recalls only the first roots; the refill rotation picks up
+        // the rest, so a large seed list cannot block first playback.
+        const recalled = await recallMultiArtistSeeds(fresh);
+        songs = recalled.songs;
+        next = { ...fresh, rootSeeds: recalled.rootSeeds, rootCursor: 0, frontier: fresh.frontier ?? [], rootPages: {} };
+      }
+      if (!songs.length && fresh.type === "artist" && fresh.artist) songs = (await recallArtist(fresh.artist.id))?.topSongs ?? [];
+      else if (!songs.length) { const page = await fetchStationPage(fresh, fresh.seed); songs = page.songs; next = { ...next, ...page.station }; }
       if (!songs.length) songs = await stationFallback(fresh.seed);
       if (!songs.length) return false;
       set({ queue: songs, currentIndex: 0, station: next, radioStationActive: true, radioQueuedIds: [], queueSource: fresh.title ?? fresh.artist?.title ?? null });
@@ -1115,6 +1123,16 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     set({ queue: [seed], currentIndex: 0, station: { ...trackStation(seed), type: "artist", artist, catalog: songs }, playedIds: get().playedIds.filter((id) => id !== videoIdOf(seed)), radioStationActive: true, radioQueuedIds: [], queueSource: artist.title });
     await get()._loadIndex(0);
     if (get().currentTrack) await get()._ensureRadio();
+  },
+
+  startMultiArtistStation: async (roots) => {
+    if (!roots.length) return;
+    const page = await recallArtist(roots[0]!.id);
+    const seed = audioMusicOnly(page?.topSongs ?? [])[0] ?? page?.topSongs[0];
+    if (!seed) { radioNotice(); return; }
+    transportGeneration++;
+    resetRadioSession([videoIdOf(seed)]);
+    await get().resumeStation(multiArtistStation(roots, seed), discoveryLevel());
   },
 
   startGenreRadio: async (genre) => {

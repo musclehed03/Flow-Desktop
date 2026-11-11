@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMixedMediaQueueStore } from "../../lib/mixedMediaQueue";
 import { MIXED_MEDIA_ENDED_EVENT, MIXED_MEDIA_ROUTE_EVENT, type MixedMediaDirection, type MixedMediaKind } from "../../lib/mixedMediaEvents";
-import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
+import { useMusicPlayerStore, selectRadioOn } from "../../store/useMusicPlayerStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 
 export function MixedMediaQueueController() {
@@ -26,6 +26,12 @@ export function MixedMediaQueueController() {
         ? useMusicPlayerStore.getState().currentIndex + 1 < useMusicPlayerStore.getState().queue.length
         : usePlayerStore.getState().currentIndex + 1 < usePlayerStore.getState().queue.length;
       if (hasEngineNext) return;
+      // A multi-artist station is endless by design: its final item releases
+      // control to the music engine's own refill instead of handing off.
+      if (event.detail.kind === "music") {
+        const music = useMusicPlayerStore.getState();
+        if (music.station?.type === "multi-artist" && selectRadioOn(music)) return;
+      }
       event.preventDefault();
       mixed.advance();
     };
