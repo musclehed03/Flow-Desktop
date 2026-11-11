@@ -1,6 +1,6 @@
 import { Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
 
-import { Slider } from "../ui/Slider";
+import { TypedSlider } from "../ui/TypedSlider";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -106,14 +106,17 @@ export function PlayerVolumeControl({
       >
         {silent ? <VolumeX size={18} /> : volume < 0.55 ? <Volume1 size={18} /> : <Volume2 size={18} />}
       </button>
-      <div className="w-20 pr-2 opacity-100">
-        <Slider
+      <div className="w-44 pr-2 opacity-100">
+        <TypedSlider
           aria-label={labels.volume}
           min={0}
           max={1}
           step={0.01}
+          decimals={0}
+          unit="%"
+          displayScale={100}
           value={silent ? 0 : volume}
-          onChange={onVolumeChange}
+          onCommit={onVolumeChange}
         />
       </div>
     </div>

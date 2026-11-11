@@ -37,6 +37,7 @@ import type { CaptionTrack, StreamVariant } from "../../types/video";
 import { SubtitleOverlay } from "../player/SubtitleOverlay";
 import { StatsForNerds } from "../player/StatsForNerds";
 import { MediaScrubber } from "../ui/MediaScrubber";
+import { TypedSlider } from "../ui/TypedSlider";
 import { noteShortEnded, noteShortProgress } from "../../lib/shortViews";
 
 interface ShortVideoSurfaceProps {
@@ -729,15 +730,15 @@ export function ShortVideoSurface({
                     <span>Speed</span>
                     <span className="font-mono text-primary">{playbackRate}x</span>
                   </div>
-                  <input
+                  <TypedSlider
                     aria-label="Playback speed"
-                    type="range"
                     min={0.25}
                     max={4}
                     step={0.05}
+                    decimals={2}
+                    unit="x"
                     value={playbackRate}
-                    onChange={(event) => selectPlaybackRate(Number(event.target.value))}
-                    className="h-1 w-full accent-primary"
+                    onCommit={(rate) => selectPlaybackRate(rate)}
                   />
                 </div>
               )}

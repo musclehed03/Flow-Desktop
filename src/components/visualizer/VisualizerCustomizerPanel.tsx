@@ -10,6 +10,7 @@ import { DockablePanel } from "../ui/DockablePanel";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { VisualizerColorControls } from "./VisualizerColorControls";
 import { VisualizerControl, visualizerSelectClass } from "./VisualizerControl";
+import { TypedSlider } from "../ui/TypedSlider";
 import { VisualizerPresetControls } from "./VisualizerPresetControls";
 
 interface VisualizerCustomizerPanelProps {
@@ -114,9 +115,10 @@ export function VisualizerCustomizerPanel({ config, openerRef, onChange, onClose
         {sliderDefinitions.map(([key, min, max, step]) => {
           const safeMin = reducedFlash && key === "smoothing" ? 0.82 : reducedFlash && key === "falloff" ? 0.78 : min;
           const safeMax = reducedFlash && key === "sensitivity" ? 1.4 : reducedFlash && key === "beat" ? 0.35 : max;
-          return <VisualizerControl key={key} label={`${t(`visualizer.${key}`)} · ${value[key]}`} description={t(`visualizer.${key}Desc`)}>
-          <input type="range" aria-label={t(`visualizer.${key}`)} min={safeMin} max={safeMax} step={step} value={value[key]} className="block w-full"
-            onChange={(event) => previewApply({ ...value, [key]: Number(event.target.value) })} />
+          return <VisualizerControl key={key} label={t(`visualizer.${key}`)} description={t(`visualizer.${key}Desc`)}>
+          <TypedSlider aria-label={t(`visualizer.${key}`)} min={safeMin} max={safeMax} step={step}
+            decimals={step >= 1 ? 0 : step >= 0.1 ? 1 : 2} value={value[key]}
+            onCommit={(next) => previewApply({ ...value, [key]: next })} />
         </VisualizerControl>;
         })}
       </div>

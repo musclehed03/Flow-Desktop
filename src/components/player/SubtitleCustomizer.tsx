@@ -6,6 +6,7 @@ import {
   type SubtitleStyle,
 } from "../../store/usePlayerStore";
 import { Undo2 } from "lucide-react";
+import { TypedSlider } from "../ui/TypedSlider";
 import { getString } from "../../lib/i18n/index";
 
 const textColors = [
@@ -46,7 +47,14 @@ export const SubtitleCustomizer: React.FC = () => {
   const g = parseInt(hex.substring(2, 4), 16) || 0;
   const b = parseInt(hex.substring(4, 6), 16) || 0;
   const bgRgba = `rgba(${r}, ${g}, ${b}, ${subtitleStyle.backgroundOpacity})`;
-  const scaleIndex = Math.max(0, SUBTITLE_FONT_SCALES.indexOf(subtitleStyle.fontScale));
+  // Font size only comes in steps (50/75/100/150/200/300/400%), so a typed value
+  // lands on the nearest step instead of a size the slider cannot hold.
+  const nearestFontScale = (percent: number) =>
+    SUBTITLE_FONT_SCALES.reduce((best, scale) =>
+      Math.abs(scale - percent) < Math.abs(best - percent) ? scale : best,
+    );
+  const nearestFontScaleIndex = (percent: number) =>
+    Math.max(0, SUBTITLE_FONT_SCALES.indexOf(nearestFontScale(percent)));
 
   return (
     <div className="flex flex-col gap-4 p-1 select-none">
@@ -75,16 +83,21 @@ export const SubtitleCustomizer: React.FC = () => {
       <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-center text-xs font-semibold text-chrome-zinc-300">
           <span>Font Size</span>
-          <span className="text-chrome-red-400 font-mono">{subtitleStyle.fontScale}%</span>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={SUBTITLE_FONT_SCALES.length - 1}
-          step={1}
-          value={scaleIndex}
-          onChange={(e) => handleUpdate({ fontScale: SUBTITLE_FONT_SCALES[Number(e.target.value)] ?? DEFAULT_SUBTITLE_STYLE.fontScale })}
-          className="w-full h-1 bg-chrome-zinc-800 rounded-lg appearance-none cursor-pointer accent-primary"
+        <TypedSlider
+          aria-label="Subtitle font size"
+          min={SUBTITLE_FONT_SCALES[0] ?? 50}
+          max={SUBTITLE_FONT_SCALES[SUBTITLE_FONT_SCALES.length - 1] ?? 400}
+          step={25}
+          decimals={0}
+          unit="%"
+          value={subtitleStyle.fontScale}
+          toSlider={(fontScale) => nearestFontScaleIndex(fontScale)}
+          fromSlider={(index) => SUBTITLE_FONT_SCALES[index] ?? DEFAULT_SUBTITLE_STYLE.fontScale}
+          sliderMin={0}
+          sliderMax={SUBTITLE_FONT_SCALES.length - 1}
+          sliderStep={1}
+          onCommit={(fontScale) => handleUpdate({ fontScale: nearestFontScale(fontScale) })}
         />
       </div>
 
@@ -94,14 +107,15 @@ export const SubtitleCustomizer: React.FC = () => {
           <span>Bottom Position</span>
           <span className="text-chrome-red-400 font-mono">{subtitleStyle.bottomOffset}%</span>
         </div>
-        <input
-          type="range"
+        <TypedSlider
+          aria-label="Subtitle bottom position"
           min={2}
           max={30}
           step={0.5}
+          decimals={1}
+          unit="%"
           value={subtitleStyle.bottomOffset}
-          onChange={(e) => handleUpdate({ bottomOffset: Number(e.target.value) })}
-          className="w-full h-1 bg-chrome-zinc-800 rounded-lg appearance-none cursor-pointer accent-primary"
+          onCommit={(bottomOffset) => handleUpdate({ bottomOffset })}
         />
         <p className="text-xs text-chrome-zinc-400">{getString("subtitles_drag_hint")}</p>
       </div>
@@ -160,14 +174,16 @@ export const SubtitleCustomizer: React.FC = () => {
             {Math.round(subtitleStyle.backgroundOpacity * 100)}%
           </span>
         </div>
-        <input
-          type="range"
+        <TypedSlider
+          aria-label="Subtitle background opacity"
           min={0}
           max={1}
           step={0.05}
+          decimals={0}
+          unit="%"
+          displayScale={100}
           value={subtitleStyle.backgroundOpacity}
-          onChange={(e) => handleUpdate({ backgroundOpacity: Number(e.target.value) })}
-          className="w-full h-1 bg-chrome-zinc-800 rounded-lg appearance-none cursor-pointer accent-primary"
+          onCommit={(backgroundOpacity) => handleUpdate({ backgroundOpacity })}
         />
       </div>
 

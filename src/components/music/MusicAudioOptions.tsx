@@ -2,7 +2,7 @@ import { getString } from "../../lib/i18n/index";
 import { SETTINGS } from "../../lib/settings/schema";
 import { useBoolPref, useNumberPref } from "../../lib/usePreference";
 import { Chip } from "../ui/Chip";
-import { Slider } from "../ui/Slider";
+import { TypedSlider } from "../ui/TypedSlider";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
@@ -38,12 +38,14 @@ export function MusicAudioOptions() {
             </Chip>
           ))}
         </div>
-        <Slider
+        <TypedSlider
           min={0.5}
           max={2}
           step={0.05}
+          decimals={2}
+          unit="x"
           value={speed}
-          onChange={(rate) => setSpeed(Math.round(rate * 100) / 100)}
+          onCommit={(rate) => setSpeed(Math.round(rate * 100) / 100)}
           aria-label={getString("music_playback_speed")}
         />
       </div>
@@ -58,18 +60,17 @@ export function MusicAudioOptions() {
         </div>
         {crossfade && (
           <div className="flex items-center gap-3">
-            <Slider
+            <TypedSlider
               min={1}
               max={12}
               step={1}
+              decimals={0}
+              unit="s"
               value={crossfadeSeconds}
-              onChange={setCrossfadeSeconds}
+              onCommit={setCrossfadeSeconds}
               aria-label={getString("music_crossfade")}
               className="flex-1"
             />
-            <span className="w-10 text-right font-mono text-xs text-chrome-neutral-400">
-              {getString("music_crossfade_seconds", crossfadeSeconds)}
-            </span>
           </div>
         )}
       </div>

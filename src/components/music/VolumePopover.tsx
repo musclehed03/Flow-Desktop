@@ -6,7 +6,7 @@ import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { getString } from "../../lib/i18n/index";
 import { useMusicWheelVolume } from "../../lib/useMusicWheelVolume";
 import { MENU_ENTER_TRANSITION, MENU_EXIT_TRANSITION } from "../../lib/motion";
-import { Slider } from "../ui/Slider";
+import { TypedSlider } from "../ui/TypedSlider";
 import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 export function VolumePopover({
@@ -56,18 +56,18 @@ export function VolumePopover({
           >
             {shown === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
-          <Slider
+          <TypedSlider
             min={0}
             max={1}
             step={0.01}
+            decimals={0}
+            unit="%"
+            displayScale={100}
             value={shown}
-            onChange={setVolume}
+            onCommit={setVolume}
             aria-label={getString("music_volume")}
             className="flex-1"
           />
-          <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-chrome-neutral-400">
-            {Math.round(shown * 100)}
-          </span>
         </motion.div>
       )}
     </AnimatePresence>

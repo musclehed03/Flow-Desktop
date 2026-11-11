@@ -6,7 +6,7 @@ import { SettingItem } from '../SettingItem';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
 import { Select } from '../../ui/Select';
 import { TextInput } from '../../ui/TextInput';
-import { Slider } from '../../ui/Slider';
+import { TypedSlider } from '../../ui/TypedSlider';
 import { AmbientModeIcon } from '../../ui/AmbientModeIcon';
 import { useBoolPref, usePreference, useNumberPref } from '../../../lib/usePreference';
 import { getString } from '../../../lib/i18n/index';
@@ -201,18 +201,19 @@ export function PlayerTab() {
         <SettingItem title={getString('settings_ambient_mode')} description={getString('settings_ambient_mode_desc')}>
           <div className="flex items-center gap-2.5">
             <AmbientModeIcon className={ambientMode ? 'text-primary' : 'text-chrome-neutral-500'} />
-            <div className="w-24 sm:w-32">
-              <Slider
+            <div className="w-44 sm:w-56">
+              <TypedSlider
                 aria-label={getString('settings_ambient_intensity')}
                 min={10}
                 max={100}
                 step={5}
+                decimals={0}
+                unit="%"
                 value={ambientIntensity}
-                onChange={setAmbientIntensity}
+                onCommit={setAmbientIntensity}
                 disabled={!ambientMode}
               />
             </div>
-            <span className="w-9 text-right font-mono text-xs text-chrome-neutral-400">{ambientIntensity}%</span>
             <ToggleSwitch checked={ambientMode} onChange={setAmbientMode} label={getString('settings_ambient_mode')} />
           </div>
         </SettingItem>
