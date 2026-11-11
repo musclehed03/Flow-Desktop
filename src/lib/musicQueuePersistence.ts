@@ -78,7 +78,12 @@ export function parseSavedQueue(json: string | null): RestoredQueue | null {
   }
   if (saved.version !== 1 || !Array.isArray(saved.queue)) return null;
   const queue = saved.queue.filter(isSongLike);
-  if (queue.length === 0 || queue.length !== saved.queue.length) return null;
+  // One malformed item no longer drops the whole queue (fixes batch #11):
+  // restore the tracks that are valid and drop the bad one. Only an empty
+  // remainder is nothing worth restoring. (The shuffle order below already
+  // requires its indices to match the restored queue, so a dropped item
+  // safely voids the stored order instead of mis-mapping it.)
+  if (queue.length === 0) return null;
 
   // The track id wins over a stale index.
   const byId = saved.currentTrackId ? queue.findIndex((t) => idOf(t) === saved.currentTrackId) : -1;

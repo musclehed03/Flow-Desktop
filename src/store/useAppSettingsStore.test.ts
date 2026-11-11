@@ -28,3 +28,13 @@ describe.each([SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, SETTINGS.KEEP_WATCHING_VIEW_E
     expect(useAppSettingsStore.getState().values[key]).toBe("false");
   });
 });
+
+it("marks a failed load so consumers can refuse to overwrite what they could not read (fixes batch #11)", async () => {
+  vi.mocked(getSetting).mockRejectedValueOnce(new Error("database is locked"));
+  await useAppSettingsStore.getState().loadSettings();
+  const state = useAppSettingsStore.getState();
+  expect(state.loaded).toBe(true);
+  expect(state.loadFailed).toBe(true);
+  expect(state.lastError).toBe("database is locked");
+  expect(state.values[SETTINGS.MUSIC_VIDEO_FIRST_ENABLED]).toBe("true");
+});
