@@ -28,6 +28,7 @@ class FakeParam {
 }
 class FakeNode {
   connect = vi.fn((node: unknown) => node);
+  disconnect = vi.fn();
 }
 class FakeGain extends FakeNode {
   gain = new FakeParam(1);

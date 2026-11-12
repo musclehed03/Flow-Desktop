@@ -80,3 +80,21 @@ describe("restoring the saved queue", () => {
     expect(restored.radioStationActive).toBe(true);
   });
 });
+
+describe("parseSavedQueue leniency (fixes batch #11)", () => {
+  it("restores the valid tracks and drops one malformed item instead of losing the whole queue", () => {
+    const good = [track("a"), track("b"), track("c")];
+    const bad = { id: "bad", title: "No artists array" } as unknown as SongItem;
+    const saved = { ...serializeQueue(snapshot({ queue: [good[0]!, bad, good[1]!, good[2]!] })), currentIndex: 3, currentTrackId: "c" };
+    const restored = parseSavedQueue(JSON.stringify(saved));
+    expect(restored).not.toBeNull();
+    expect(restored!.queue.map((t) => t.id)).toEqual(["a", "b", "c"]);
+    expect(restored!.currentIndex).toBe(2);
+    expect(restored!.queueSource).toBe("Quick picks");
+  });
+
+  it("still returns null when nothing valid remains", () => {
+    const bad = { id: "bad" } as unknown as SongItem;
+    expect(parseSavedQueue(JSON.stringify(serializeQueue(snapshot({ queue: [bad] }))))).toBeNull();
+  });
+});

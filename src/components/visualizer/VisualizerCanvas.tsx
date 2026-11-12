@@ -41,6 +41,21 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
     return reducedFlash ? enforceReducedFlash(parsed) : parsed;
   }, [configKey, reducedFlash]);
   const effectiveKey = JSON.stringify(effectiveConfig);
+  // Live config (fixes batch #6): slider/preset/color changes apply to the
+  // running loop without tearing it down. The frame loop reads the latest
+  // config from this ref every frame; only the MilkDrop renderer re-inits,
+  // and only when its family/preset actually changes. Previously the whole
+  // effect depended on the config key, so every slider tick tore the loop
+  // down and recreated the WebGL visualizer — rapid drags raced the async
+  // re-init and left the visualizer frozen until playback restarted.
+  const configRef = useRef(effectiveConfig);
+  configRef.current = effectiveConfig;
+  // Item 7: the frame loop compares keys, it never re-stringifies the config
+  // per frame — the key is already computed once per render above.
+  const configKeyRef = useRef(effectiveKey);
+  configKeyRef.current = effectiveKey;
+  const requestFrameRef = useRef<(() => void) | null>(null);
+  const framePendingRef = useRef(false);
   const [status, setStatus] = useState<VisualizerStatus>("waiting");
   const [webglFailed, setWebglFailed] = useState(false);
 
@@ -58,33 +73,48 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
     let quietSince: number | null = null;
     let idle = false;
     let onscreen = true;
-    let fps: number = effectiveConfig.fps;
-    let density = effectiveConfig.density;
+    let fps: number = configRef.current.fps;
+    let density = configRef.current.density;
+    let appliedFps = fps;
+    let appliedDensity = density;
     let quality = 1;
     let milkdrop: { render(): void; setRendererSize(w: number, h: number): void; disconnectAudio(node: AudioNode): void } | null = null;
     let rendererCanvas: HTMLCanvasElement | null = null;
     let connected: AudioNode | null = null;
     let input: GainNode | null = null;
+    let milkdropKey = "";
+    let milkdropGeneration = 0;
+    let colorsKey = "";
+    let colors = resolveVisualizerColors(configRef.current);
     const context = element.getContext("2d");
     const frequency = new Uint8Array(1024);
     const wave = new Uint8Array(2048);
     const peaks = new Float32Array(160);
     const signal = () => surface === "music" ? musicAudioEngine.getAnalyser() : videoNode;
-    const colors = resolveVisualizerColors(effectiveConfig);
+    const milkdropKeyFor = (config: VisualizerConfig) =>
+      config.family === "feedback" && !safe ? `${config.family}:${config.milkdropPreset ?? ""}` : "";
 
     const cancelScheduled = () => {
+      framePendingRef.current = false;
       cancelAnimationFrame(frameId);
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = null;
     };
     const schedule = (callback: FrameRequestCallback) => {
       if (stopped || document.hidden || !onscreen) return;
+      framePendingRef.current = true;
       if (idle) idleTimer = setTimeout(() => { frameId = requestAnimationFrame(callback); }, VISUALIZER_SILENCE_POLL_MS);
       else frameId = requestAnimationFrame(callback);
     };
 
     const frame = (time: number) => {
+      framePendingRef.current = false;
       if (stopped || document.hidden || !onscreen) return;
+      const config = configRef.current;
+      // A user fps/density change resets the degraded values immediately,
+      // so the new setting applies on the very next frame.
+      if (config.fps !== appliedFps) { fps = config.fps; appliedFps = config.fps; quality = 1; }
+      if (config.density !== appliedDensity) { density = config.density; appliedDensity = config.density; }
       if (time - last < 1000 / fps) { schedule(frame); return; }
       const elapsed = Number.isFinite(last) ? time - last : 1000 / fps;
       last = time;
@@ -96,9 +126,14 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
         element.width = width; element.height = height;
         milkdrop?.setRendererSize(width, height);
       }
+      const nextColorsKey = configKeyRef.current;
+      if (nextColorsKey !== colorsKey) { colorsKey = nextColorsKey; colors = resolveVisualizerColors(config); }
+      // Recreate the MilkDrop renderer only when its family/preset changed —
+      // never on a plain slider tick.
+      if (milkdropKeyFor(config) !== milkdropKey) void ensureMilkdrop();
 
       if (node && isPlaying && !safe) {
-        node.smoothingTimeConstant = effectiveConfig.smoothing;
+        node.smoothingTimeConstant = config.smoothing;
         node.getByteFrequencyData(frequency);
         node.getByteTimeDomainData(wave);
         const level = visualizerSignalLevel(frequency);
@@ -117,13 +152,13 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
         return;
       }
 
-      const fallbackConfig = effectiveConfig.family === "feedback" && !milkdrop
-        ? { ...effectiveConfig, family: "radial" as const }
-        : effectiveConfig;
+      const fallbackConfig = config.family === "feedback" && !milkdrop
+        ? { ...config, family: "radial" as const }
+        : config;
       if (milkdrop && rendererCanvas && context && !safe) {
-        if (input) input.gain.setTargetAtTime(effectiveConfig.sensitivity * (1 + effectiveConfig.beat * frequency[0]! / 255), input.context.currentTime, 0.03);
+        if (input) input.gain.setTargetAtTime(config.sensitivity * (1 + config.beat * frequency[0]! / 255), input.context.currentTime, 0.03);
         milkdrop.render();
-        drawMirroredImage(context, rendererCanvas, width, height, effectiveConfig, phase, reducedFlash);
+        drawMirroredImage(context, rendererCanvas, width, height, config, phase, reducedFlash);
       } else if (context) {
         drawVisualizer(context, width, height, frequency, wave, { ...fallbackConfig, density, falloff: Math.pow(fallbackConfig.falloff, elapsed / (1000 / 30)) }, peaks, phase, reducedFlash);
       }
@@ -144,28 +179,40 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
       schedule(frame);
     };
 
-    const initialize = async () => {
-      if (effectiveConfig.family === "feedback" && !webglFailed && !safe && signal()) {
-        try {
-          const [{ default: butterchurn }, { default: presets }] = await Promise.all([import("butterchurn"), import("butterchurn-presets")]);
-          if (stopped) return;
-          const node = signal()!;
-          const all = presets.getPresets();
-          const name = effectiveConfig.milkdropPreset && all[effectiveConfig.milkdropPreset]
-            ? effectiveConfig.milkdropPreset
-            : Object.keys(all).sort()[0]!;
-          rendererCanvas = document.createElement("canvas");
-          const visual = resolveMilkdropRenderer(butterchurn).createVisualizer(node.context as AudioContext, rendererCanvas, {
-            width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), pixelRatio: 1,
-            textureRatio: 0.5, meshWidth: Math.max(16, Math.floor(effectiveConfig.density / 2)), meshHeight: Math.max(12, Math.floor(effectiveConfig.density / 3)),
-          });
-          input = (node.context as AudioContext).createGain(); input.gain.value = effectiveConfig.sensitivity;
-          node.connect(input); visual.connectAudio(input);
-          visual.loadPreset(customizeMilkdropPreset(all[name], effectiveConfig, colors.foreground), 0);
-          milkdrop = visual; connected = input;
-        } catch { setStatus("fallback"); setWebglFailed(true); return; }
+    const ensureMilkdrop = async () => {
+      const generation = ++milkdropGeneration;
+      milkdropKey = milkdropKeyFor(configRef.current);
+      if (connected) {
+        try { milkdrop?.disconnectAudio(connected); input?.disconnect(); if (input) signal()?.disconnect(input); }
+        catch { /* Renderer may already have released the input. */ }
+        milkdrop = null;
+        rendererCanvas = null;
+        connected = null;
+        input = null;
       }
-      schedule(frame);
+      const config = configRef.current;
+      if (config.family !== "feedback" || webglFailed || safe || !signal()) return;
+      try {
+        const [{ default: butterchurn }, { default: presets }] = await Promise.all([import("butterchurn"), import("butterchurn-presets")]);
+        if (stopped || generation !== milkdropGeneration) return;
+        const node = signal();
+        if (!node) return;
+        const all = presets.getPresets();
+        const name = config.milkdropPreset && all[config.milkdropPreset]
+          ? config.milkdropPreset
+          : Object.keys(all).sort()[0]!;
+        rendererCanvas = document.createElement("canvas");
+        const visual = resolveMilkdropRenderer(butterchurn).createVisualizer(node.context as AudioContext, rendererCanvas, {
+          width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), pixelRatio: 1,
+          textureRatio: 0.5, meshWidth: Math.max(16, Math.floor(config.density / 2)), meshHeight: Math.max(12, Math.floor(config.density / 3)),
+        });
+        input = (node.context as AudioContext).createGain(); input.gain.value = config.sensitivity;
+        node.connect(input); visual.connectAudio(input);
+        visual.loadPreset(customizeMilkdropPreset(all[name], config, colors.foreground), 0);
+        milkdrop = visual; connected = input;
+      } catch {
+        if (generation === milkdropGeneration) { setStatus("fallback"); setWebglFailed(true); }
+      }
     };
 
     const visibility = () => {
@@ -181,15 +228,24 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
     });
     observer?.observe(element);
     document.addEventListener("visibilitychange", visibility);
-    void initialize();
+    requestFrameRef.current = () => schedule(frame);
+    void ensureMilkdrop();
+    schedule(frame);
     return () => {
       stopped = true; cancelScheduled(); observer?.disconnect(); document.removeEventListener("visibilitychange", visibility);
+      requestFrameRef.current = null;
       if (connected) {
         try { milkdrop?.disconnectAudio(connected); input?.disconnect(); if (input) signal()?.disconnect(input); }
         catch { /* Renderer may already have released the input. */ }
       }
     };
-  }, [effectiveKey, isPlaying, reducedFlash, safe, surface, videoNode, webglFailed]);
+  }, [isPlaying, reducedFlash, safe, surface, videoNode, webglFailed]);
+
+  // A config change while paused (or under Safe Motion) still redraws one
+  // frame immediately, so adjustments preview live without restarting playback.
+  useEffect(() => {
+    if (!framePendingRef.current) requestFrameRef.current?.();
+  }, [effectiveKey]);
 
   return <figure className="relative h-full w-full overflow-hidden rounded-2xl bg-[var(--dd-near-black)]">
     <canvas key={`${effectiveConfig.family}:${safe}:${webglFailed}`} ref={canvas} aria-hidden="true" className="h-full w-full" />

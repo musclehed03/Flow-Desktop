@@ -85,6 +85,16 @@ export function design(band: EqBand, sampleRate: number): BiquadCoefficients {
       a1 = -2 * cosW;
       a2 = 1 - alpha;
       break;
+    case "NOTCH":
+      // RBJ notch: the cut-only extreme of a narrow bell — one frequency falls to
+      // nothing, everything else passes untouched. Gain plays no part in it.
+      b0 = 1;
+      b1 = -2 * cosW;
+      b2 = 1;
+      a0 = 1 + alpha;
+      a1 = -2 * cosW;
+      a2 = 1 - alpha;
+      break;
   }
   return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
 }

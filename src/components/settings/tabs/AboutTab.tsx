@@ -14,6 +14,8 @@ import { updateBlockedStringKey } from '../../../lib/updateSupport';
 import { useUiStore } from '../../../store/useUiStore';
 import { OPEN_COLLECTIVE_URL, PATREON_URL } from '../../../lib/supportLinks';
 import { OpenCollectiveIcon, PatreonIcon } from '../../ui/SupportPlatformIcons';
+import { SUPPORTER_TIER_LABELS } from '../../../lib/monetization/tiers';
+import { useSupporterStore } from '../../../store/useSupporterStore';
 
 function GithubIcon({ size = 16 }: { size?: number }) {
   return (
@@ -69,6 +71,9 @@ export function AboutTab() {
   const checkForUpdates = useUpdaterStore((s) => s.checkForUpdates);
   const updateSupport = useUpdaterStore((s) => s.support);
   const showToast = useUiStore((s) => s.showToast);
+  // Reserved monetization space (fixes batch #15): the status line. Free until a
+  // verifier plugs in; nothing in the app is locked behind it.
+  const supporterTier = useSupporterStore((s) => s.status.tier);
 
   useEffect(() => {
     let active = true;
@@ -130,6 +135,8 @@ export function AboutTab() {
         <LinkRow icon={<Package size={16} />} label={getString('settings_bundle_type')} value={appMetadata?.bundleType ?? unknown()} />
         <div className="border-t border-chrome-neutral-800/50" />
         <LinkRow icon={<Info size={16} />} label={getString('settings_metadata_source')} value={sourceLabel(appMetadata?.source)} />
+        <div className="border-t border-chrome-neutral-800/50" />
+        <LinkRow icon={<Heart size={16} />} label={getString('supporter_status')} value={getString(SUPPORTER_TIER_LABELS[supporterTier])} />
       </SettingsGroup>
 
       <SettingsGroup title={getString('settings_group_updates')}>

@@ -1,6 +1,6 @@
 import { loudnessFactor, MUSIC_MAX_CUT_DB } from "../loudness";
 import { IS_LINUX_RUNTIME, IS_MACOS_RUNTIME } from "../platform";
-import { createAudioContext, keepRunning, resumeWithin, webAudioSupported } from "./audioContext";
+import { createAudioContext, keepRunning, resumeWithin, suspendAfterIdle, webAudioSupported } from "./audioContext";
 import { fadeInGain, fadeOutGain, resetFade, scheduleFade, steppedFade } from "./crossfadeRamp";
 import { EQ_GRAPH_OFF, type EqGraphSpec } from "./eq/graphPlan";
 import { EqChain, RAMP_TIME_CONSTANT } from "./eqChain";
@@ -84,12 +84,25 @@ export class MusicAudioEngine {
   private graphReady = false;
   private webAudioFailed = false;
   private availabilityListeners = new Set<(available: boolean) => void>();
+  /** Elements already wired with play/pause listeners for the idle suspend. */
+  private watchedElements = new WeakSet<HTMLAudioElement>();
+  /** Cancels the pending idle suspend when playback resumes. */
+  private cancelIdleSuspend: (() => void) | null = null;
 
   private volume = 1;
   private muted = false;
   /** The sleep timer's fade-out, from 1 (none) down to 0. */
   private fadeLevel = 1;
   private normalizationEnabled = true;
+  /**
+   * Direct mode (fixes batch #8): the user asked for the music untouched by
+   * Flow. While it holds for the track now playing, no graph is built and no
+   * gain stage runs — but it is NOT bit-perfect, and must never be labelled
+   * so: the source is lossy YouTube audio, the browser still decodes it, and
+   * the OS mixer still applies. It only holds for Opus at 48 kHz (see
+   * `isDirect`); anything else falls back to Standard for that track.
+   */
+  private directMode = false;
   private eqSpec: EqGraphSpec = EQ_GRAPH_OFF;
   private eqEngaged = false;
   private speed = 1;
@@ -110,6 +123,10 @@ export class MusicAudioEngine {
   /** Bind the two hidden <audio> elements. Safe to call again on HMR. */
   attach(elements: [HTMLAudioElement, HTMLAudioElement]): void {
     if (this.slots[0].el === elements[0] && this.slots[1].el === elements[1]) return;
+    // A re-bind abandons the previous elements: their sources and the old
+    // EQ/dynamics chain are disconnected here instead of staying wired into
+    // the live context forever (fixes batch #4).
+    this.teardownGraph();
     this.slots = [emptySlot(), emptySlot()];
     this.activeIndex = 0;
     this.fading = null;
@@ -119,12 +136,77 @@ export class MusicAudioEngine {
       el.preload = "auto";
       el.preservesPitch = true;
       this.slots[i as 0 | 1].el = el;
+      if (!this.watchedElements.has(el)) {
+        this.watchedElements.add(el);
+        el.addEventListener("play", this.onElementPlay);
+        el.addEventListener("pause", this.onElementIdle);
+        el.addEventListener("ended", this.onElementIdle);
+      }
     }
     this.graphReady = false;
     this.applySpeed();
     this.engageWhilePlaying();
     this.applyGain();
   }
+
+  /**
+   * Disconnects every node the graph built, so a re-bind or a dispose leaves nothing wired
+   * into the context. The context itself survives a re-bind; `dispose` closes it.
+   */
+  private teardownGraph(): void {
+    for (const slot of this.slots) {
+      slot.source?.disconnect();
+      slot.source = null;
+      slot.fadeGain?.disconnect();
+      slot.fadeGain = null;
+      slot.normGain = null;
+    }
+    this.chain?.output.disconnect();
+    this.chain = null;
+    this.preampGain?.disconnect();
+    this.preampGain = null;
+    this.balanceNode?.disconnect();
+    this.balanceNode = null;
+    this.compressor?.disconnect();
+    this.compressor = null;
+    this.limiter?.disconnect();
+    this.limiter = null;
+    this.volGain?.disconnect();
+    this.volGain = null;
+    this.analyser?.disconnect();
+    this.analyser = null;
+    this.graphReady = false;
+  }
+
+  /** Closes the audio context and drops the graph; the next play rebuilds it lazily. */
+  async dispose(): Promise<void> {
+    this.teardownGraph();
+    if (this.cancelIdleSuspend) { this.cancelIdleSuspend(); this.cancelIdleSuspend = null; }
+    const ctx = this.ctx;
+    this.ctx = null;
+    if (ctx) {
+      try {
+        await ctx.close();
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+
+  /** Playback resumed: cancel any pending idle suspend and wake the context. */
+  private onElementPlay = (): void => {
+    if (this.cancelIdleSuspend) { this.cancelIdleSuspend(); this.cancelIdleSuspend = null; }
+    if (this.ctx && this.graphReady) void resumeWithin(this.ctx);
+  };
+
+  /** Nothing playing: suspend the context shortly, so its PipeWire stream goes idle. */
+  private onElementIdle = (): void => {
+    if (this.cancelIdleSuspend || !this.ctx || !this.graphReady) return;
+    this.cancelIdleSuspend = suspendAfterIdle(
+      this.ctx,
+      () => this.slots.some((slot) => slot.el && !slot.el.paused) || this.fading !== null,
+    );
+  };
 
   /** The element currently playing — the one whose events the player follows. */
   getActiveElement(): HTMLAudioElement | null {
@@ -140,7 +222,10 @@ export class MusicAudioEngine {
     if (this.graphReady || this.webAudioFailed || !this.slots[0].el || !this.slots[1].el) return;
     try {
       if (!this.ctx) {
-        const ctx = createAudioContext();
+        // Opus — the preferred codec — is natively 48 kHz, so the Standard
+        // path runs its context at that rate instead of the device default;
+        // an AAC track still gets resampled by the browser either way.
+        const ctx = createAudioContext({ sampleRate: 48_000 });
         if (!ctx) throw new Error("No AudioContext");
         this.ctx = ctx;
         keepRunning(ctx, () => !!this.active.el && !this.active.el.paused);
@@ -195,13 +280,14 @@ export class MusicAudioEngine {
 
   // --- transport ----------------------------------------------------------
 
-  async load(url: string, mime: string | null, listedSeconds: number | null = null): Promise<void> {
+  async load(url: string, mime: string | null, listedSeconds: number | null = null, format: Slot["format"] = null): Promise<void> {
     const el = this.active.el;
     if (!el) return;
     this.active.key = null;
     this.active.mime = mime;
     this.active.listed = listedSeconds;
     this.active.listedEndTaken = false;
+    if (format) this.active.format = format;
     this.applyGain();
     el.src = url;
     try {
@@ -261,6 +347,14 @@ export class MusicAudioEngine {
 
   /** Makes the next `activatePreloaded` a crossfade of `seconds` instead of a cut. */
   armCrossfade(seconds: number): void {
+    // A crossfade sums two tracks through gain stages — by definition not
+    // untouched — and it touches BOTH sides: the outgoing tail fades out and
+    // the incoming head fades in. So it is judged on the incoming track (the
+    // standby slot holds the preloaded next track) as well as the outgoing
+    // one; either side being Direct makes the advance a clean cut instead,
+    // and the arm is dropped, not held for a later track.
+    const incoming = this.standby.format ?? this.active.format;
+    if (this.directMode && (this.formatIsDirect(incoming) || this.formatIsDirect(this.active.format))) return;
     this.armedFadeSeconds = seconds > 0 ? seconds : null;
   }
 
@@ -380,9 +474,36 @@ export class MusicAudioEngine {
     this.silentSince = 0;
   }
 
-  setSourceSampleRate(_sampleRate: number | null): void {
-    // Upstream's createAudioContext() takes no options, so the source rate
-    // cannot size the context; kept as a no-op so callers need no branch.
+  /**
+   * Whether the track now playing runs Direct: the mode is on AND the track's
+   * format is one Flow can leave alone — Opus at its native 48 kHz, so the
+   * browser decodes it at the rate it was served and nothing resamples it.
+   * AAC (typically 44.1 kHz) and an unknown rate are never Direct.
+   */
+  isDirect(): boolean {
+    return this.directMode && this.formatIsDirect(this.active.format);
+  }
+
+  private formatIsDirect(format: Slot["format"]): boolean {
+    return (
+      format !== null &&
+      format.mimeType.toLowerCase().includes("opus") &&
+      format.sampleRate === 48_000
+    );
+  }
+
+  /** Direct mode is decided before the first graph build of the session (the toggle says restart to switch); a graph already built cannot be un-routed, so flipping this mid-session only stops new builds. */
+  setDirectMode(enabled: boolean): void {
+    this.directMode = enabled;
+  }
+
+  setSourceSampleRate(sampleRate: number | null, mimeType?: string): void {
+    // Records the resolved track's format on the active slot, so `isDirect`
+    // answers for this track before `load()` runs. The rate alone cannot
+    // decide it — AAC at 48 kHz would still be resampled by the decoder path,
+    // so the codec has to come with it.
+    const mime = mimeType ?? this.active.format?.mimeType ?? "";
+    this.active.format = { mimeType: mime, bitrate: this.active.format?.bitrate ?? null, sampleRate };
   }
 
   /**
@@ -531,11 +652,13 @@ export class MusicAudioEngine {
    */
   private applySpeed(): void {
     if (IS_LINUX_RUNTIME && this.fading) return;
+    // A speed other than 1.0 resamples the track in the element: not untouched.
+    const rate = this.isDirect() ? 1 : this.speed;
     for (const slot of this.slots) {
       const el = slot.el;
       if (!el) continue;
-      if (el.defaultPlaybackRate !== this.speed) el.defaultPlaybackRate = this.speed;
-      if (el.playbackRate !== this.speed) el.playbackRate = this.speed;
+      if (el.defaultPlaybackRate !== rate) el.defaultPlaybackRate = rate;
+      if (el.playbackRate !== rate) el.playbackRate = rate;
     }
   }
 
@@ -560,6 +683,12 @@ export class MusicAudioEngine {
   }
 
   private normalizationFactor(loudnessDb: number | null): number {
+    // Direct ignores the normalization flag no matter who set it last: the
+    // engine's loudness flag used to have two writers (the saved setting and
+    // a video setting fed in by the audio controller), and a toggle of
+    // skip-silence or volume-boost could silently switch it. The saved music
+    // setting is now the only writer, and Direct overrides even that.
+    if (this.isDirect()) return 1;
     return loudnessFactor(loudnessDb, this.normalizationEnabled, MUSIC_MAX_CUT_DB);
   }
 
@@ -639,6 +768,9 @@ export class MusicAudioEngine {
   }
 
   private needsGraph(): boolean {
+    // Direct runs the element straight to the OS mixer: no graph, no gain
+    // stages, no analyser — so no visualizer input and no skip-silence either.
+    if (this.isDirect()) return false;
     return this.eqEngaged || this.crossfadeEnabled || this.processing.enabled;
   }
 

@@ -4,6 +4,7 @@ import { SETTINGS } from '../../lib/settings/schema';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
 import { SettingsGroup } from '../settings/SettingsGroup';
 import { SettingItem } from '../settings/SettingItem';
+import { TypedSlider } from '../ui/TypedSlider';
 
 export function CrossfadeSettings() {
   const { t } = useTranslation('settings');
@@ -16,8 +17,8 @@ export function CrossfadeSettings() {
     </SettingItem>
     <label className="block px-5 py-4 text-sm text-on-surface">
       {t('crossfade.duration', { seconds })}
-      <input aria-label={t('crossfade.durationLabel')} type="range" min="1" max="12" step="1" value={seconds}
-        onChange={(event) => setSeconds(Number(event.target.value))} className="mt-3 block w-full accent-primary" />
+      <TypedSlider aria-label={t('crossfade.durationLabel')} min={1} max={12} step={1} decimals={0}
+        value={seconds} onCommit={setSeconds} className="mt-3" />
     </label>
     <SettingItem title={t('crossfade.everything')} description={t('crossfade.metadata')}>
       <ToggleSwitch checked={everything} onChange={setEverything} />

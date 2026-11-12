@@ -286,7 +286,7 @@ export const Subscriptions: React.FC<SubscriptionsProps> = ({ onPlay, onAddToQue
 
   return (
     <div className="flex-grow overflow-y-auto px-6 py-6 md:px-8">
-      <div className="space-y-6 pb-20">
+      <div className="space-y-6 pb-28">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">
             {getString("top_bar_subscriptions_title")}

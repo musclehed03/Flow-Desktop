@@ -1,7 +1,8 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
-import { GripHorizontal, PanelLeft, PanelRight, PictureInPicture2, RotateCcw, Undo2, X } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, GripHorizontal, PanelLeft, PanelRight, PictureInPicture2, RotateCcw, Undo2, X } from "lucide-react";
 import { getString } from "../../lib/i18n/index";
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 import {
   clampPanelLayout,
   movePanelLayout,
@@ -46,7 +47,6 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
   const [, saveLayouts] = usePreference(SETTINGS.EDITOR_PANEL_LAYOUTS);
   const [layout, setLayout] = useState(() => readPanelLayout(getSettingValue(SETTINGS.EDITOR_PANEL_LAYOUTS), panelId, viewport()));
   const layoutRef = useRef(layout);
-  const panelRef = useRef<HTMLElement>(null);
   layoutRef.current = layout;
 
   const persist = useCallback((next: PanelLayout) => {
@@ -61,10 +61,24 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
     queueMicrotask(() => openerRef.current?.focus());
   }, [onClose, openerRef]);
 
+  // Click-off dismiss (fixes batch #18), floating panels only: a click or focus
+  // move outside a floating panel closes it, so the X is never the only way
+  // out. A docked panel is part of the layout, not a popover — it stays put
+  // while the page behind it is worked, and keeps its own Escape handling.
+  const panelRef = useDismissOnOutsideInteraction<HTMLElement>({
+    open: layout.placement === "floating",
+    onDismiss: close,
+    additionalRefs: [openerRef],
+    restoreFocusRef: openerRef,
+  });
+
   useEffect(() => {
     panelRef.current?.querySelector<HTMLElement>("[data-panel-initial-focus]")?.focus();
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // Floating Escape is owned by the dismiss hook above; this one covers
+      // docked panels only, so the two never fire on the same keypress.
+      if (layoutRef.current.placement === "floating") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       close();
@@ -118,9 +132,20 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
     else persist(clampPanelLayout({ ...layout, width: layout.width + (layout.placement === "dock-left" ? dx : -dx) }, viewport()));
   };
 
+  // Collapsed panels render as a header-only strip so they stop covering
+  // content without being closed (fixes batch #3); the saved size restores.
+  const collapsed = layout.collapsed === true;
+  const toggleCollapsed = useCallback(() => {
+    persist({ ...layoutRef.current, collapsed: !layoutRef.current.collapsed });
+  }, [persist]);
+
   const style = layout.placement === "floating"
-    ? { left: layout.x, top: layout.y, width: layout.width, height: layout.height }
-    : { [layout.placement === "dock-left" ? "left" : "right"]: 0, top: 0, bottom: 0, width: layout.width };
+    ? collapsed
+      ? { left: layout.x, top: layout.y, width: layout.width }
+      : { left: layout.x, top: layout.y, width: layout.width, height: layout.height }
+    : collapsed
+      ? { [layout.placement === "dock-left" ? "left" : "right"]: 0, top: 0, width: layout.width }
+      : { [layout.placement === "dock-left" ? "left" : "right"]: 0, top: 0, bottom: 0, width: layout.width };
 
   return createPortal(
     <section ref={panelRef} role="dialog" aria-modal="false" aria-labelledby={`${panelId}-panel-title`} data-dockable-panel={panelId} data-panel-placement={layout.placement} data-sensory-essential="true"
@@ -143,14 +168,15 @@ export function DockablePanel({ panelId, title, description, openerRef, onClose,
         <div className="flex flex-wrap justify-end gap-1">
           <button type="button" aria-label={getString("panel_undo")} title={getString("panel_undo")} disabled={!canUndo} onClick={onUndo} className="rounded-md p-2 disabled:opacity-40"><Undo2 size={16} /></button>
           <button type="button" aria-label={getString("panel_reset")} title={getString("panel_reset")} onClick={onReset} className="rounded-md p-2"><RotateCcw size={16} /></button>
+          <button type="button" aria-label={getString(collapsed ? "panel_expand" : "panel_collapse")} title={getString(collapsed ? "panel_expand" : "panel_collapse")} aria-pressed={collapsed} onClick={toggleCollapsed} className="rounded-md p-2">{collapsed ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}</button>
           <button type="button" aria-label={getString("panel_dock_left")} title={getString("panel_dock_left")} aria-pressed={layout.placement === "dock-left"} onClick={() => place("dock-left")} className="rounded-md p-2"><PanelLeft size={16} /></button>
           <button type="button" aria-label={getString("panel_float")} title={getString("panel_float")} aria-pressed={layout.placement === "floating"} onClick={() => place("floating")} className="rounded-md p-2"><PictureInPicture2 size={16} /></button>
           <button type="button" aria-label={getString("panel_dock_right")} title={getString("panel_dock_right")} aria-pressed={layout.placement === "dock-right"} onClick={() => place("dock-right")} className="rounded-md p-2"><PanelRight size={16} /></button>
           <button type="button" aria-label={getString("panel_close")} title={getString("panel_close")} onClick={close} className="rounded-md p-2"><X size={17} /></button>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
-      {(layout.placement === "floating" ? edges : [layout.placement === "dock-left" ? "right" : "left"] as PanelResizeEdge[]).map((edge) => (
+      {!collapsed && <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>}
+      {!collapsed && (layout.placement === "floating" ? edges : [layout.placement === "dock-left" ? "right" : "left"] as PanelResizeEdge[]).map((edge) => (
         <div key={edge} role="separator" tabIndex={0} aria-label={getString(`panel_resize_${edge.replace(/-/g, "_")}` as Parameters<typeof getString>[0])}
           aria-orientation={edge.includes("left") || edge.includes("right") ? "vertical" : "horizontal"}
           onPointerDown={(event) => beginPointerOperation(event, edge)} onKeyDown={(event) => keyboardResize(edge, event)}

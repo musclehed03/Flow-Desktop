@@ -22,10 +22,18 @@ function videoSnapshot() {
 
 export function PlaybackSessionController() {
   const settingsLoaded = useAppSettingsStore((state) => state.loaded);
+  const settingsLoadFailed = useAppSettingsStore((state) => state.loadFailed);
   const started = useRef(false);
 
   useEffect(() => {
     if (!settingsLoaded || started.current) return;
+    // A failed settings load reads as defaults, which look exactly like "no
+    // session was ever saved" (fixes batch #11). Refuse to restore or
+    // subscribe on that reading: the flush below would otherwise write the
+    // empty in-memory queue over the good saved session. The saved session
+    // stays in the database for the next launch. The once-flag is left unset
+    // so a later successful load can still run this effect.
+    if (settingsLoadFailed) return;
     started.current = true;
 
     const mode = resolveLaunchRestoreMode(
@@ -35,8 +43,12 @@ export function PlaybackSessionController() {
     if (mode !== "off") {
       const music = parsePlaybackSession<SongItem>(getSettingValue(SETTINGS.MUSIC_PLAYBACK_SESSION));
       const video = parsePlaybackSession<VideoSummary>(getSettingValue(SETTINGS.VIDEO_PLAYBACK_SESSION));
-      if (music) useMusicPlayerStore.getState().restoreSession(music.queue, music.currentIndex, parsePlaybackPosition(getSettingValue(SETTINGS.MUSIC_PLAYBACK_POSITION), music.position), mode === "playing" && music.playing === true);
-      if (video) usePlayerStore.getState().restoreSession(video.queue, video.currentIndex, parsePlaybackPosition(getSettingValue(SETTINGS.VIDEO_PLAYBACK_POSITION), video.position), mode === "playing" && video.playing === true);
+      // Never clobber a queue built before settings finished loading: the
+      // restore only fills an empty player. A queue built in that window is
+      // the user's current work, not something a stale saved session may
+      // replace.
+      if (music && useMusicPlayerStore.getState().queue.length === 0) useMusicPlayerStore.getState().restoreSession(music.queue, music.currentIndex, parsePlaybackPosition(getSettingValue(SETTINGS.MUSIC_PLAYBACK_POSITION), music.position), mode === "playing" && music.playing === true);
+      if (video && usePlayerStore.getState().queue.length === 0) usePlayerStore.getState().restoreSession(video.queue, video.currentIndex, parsePlaybackPosition(getSettingValue(SETTINGS.VIDEO_PLAYBACK_POSITION), video.position), mode === "playing" && video.playing === true);
     }
 
     let musicTimer: ReturnType<typeof setTimeout> | null = null;
@@ -78,7 +90,7 @@ export function PlaybackSessionController() {
       window.removeEventListener("pagehide", flush);
       flush();
     };
-  }, [settingsLoaded]);
+  }, [settingsLoaded, settingsLoadFailed]);
 
   return null;
 }

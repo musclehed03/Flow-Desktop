@@ -25,9 +25,11 @@ export interface ToggleSwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  /** Id of the plain-language explainer this switch answers to, when there is one. */
+  ariaDescribedBy?: string;
 }
 
-export function ToggleSwitch({ checked, onChange, disabled, label }: ToggleSwitchProps) {
+export function ToggleSwitch({ checked, onChange, disabled, label, ariaDescribedBy }: ToggleSwitchProps) {
   const [pressed, setPressed] = useState(false);
   const reduceMotion = useReducedMotion();
 
@@ -37,6 +39,7 @@ export function ToggleSwitch({ checked, onChange, disabled, label }: ToggleSwitc
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      aria-describedby={ariaDescribedBy}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       onPointerDown={() => setPressed(true)}

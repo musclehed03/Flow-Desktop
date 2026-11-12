@@ -105,7 +105,7 @@ export const ExtensionsPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 py-8 pb-20 md:px-8">
+    <div className="mx-auto w-full max-w-[1600px] px-6 py-8 pb-28 md:px-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-chrome-neutral-100">
           {t("extensions.title")}

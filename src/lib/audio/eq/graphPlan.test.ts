@@ -31,6 +31,12 @@ describe("graphPlan", () => {
     // Butterworth's 0.707 is -3 dB in WebAudio's resonance form.
     expect(lowPass.q).toBeCloseTo(-3.01, 2);
     expect(filterSetting(band(30, 0, 1, "HIGH_PASS"), RATE)!.q).toBeCloseTo(0, 6);
+    expect(filterSetting(band(1_000, 0, 10, "NOTCH"), RATE)).toEqual({
+      type: "notch",
+      frequency: 1_000,
+      q: 10,
+      gain: 0,
+    });
   });
 
   it("leaves flat, disabled and out-of-range bands flat", () => {

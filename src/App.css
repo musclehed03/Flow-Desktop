@@ -174,10 +174,12 @@
   }
 }
 
-/* Custom Scrollbars */
+/* Custom Scrollbars — wide enough to grab (fixes: 6px scrollbars, fixes batch #2).
+   12px gives a real grab target for mouse and touch; Firefox gets the same via
+   scrollbar-width. Thumb brightens on hover/active so the target is visible. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
@@ -185,7 +187,14 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-chrome-zinc-800 rounded-full hover:bg-chrome-zinc-700 transition-colors;
+  @apply bg-chrome-zinc-800 rounded-full hover:bg-chrome-zinc-700 active:bg-chrome-zinc-600 transition-colors;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-chrome-zinc-800, #27272a) transparent;
 }
 
 .active-nav-item {
@@ -339,6 +348,82 @@
     --motion-layout: 0ms;
     --motion-panel: 0ms;
   }
+}
+
+/*
+  Button-press feedback (fixes batch #10): pure CSS, transform-only, no JS spring
+  per tap — the shared Button and the transport HapticButton used to run every press
+  through framer-motion. Three states, one feel everywhere:
+  - positive: the press lands (scale 0.95).
+  - negative: a destructive press lands heavier (scale 0.92; the red deepens via
+    the button's own active: color class).
+  - no-action: a disabled press nudges side to side instead of squashing, so a
+    press that does nothing reads as "nothing happens" rather than dead.
+  The transition covers colors too, so these classes replace the buttons'
+  transition-colors. Still under Safe Motion (`.sensory-motion` on <html>) and
+  the OS reduced-motion setting.
+*/
+.press-positive,
+.press-negative {
+  transition:
+    transform 100ms ease-out,
+    color 200ms ease-out,
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 200ms ease-out;
+}
+.press-positive:active {
+  transform: scale(0.95);
+}
+.press-negative:active {
+  transform: scale(0.92);
+}
+.press-noop {
+  cursor: not-allowed;
+  transition:
+    color 200ms ease-out,
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 200ms ease-out;
+}
+.press-noop:active {
+  animation: press-noop-nudge 160ms ease-out;
+}
+@keyframes press-noop-nudge {
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .press-positive,
+  .press-negative {
+    transition:
+      color 200ms ease-out,
+      background-color 200ms ease-out,
+      border-color 200ms ease-out,
+      opacity 200ms ease-out;
+  }
+  .press-positive:active,
+  .press-negative:active {
+    transform: none;
+  }
+  .press-noop:active {
+    animation: none;
+  }
+}
+.sensory-motion .press-positive,
+.sensory-motion .press-negative {
+  transition:
+    color 200ms ease-out,
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 200ms ease-out;
+}
+.sensory-motion .press-positive:active,
+.sensory-motion .press-negative:active {
+  transform: none;
+}
+.sensory-motion .press-noop:active {
+  animation: none;
 }
 
 /* Menus grow from the corner nearest the button that opened them; the menu sets that origin. */

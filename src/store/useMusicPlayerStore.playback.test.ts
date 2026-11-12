@@ -23,7 +23,9 @@ const { engine, resolveMusicStream, getMusicWatchQueue } = vi.hoisted(() => ({
     cancelCrossfade: vi.fn(),
     armCrossfade: vi.fn(),
     setProcessingConfig: vi.fn(),
-    getActiveFormat: vi.fn(() => null),
+    getActiveFormat: vi.fn((): { mimeType: string; bitrate: number | null; sampleRate: number | null } | null => null),
+    setSourceSampleRate: vi.fn(),
+    isDirect: vi.fn(() => false),
     preload: vi.fn(),
     isCrossfading: vi.fn(() => false),
     getCurrentTime: vi.fn(() => 0),
@@ -420,5 +422,39 @@ describe("setVolume while muted", () => {
 
     expect(engine.setMuted).not.toHaveBeenCalled();
     expect(useMusicPlayerStore.getState().isMuted).toBe(true);
+  });
+});
+
+describe("Direct mode (fixes batch #8)", () => {
+  it("marks an Opus 48 kHz track Direct and an AAC track Standard", async () => {
+    resolveMusicStream.mockImplementation(async (id: string) => ({
+      ...stream(id),
+      mimeType: 'audio/webm; codecs="opus"',
+      bitrate: 160_000,
+      sampleRate: 48_000,
+    }));
+    engine.isDirect.mockReturnValueOnce(true);
+    await useMusicPlayerStore.getState().playTrack(song("opus"));
+    expect(useMusicPlayerStore.getState().directActive).toBe(true);
+    expect(useMusicPlayerStore.getState().streamFormat).toMatchObject({ sampleRate: 48_000 });
+    expect(engine.setSourceSampleRate).toHaveBeenCalledWith(48_000, 'audio/webm; codecs="opus"');
+
+    resolveMusicStream.mockImplementation(async (id: string) => ({
+      ...stream(id),
+      mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+      bitrate: 128_000,
+      sampleRate: 44_100,
+    }));
+    await useMusicPlayerStore.getState().playTrack(song("aac"));
+    expect(useMusicPlayerStore.getState().directActive).toBe(false);
+    expect(engine.setSourceSampleRate).toHaveBeenCalledWith(44_100, 'audio/mp4; codecs="mp4a.40.2"');
+  });
+
+  it("marks a preloaded Opus track Direct on the swap", async () => {
+    engine.activatePreloaded.mockReturnValue(true);
+    engine.getActiveFormat.mockReturnValue({ mimeType: 'audio/webm; codecs="opus"', bitrate: 160_000, sampleRate: 48_000 });
+    engine.isDirect.mockReturnValueOnce(true);
+    await useMusicPlayerStore.getState().playTrack(song("next"));
+    expect(useMusicPlayerStore.getState().directActive).toBe(true);
   });
 });

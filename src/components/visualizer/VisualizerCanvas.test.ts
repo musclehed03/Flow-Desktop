@@ -124,3 +124,35 @@ it('does not schedule analyser work while the canvas is offscreen', async()=>{
     useVisualizerUi.setState({consented:previousConsent});useMusicPlayerStore.setState({isPlaying:previousPlaying});useAppSettingsStore.setState({values:original});
   }
 });
+
+it('applies a config change live without tearing down the loop (fixes batch #6)', async()=>{
+  (globalThis as Record<string,unknown>).IS_REACT_ACT_ENVIRONMENT=true;
+  const original=useAppSettingsStore.getState().values;
+  const { useVisualizerUi }=await import('../../lib/useVisualizer');
+  const previousConsent=useVisualizerUi.getState().consented;
+  const previousPlaying=useMusicPlayerStore.getState().isPlaying;
+  useVisualizerUi.setState({consented:true});
+  useMusicPlayerStore.setState({isPlaying:true});
+  useAppSettingsStore.setState({values:{...original,[SETTINGS.SAFE_MOTION_ENABLED]:'false',[SETTINGS.REDUCED_FLASH_ENABLED]:'false'}});
+  const drawing={fillRect:vi.fn(),beginPath:vi.fn(),moveTo:vi.fn(),lineTo:vi.fn(),stroke:vi.fn(),arc:vi.fn(),fill:vi.fn()};
+  const context=vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue(drawing as unknown as CanvasRenderingContext2D);
+  const pending:FrameRequestCallback[]=[];
+  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{pending.push(callback);return pending.length;});
+  vi.stubGlobal('cancelAnimationFrame',vi.fn());
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+  try{
+    await act(async()=>root.render(createElement(VisualizerCanvas,{config:{...VISUALIZER_DEFAULT,enabled:true}})));
+    await act(async()=>pending.shift()!(0));
+    expect(host.querySelector('canvas')?.dataset.effectiveFps).toBe('30');
+    expect(context).toHaveBeenCalledTimes(1);
+    // A slider tick (fps 30 -> 60) must apply on the next frame without
+    // re-running the effect: getContext is only called once per effect run.
+    await act(async()=>root.render(createElement(VisualizerCanvas,{config:{...VISUALIZER_DEFAULT,enabled:true,fps:60}})));
+    await act(async()=>pending.shift()!(100));
+    expect(host.querySelector('canvas')?.dataset.effectiveFps).toBe('60');
+    expect(context).toHaveBeenCalledTimes(1);
+  }finally{
+    await act(async()=>root.unmount());host.remove();context.mockRestore();vi.unstubAllGlobals();read.mockReset();
+    useVisualizerUi.setState({consented:previousConsent});useMusicPlayerStore.setState({isPlaying:previousPlaying});useAppSettingsStore.setState({values:original});
+  }
+});

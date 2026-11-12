@@ -2,6 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { resolveVisualizerColors, type VisualizerConfig, type VisualizerFamilyColors } from "../../lib/audio/visualizer";
 import { VisualizerControl, visualizerSelectClass } from "./VisualizerControl";
+import { TypedSlider } from "../ui/TypedSlider";
 
 export function VisualizerColorControls({ value, apply, reducedFlash }: {
   value: VisualizerConfig;
@@ -59,9 +60,8 @@ export function VisualizerColorControls({ value, apply, reducedFlash }: {
       </VisualizerControl>
     </div>
     <VisualizerControl label={t("visualizer.gradientDirection")} description={t("visualizer.gradientDirectionDesc")}>
-      <input type="range" aria-label={t("visualizer.gradientDirection")} min={0} max={360} step={1} value={model.angle}
-        onChange={(event) => update({ ...model, angle: Number(event.target.value) })} className="w-full" />
-      <output className="text-xs text-on-surface-variant">{Math.round(model.angle)}°</output>
+      <TypedSlider aria-label={t("visualizer.gradientDirection")} min={0} max={360} step={1} decimals={0} unit="°"
+        value={model.angle} onCommit={(angle) => update({ ...model, angle })} />
     </VisualizerControl>
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
@@ -83,8 +83,9 @@ export function VisualizerColorControls({ value, apply, reducedFlash }: {
             onClick={() => removeStop(index)} className="rounded-full border-2 border-outline-variant p-2 disabled:opacity-40"><Trash2 size={16} /></button>
         </div>
         <label className="mt-2 block text-xs font-semibold">{t("visualizer.stopPosition", { percent: Math.round(stop.offset * 100) })}
-          <input type="range" aria-label={t("visualizer.stopPositionLabel", { number: index + 1 })} min={0} max={1} step={0.01} value={stop.offset}
-            onChange={(event) => updateStop(index, { offset: Number(event.target.value) })} className="block w-full" />
+          <TypedSlider aria-label={t("visualizer.stopPositionLabel", { number: index + 1 })} min={0} max={1} step={0.01}
+            decimals={0} unit="%" displayScale={100} value={stop.offset}
+            onCommit={(offset) => updateStop(index, { offset })} className="mt-1" />
         </label>
         <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.stopDesc")}</p>
       </div>)}
@@ -97,9 +98,9 @@ export function VisualizerColorControls({ value, apply, reducedFlash }: {
         </select>
       </VisualizerControl>
       <VisualizerControl label={t("visualizer.cycleSpeed")} description={t("visualizer.cycleSpeedDesc")}>
-        <input type="range" aria-label={t("visualizer.cycleSpeed")} min={2} max={60} step={1} value={model.cycleSeconds} disabled={reducedFlash || model.cycleMode === "off"}
-          onChange={(event) => update({ ...model, cycleSeconds: Number(event.target.value) })} className="w-full" />
-        <output className="text-xs text-on-surface-variant">{t("visualizer.seconds", { count: model.cycleSeconds })}</output>
+        <TypedSlider aria-label={t("visualizer.cycleSpeed")} min={2} max={60} step={1} decimals={0} unit="s"
+          value={model.cycleSeconds} disabled={reducedFlash || model.cycleMode === "off"}
+          onCommit={(cycleSeconds) => update({ ...model, cycleSeconds })} />
       </VisualizerControl>
     </div>
   </section>;

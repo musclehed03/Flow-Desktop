@@ -14,7 +14,7 @@ import { ShortVideoSurface } from "./ShortVideoSurface";
 import { ShortMetadata } from "./ShortMetadata";
 import { ShortActionBar } from "./ShortActionBar";
 import { ShortSidePanel } from "./ShortSidePanel";
-import { Slider } from "../ui/Slider";
+import { TypedSlider } from "../ui/TypedSlider";
 import { useWheelVolume } from "../../lib/useWheelVolume";
 import type { ShortItem, ShortsPanelState } from "../../types/shorts";
 
@@ -195,14 +195,17 @@ export function ShortPlayer({
                     <Volume2 className="h-5 w-5" />
                   )}
                 </button>
-                <div className="w-0 overflow-hidden opacity-0 transition-all group-hover/volume:w-24 group-hover/volume:opacity-100">
-                  <Slider
+                <div className="w-0 overflow-hidden opacity-0 transition-all group-hover/volume:w-44 group-hover/volume:opacity-100">
+                  <TypedSlider
                     aria-label="Volume"
                     min={0}
                     max={1}
                     step={0.01}
+                    decimals={0}
+                    unit="%"
+                    displayScale={100}
                     value={muted ? 0 : volume}
-                    onChange={onVolumeChange}
+                    onCommit={onVolumeChange}
                   />
                 </div>
               </div>

@@ -26,6 +26,12 @@ class FakeContext extends EventTarget {
   destination = new FakeNode();
   sources: HTMLMediaElement[] = [];
   resume = vi.fn(async () => {});
+  suspend = vi.fn(async () => {
+    this.state = "suspended";
+  });
+  close = vi.fn(async () => {
+    this.state = "closed";
+  });
   constructor() {
     super();
     contexts.push(this);
@@ -155,5 +161,25 @@ describe("MediaEqEngine", () => {
     engine.setEq(rock, true);
     await settle();
     expect(contexts[0]!.sources).not.toContain(video);
+  });
+
+  it("suspends the shared context once nothing plays, and resumes on play (fixes batch #4)", async () => {
+    const { engine } = await freshEngine();
+    const video = media<HTMLVideoElement>("video");
+    engine.setElements([video, null]);
+    engine.setEq(rock, true);
+    await settle();
+    const ctx = contexts[0]!;
+    expect(ctx.sources).toContain(video);
+    expect(ctx.suspend).not.toHaveBeenCalled();
+
+    video.dispatchEvent(new Event("pause"));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(ctx.suspend).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ctx.suspend).toHaveBeenCalledTimes(1);
+
+    video.dispatchEvent(new Event("play"));
+    expect(ctx.resume).toHaveBeenCalled();
   });
 });

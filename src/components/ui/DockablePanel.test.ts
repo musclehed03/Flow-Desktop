@@ -53,3 +53,39 @@ it("is non-modal, persists placement, and returns focus to its opener on Escape"
   expect(document.activeElement).toBe(opener);
   await act(async () => root.unmount());
 });
+
+it("closes a floating panel on a click outside it, and leaves a docked one alone (fixes batch #18)", async () => {
+  const renderPanel = async () => {
+    const host = document.createElement("div");
+    const opener = document.createElement("button");
+    document.body.append(opener, host);
+    opener.focus();
+    const onClose = vi.fn();
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(DockablePanel, {
+      panelId: "test-editor-float",
+      title: "Editor",
+      openerRef: { current: opener },
+      onClose,
+      onUndo: vi.fn(),
+      onReset: vi.fn(),
+      canUndo: false,
+      children: createElement("input", { "aria-label": "Live field" }),
+    })));
+    return { host, root, onClose };
+  };
+
+  // Docked (the default): a click on the page behind it does nothing.
+  const docked = await renderPanel();
+  await act(async () => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+  expect(docked.onClose).not.toHaveBeenCalled();
+  await act(async () => docked.root.unmount());
+
+  // Floating: the same click closes it, so the X is never the only way out.
+  const floating = await renderPanel();
+  await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${getString("panel_float")}"]`)!.click());
+  expect(document.querySelector<HTMLElement>('[data-dockable-panel="test-editor-float"]')!.dataset.panelPlacement).toBe("floating");
+  await act(async () => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+  expect(floating.onClose).toHaveBeenCalledTimes(1);
+  await act(async () => floating.root.unmount());
+});

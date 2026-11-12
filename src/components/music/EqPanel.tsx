@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, SlidersHorizontal, X } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+
+import { useDismissOnOutsideInteraction } from "../../lib/useDismissOnOutsideInteraction";
 
 import { EqLimits } from "../../lib/audio/eq/models";
 import { withBassBoost } from "../../lib/audio/eq/stateOps";
@@ -16,11 +18,9 @@ import { useBoolPref } from "../../lib/usePreference";
 import { useUiStore } from "../../store/useUiStore";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
-import { Slider } from "../ui/Slider";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
-import { EqNumberField } from "./eq/EqNumberField";
+import { EqInputModeSelector, EqValueControl } from "./eq/EqValueControl";
 import { EqResponseGraph } from "./eq/EqResponseGraph";
-import { formatDb } from "./eq/eqFormat";
 import { MusicAudioOptions } from "./MusicAudioOptions";
 
 const clamp = (value: number, low: number, high: number) =>
@@ -32,7 +32,10 @@ function explain(key: StringKey, children: ReactNode) {
     <label className="block" data-tooltip-detail={getString(`${key}_desc` as StringKey)}>
       <span className="text-sm font-medium text-chrome-neutral-200">{getString(key)}</span>
       {children}
-      <span className="mt-1 block text-xs text-chrome-neutral-500">{getString(`${key}_desc` as StringKey)}</span>
+      {/* Visible here, and read aloud by the control via aria-describedby="{key}-desc". */}
+      <span id={`${key}-desc`} className="mt-1 block text-xs text-chrome-neutral-500">
+        {getString(`${key}_desc` as StringKey)}
+      </span>
     </label>
   );
 }
@@ -48,10 +51,13 @@ export function EqPanel({
   open,
   onClose,
   placement = "top",
+  triggerRef,
 }: {
   open: boolean;
   onClose: () => void;
   placement?: "top" | "bottom";
+  /** The button that opens the panel: clicks on it toggle, never dismiss-then-reopen. */
+  triggerRef?: RefObject<HTMLElement | null>;
 }) {
   const eq = useEqualizer();
   const available = useMusicEqAvailable();
@@ -84,6 +90,17 @@ export function EqPanel({
     useUiStore.getState().showToast({ message: getString("eq_device_saved", output.label), variant: "success" });
   };
 
+  // Click-off dismiss (fixes batch #18): a click or focus move outside the
+  // panel — back to the library, the queue, anywhere — closes it, so the X is
+  // never the only way out. The toggle that opened it is exempt, or its click
+  // would close the panel and immediately open it again.
+  const panelRef = useDismissOnOutsideInteraction<HTMLDivElement>({
+    open,
+    onDismiss: onClose,
+    additionalRefs: triggerRef ? [triggerRef] : [],
+    restoreFocusRef: triggerRef,
+  });
+
   const fromY = placement === "top" ? 10 : -10;
   const selectedId = eq.active.presetId;
 
@@ -91,6 +108,7 @@ export function EqPanel({
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={panelRef}
           key="eq-panel"
           initial={{ opacity: 0, y: fromY, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -154,19 +172,22 @@ export function EqPanel({
 
             <div className="flex items-center gap-3">
               <span className="text-sm text-chrome-neutral-200">{getString("eq_bass_boost")}</span>
-              <Slider
+              <EqValueControl
+                value={eq.state.bassBoost}
                 min={0}
                 max={EqLimits.MAX_BASS_BOOST}
                 step={0.5}
-                value={eq.state.bassBoost}
-                onChange={(db) => update((s) => withBassBoost(s, db))}
-                aria-label={getString("eq_bass_boost")}
+                decimals={2}
+                unit={getString("eq_unit_db")}
+                ariaLabel={getString("eq_bass_boost")}
+                ariaDescribedBy="eq_bass_boost-desc"
                 className="flex-1"
+                onCommit={(db) => update((s) => withBassBoost(s, db))}
               />
-              <span className="w-10 text-right font-mono text-xs text-chrome-neutral-400">
-                {formatDb(eq.state.bassBoost)}
-              </span>
             </div>
+            <p id="eq_bass_boost-desc" className="text-xs text-chrome-neutral-500">
+              {getString("eq_bass_boost_desc")}
+            </p>
           </div>
 
           <button
@@ -187,43 +208,34 @@ export function EqPanel({
             <h3 className="text-xs font-semibold uppercase tracking-widest text-chrome-neutral-500">
               {getString("eq_dynamics")}
             </h3>
+            <EqInputModeSelector />
             {explain(
               "eq_preamp",
-              <div className="mt-2 flex items-center gap-3">
-                <Slider
+              <div className="mt-2">
+                <EqValueControl
+                  value={dynamics.preampDb}
                   min={-15}
                   max={15}
                   step={0.1}
-                  value={dynamics.preampDb}
-                  onChange={(preampDb) => updateDynamics({ preampDb })}
-                  aria-label={getString("eq_preamp")}
-                  className="flex-1"
-                />
-                <EqNumberField
-                  value={dynamics.preampDb}
-                  decimals={1}
+                  decimals={2}
                   unit="dB"
-                  ariaLabel={getString("eq_gain_db")}
+                  ariaLabel={getString("eq_preamp")}
+                  ariaDescribedBy="eq_preamp-desc"
                   onCommit={(preampDb) => updateDynamics({ preampDb: clamp(preampDb, -15, 15) })}
                 />
               </div>,
             )}
             {explain(
               "eq_balance",
-              <div className="mt-2 flex items-center gap-3">
-                <Slider
+              <div className="mt-2">
+                <EqValueControl
+                  value={dynamics.balance}
                   min={-1}
                   max={1}
                   step={0.01}
-                  value={dynamics.balance}
-                  onChange={(balance) => updateDynamics({ balance })}
-                  aria-label={getString("eq_balance")}
-                  className="flex-1"
-                />
-                <EqNumberField
-                  value={dynamics.balance}
                   decimals={2}
                   ariaLabel={getString("eq_balance")}
+                  ariaDescribedBy="eq_balance-desc"
                   onCommit={(balance) => updateDynamics({ balance: clamp(balance, -1, 1) })}
                 />
               </div>,
@@ -231,12 +243,13 @@ export function EqPanel({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <span className="text-sm text-chrome-neutral-200">{getString("eq_compressor")}</span>
-                <p className="text-xs text-chrome-neutral-500">{getString("eq_compressor_desc")}</p>
+                <p id="eq_compressor-desc" className="text-xs text-chrome-neutral-500">{getString("eq_compressor_desc")}</p>
               </div>
               <ToggleSwitch
                 checked={dynamics.compressorEnabled}
                 onChange={(compressorEnabled) => updateDynamics({ compressorEnabled })}
                 label={getString("eq_compressor")}
+                ariaDescribedBy="eq_compressor-desc"
               />
             </div>
             {dynamics.compressorEnabled && (
@@ -244,11 +257,15 @@ export function EqPanel({
                 {explain(
                   "eq_threshold",
                   <div className="mt-2">
-                    <EqNumberField
+                    <EqValueControl
                       value={dynamics.compressorThreshold}
+                      min={-60}
+                      max={0}
+                      step={1}
                       decimals={0}
                       unit="dB"
                       ariaLabel={getString("eq_threshold")}
+                  ariaDescribedBy="eq_threshold-desc"
                       onCommit={(compressorThreshold) => updateDynamics({ compressorThreshold: clamp(compressorThreshold, -60, 0) })}
                     />
                   </div>,
@@ -256,10 +273,14 @@ export function EqPanel({
                 {explain(
                   "eq_ratio",
                   <div className="mt-2">
-                    <EqNumberField
+                    <EqValueControl
                       value={dynamics.compressorRatio}
+                      min={1}
+                      max={20}
+                      step={0.5}
                       decimals={1}
                       ariaLabel={getString("eq_ratio")}
+                  ariaDescribedBy="eq_ratio-desc"
                       onCommit={(compressorRatio) => updateDynamics({ compressorRatio: clamp(compressorRatio, 1, 20) })}
                     />
                   </div>,
@@ -267,11 +288,15 @@ export function EqPanel({
                 {explain(
                   "eq_attack",
                   <div className="mt-2">
-                    <EqNumberField
+                    <EqValueControl
                       value={dynamics.compressorAttack}
+                      min={0}
+                      max={1}
+                      step={0.01}
                       decimals={3}
                       unit="s"
                       ariaLabel={getString("eq_attack")}
+                  ariaDescribedBy="eq_attack-desc"
                       onCommit={(compressorAttack) => updateDynamics({ compressorAttack: clamp(compressorAttack, 0, 1) })}
                     />
                   </div>,
@@ -279,11 +304,15 @@ export function EqPanel({
                 {explain(
                   "eq_release",
                   <div className="mt-2">
-                    <EqNumberField
+                    <EqValueControl
                       value={dynamics.compressorRelease}
+                      min={0.01}
+                      max={1}
+                      step={0.01}
                       decimals={2}
                       unit="s"
                       ariaLabel={getString("eq_release")}
+                  ariaDescribedBy="eq_release-desc"
                       onCommit={(compressorRelease) => updateDynamics({ compressorRelease: clamp(compressorRelease, 0.01, 1) })}
                     />
                   </div>,
@@ -293,12 +322,13 @@ export function EqPanel({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <span className="text-sm text-chrome-neutral-200">{getString("eq_limiter")}</span>
-                <p className="text-xs text-chrome-neutral-500">{getString("eq_limiter_desc")}</p>
+                <p id="eq_limiter-desc" className="text-xs text-chrome-neutral-500">{getString("eq_limiter_desc")}</p>
               </div>
               <ToggleSwitch
                 checked={dynamics.limiterEnabled}
                 onChange={(limiterEnabled) => updateDynamics({ limiterEnabled })}
                 label={getString("eq_limiter")}
+                ariaDescribedBy="eq_limiter-desc"
               />
             </div>
           </section>

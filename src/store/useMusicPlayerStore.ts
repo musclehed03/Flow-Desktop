@@ -88,8 +88,9 @@ const videoIdOf = (track: SongItem): string => track.videoId ?? track.id;
 const PERSIST_KEY = "flow_music_player";
 
 interface PersistedMusicConfig {
-  volume: number;
-  isMuted: boolean;
+  // Volume/mute deliberately NOT persisted here: they live in the shared
+  // PLAYER_VOLUME / PLAYER_MUTED settings so the music and video engines
+  // play at one level (fixes batch #5). Old stored values are ignored.
   eqEnabled: boolean;
   eqGains: number[];
   normalizationEnabled: boolean;
@@ -99,8 +100,6 @@ interface PersistedMusicConfig {
 }
 
 const DEFAULT_CONFIG: PersistedMusicConfig = {
-  volume: 1,
-  isMuted: false,
   eqEnabled: false,
   eqGains: Array(10).fill(0),
   normalizationEnabled: true,
@@ -117,7 +116,6 @@ const loadConfig = (): PersistedMusicConfig => {
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
-      volume: clamp01(parsed.volume ?? DEFAULT_CONFIG.volume),
       eqGains: normalizeGraphicGains(parsed.eqGains ?? DEFAULT_CONFIG.eqGains, 10),
     };
   } catch (error) {
@@ -143,8 +141,6 @@ const saveConfig = (get: () => MusicPlayerState) => {
   try {
     const s = get();
     const config: PersistedMusicConfig = {
-      volume: s.volume,
-      isMuted: s.isMuted,
       eqEnabled: s.eqEnabled,
       eqGains: s.eqGains,
       normalizationEnabled: s.normalizationEnabled,
@@ -302,6 +298,12 @@ interface MusicPlayerState {
   eqGains: number[]; // 10 bands, dB
   audioProcessing: AudioProcessingConfig;
   streamFormat: { mimeType: string; bitrate: number | null; sampleRate: number | null } | null;
+  /**
+   * Whether the track now playing runs Direct (fixes batch #8): the mode is
+   * on AND the track is Opus at 48 kHz. The badge reads this, not the
+   * setting, so an AAC track that fell back to Standard says so.
+   */
+  directActive: boolean;
 
   // --- modes (persisted) ---
   repeatMode: MusicRepeatMode;
@@ -355,6 +357,7 @@ interface MusicPlayerState {
   clearStreamError: () => void;
 
   setVolume: (volume: number) => void;
+  setMuted: (muted: boolean) => void;
   toggleMute: () => void;
   cycleRepeat: () => void;
   toggleShuffle: () => void;
@@ -428,14 +431,17 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   isBuffering: false,
   restoredPaused: false,
 
-  volume: initialConfig.volume,
-  isMuted: initialConfig.isMuted,
+  // First paint until the shared volume settings hydrate (see
+  // usePersistedPlayerVolume): one level for both engines, fixes batch #5.
+  volume: 1,
+  isMuted: false,
   loudnessDb: null,
   normalizationEnabled: getSettingValue(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION) === "true",
   eqEnabled: initialConfig.eqEnabled,
   eqGains: initialConfig.eqGains,
   audioProcessing: initialProcessing,
   streamFormat: null,
+  directActive: false,
 
   repeatMode: initialConfig.repeatMode,
   isShuffle: initialConfig.isShuffle,
@@ -702,7 +708,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       if (plan) musicAudioEngine.armCrossfade(plan.seconds);
       if (musicAudioEngine.activatePreloaded(videoId)) {
         const loudnessDb = musicAudioEngine.getActiveLoudness();
-        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null });
+        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null, directActive: musicAudioEngine.isDirect?.() ?? false });
         musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
         await start();
         if (plan && plan.incomingStart > 0) {
@@ -746,13 +752,14 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
           set({
             loudnessDb: offline.loudnessDb,
             streamFormat: null,
+            directActive: false,
             loadingStreamId: null,
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
               : {}),
           });
           musicAudioEngine.setLoudness(offline.loudnessDb, get().normalizationEnabled);
-          await musicAudioEngine.load(offline.url, offline.contentType, track.duration ?? null);
+          await musicAudioEngine.load(offline.url, offline.contentType, track.duration ?? null, { mimeType: offline.contentType, bitrate: null, sampleRate: null });
           musicAudioEngine.seekWhenReady(resumeAt);
           await start();
           afterStart();
@@ -778,11 +785,11 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       if (get().loadingStreamId !== videoId) return;
 
       set({ streamFormat: { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null } });
-      musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null);
-      set({ loudnessDb: info.loudnessDb, loadingStreamId: null });
+      musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null, info.mimeType);
+      set({ loudnessDb: info.loudnessDb, loadingStreamId: null, directActive: musicAudioEngine.isDirect?.() ?? false });
       if (loadStartedAt?.videoId === videoId) loadStartedAt.resolvedAt = performance.now();
       musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
-      await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track));
+      await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track), { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null });
       musicAudioEngine.seekWhenReady(resumeAt);
       await start();
       afterStart();
@@ -874,6 +881,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       duration: 0,
       loudnessDb: null,
       streamFormat: null,
+      directActive: false,
       loadingStreamId: null,
       streamError: null,
       streamErrorKind: null,
@@ -1028,6 +1036,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const isMuted = !get().isMuted;
     musicAudioEngine.setMuted(isMuted);
     set({ isMuted });
+    saveConfig(get);
+  },
+
+  setMuted: (muted) => {
+    musicAudioEngine.setMuted(muted);
+    set({ isMuted: muted });
     saveConfig(get);
   },
 

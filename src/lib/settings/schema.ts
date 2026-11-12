@@ -159,12 +159,14 @@ export const SETTINGS = {
   FAST_QUALITY_SWITCH_ENABLED: "fast_quality_switch_enabled",
   SHORTS_QUALITY_WIFI: "shorts_quality_wifi",
   MUSIC_AUDIO_QUALITY: "music_audio_quality",
+  MUSIC_DIRECT_MODE: "music_direct_mode",
   MUSIC_QUEUE_SWIPE_LEFT: "queue_swipe_left_action",
   MUSIC_QUEUE_SWIPE_RIGHT: "queue_swipe_right_action",
   PREFERRED_AUDIO_LANGUAGE: "preferred_audio_language",
 
   MUSIC_LOUDNESS_NORMALIZATION: "music_loudness_normalization",
   EQ_STATE_JSON: "eq_state_json",
+  EQ_INPUT_MODE: "eq_input_mode",
   MUSIC_PLAYBACK_SPEED: "music_playback_speed",
 
   BUFFER_PROFILE: "buffer_profile",
@@ -317,11 +319,13 @@ export const SETTING_SCOPES = {
   [SETTINGS.FAST_QUALITY_SWITCH_ENABLED]: "device",
   [SETTINGS.SHORTS_QUALITY_WIFI]: "device",
   [SETTINGS.MUSIC_AUDIO_QUALITY]: "device",
+  [SETTINGS.MUSIC_DIRECT_MODE]: "device",
   [SETTINGS.MUSIC_QUEUE_SWIPE_LEFT]: "device",
   [SETTINGS.MUSIC_QUEUE_SWIPE_RIGHT]: "device",
   [SETTINGS.PREFERRED_AUDIO_LANGUAGE]: "profile",
   [SETTINGS.MUSIC_LOUDNESS_NORMALIZATION]: "profile",
   [SETTINGS.EQ_STATE_JSON]: "profile",
+  [SETTINGS.EQ_INPUT_MODE]: "profile",
   [SETTINGS.MUSIC_PLAYBACK_SPEED]: "profile",
   [SETTINGS.BUFFER_PROFILE]: "device",
   [SETTINGS.MIN_BUFFER_MS]: "device",
@@ -408,6 +412,7 @@ const bool = (
   readiness: SettingReadiness,
   visibility: SettingVisibility = "visible",
   noteKey?: StringKey,
+  exportScope?: SettingExportScope,
 ): SettingDefinition => ({
   key,
   scope: SETTING_SCOPES[key],
@@ -416,7 +421,7 @@ const bool = (
   defaultValue: String(defaultValue),
   readiness,
   visibility,
-  exportScope: visibility === "internal" ? "internal" : "app-data",
+  exportScope: exportScope ?? (visibility === "internal" ? "internal" : "app-data"),
   noteKey,
 });
 
@@ -451,6 +456,7 @@ const num = (
   max?: number,
   visibility: SettingVisibility = "visible",
   noteKey?: StringKey,
+  exportScope?: SettingExportScope,
 ): SettingDefinition => ({
   key,
   scope: SETTING_SCOPES[key],
@@ -459,7 +465,7 @@ const num = (
   defaultValue: String(defaultValue),
   readiness,
   visibility,
-  exportScope: visibility === "internal" ? "internal" : "app-data",
+  exportScope: exportScope ?? (visibility === "internal" ? "internal" : "app-data"),
   min,
   max,
   noteKey,
@@ -514,12 +520,18 @@ export const SETTING_DEFINITIONS = [
   json(SETTINGS.VISUALIZER_PRESETS, "player", "[]", "wired"),
   json(SETTINGS.MUSIC_AUDIO_PROCESSING, "player", "{}", "wired"),
   json(SETTINGS.MUSIC_OUTPUT_PROFILES, "player", "{}", "wired"),
-  json(SETTINGS.EDITOR_PANEL_LAYOUTS, "appearance", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.PLAYER_SURFACE_LAYOUTS, "appearance", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.MUSIC_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.VIDEO_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "internal"),
-  json(SETTINGS.MUSIC_PLAYBACK_POSITION, "player", "null", "wired", "internal", "internal"),
-  json(SETTINGS.VIDEO_PLAYBACK_POSITION, "player", "null", "wired", "internal", "internal"),
+  /*
+    Her state travels with her (fixes batch #14): these stay hidden in the Settings UI
+    (internal visibility) but export in backups, so a move to a new device restores the
+    loaded queue, resume positions, volume, and where she put things. Secrets stay
+    out — the PIN and proxy credentials are "private" and never export.
+  */
+  json(SETTINGS.EDITOR_PANEL_LAYOUTS, "appearance", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.PLAYER_SURFACE_LAYOUTS, "appearance", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.MUSIC_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.VIDEO_PLAYBACK_SESSION, "player", "{}", "wired", "internal", "app-data"),
+  json(SETTINGS.MUSIC_PLAYBACK_POSITION, "player", "null", "wired", "internal", "app-data"),
+  json(SETTINGS.VIDEO_PLAYBACK_POSITION, "player", "null", "wired", "internal", "app-data"),
   json(SETTINGS.SAVED_RADIO_STATIONS, "player", "[]", "wired"),
   bool(SETTINGS.GENIUS_DJ_ENABLED, "player", true, "wired"),
   bool(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, "player", true, "wired"),
@@ -532,9 +544,9 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.STABLE_VOLUME_ENABLED, "player", false, "wired"),
   bool(SETTINGS.VIDEO_LOUDNESS_NORMALIZATION, "player", false, "wired"),
   bool(SETTINGS.ALLOW_VOLUME_BOOST, "player", false, "deferred", "disabled-until-wired", "settings_note_volume_boost_requires_audio_gain"),
-  num(SETTINGS.PLAYER_VOLUME, "player", 1, "wired", 0, 1, "internal"),
-  bool(SETTINGS.PLAYER_MUTED, "player", false, "wired", "internal"),
-  bool(SETTINGS.MUSIC_SIDE_PANE_VISIBLE, "player", true, "wired", "internal"),
+  num(SETTINGS.PLAYER_VOLUME, "player", 1, "wired", 0, 1, "internal", undefined, "app-data"),
+  bool(SETTINGS.PLAYER_MUTED, "player", false, "wired", "internal", undefined, "app-data"),
+  bool(SETTINGS.MUSIC_SIDE_PANE_VISIBLE, "player", true, "wired", "internal", undefined, "app-data"),
   bool(SETTINGS.REMEMBER_PLAYBACK_SPEED, "player", false, "wired"),
   str(SETTINGS.PLAYBACK_SPEED, "player", "1.0", "wired", SPEED_VALUES),
   bool(SETTINGS.CUSTOM_SPEEDS_ENABLED, "player", false, "wired"),
@@ -548,7 +560,7 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.SUBTITLE_BOLD, "player", true, "wired"),
   bool(SETTINGS.MINI_PLAYER_SHOW_SKIP_CONTROLS, "player", true, "wired"),
   bool(SETTINGS.MINI_PLAYER_SHOW_NEXT_PREV_CONTROLS, "player", true, "wired"),
-  json(SETTINGS.MINI_PLAYER_POSITION, "player", "null", "wired", "internal", "internal"),
+  json(SETTINGS.MINI_PLAYER_POSITION, "player", "null", "wired", "internal", "app-data"),
   bool(SETTINGS.SHOW_FULLSCREEN_TITLE, "player", false, "wired"),
   bool(SETTINGS.AMBIENT_MODE_ENABLED, "player", !IS_LINUX_RUNTIME, "wired"),
   bool(SETTINGS.AMBIENT_GLOW_ENABLED, "player", false, "wired"),
@@ -621,6 +633,8 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.FAST_QUALITY_SWITCH_ENABLED, "quality", false, "wired"),
   str(SETTINGS.SHORTS_QUALITY_WIFI, "quality", "720p", "wired", QUALITY_VALUES),
   str(SETTINGS.MUSIC_AUDIO_QUALITY, "quality", "Auto", "wired", ["Auto", "High", "Medium", "Low"]),
+  // Direct mode is device-scoped: a DAC machine can run untouched while laptop speakers stay Standard.
+  bool(SETTINGS.MUSIC_DIRECT_MODE, "player", false, "wired"),
   str(SETTINGS.MUSIC_QUEUE_SWIPE_LEFT, "player", "PLAY_NEXT", "wired", ["PLAY_NEXT", "MOVE_TO_END", "REMOVE"]),
   str(SETTINGS.MUSIC_QUEUE_SWIPE_RIGHT, "player", "REMOVE", "wired", ["PLAY_NEXT", "MOVE_TO_END", "REMOVE"]),
   str(SETTINGS.PREFERRED_AUDIO_LANGUAGE, "quality", "original", "persisted-only"),
@@ -628,6 +642,8 @@ export const SETTING_DEFINITIONS = [
   bool(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION, "player", true, "wired"),
   // Flow for Android's equalizer JSON, shared by music and video and synced as `equalizer`.
   json(SETTINGS.EQ_STATE_JSON, "player", "{}", "wired"),
+  // How EQ values are changed: type the value, step it, or drag it — one way at a time.
+  str(SETTINGS.EQ_INPUT_MODE, "player", "text", "wired", ["text", "stepper", "slider"]),
   num(SETTINGS.MUSIC_PLAYBACK_SPEED, "player", 1, "wired", 0.5, 2),
 
   str(SETTINGS.BUFFER_PROFILE, "network", "STABLE", "wired", ["AGGRESSIVE", "STABLE", "DATASAVER", "CUSTOM"]),

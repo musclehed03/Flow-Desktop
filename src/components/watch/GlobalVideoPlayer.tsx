@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
+import { SURFACE_DOCK_KEEP_OUT } from "../../lib/surfaceLayout";
 import { dispatchMixedMediaEnded } from "../../lib/mixedMediaEvents";
 import { SETTINGS } from "../../lib/settings/schema";
 import { FlowPlayerCore } from "./FlowPlayerCore";
@@ -69,7 +70,7 @@ export function GlobalVideoPlayer() {
   const previousPathRef = useRef(location.pathname);
   const previousVideoIdRef = useRef(currentVideo?.id ?? null);
   const pipSurface = useSurfaceLayout("video-pip", () => ({
-    x: Math.max(12, window.innerWidth - 444), y: Math.max(12, window.innerHeight - 272), width: 420, height: 236,
+    x: Math.max(12, window.innerWidth - 444), y: Math.max(12, window.innerHeight - SURFACE_DOCK_KEEP_OUT - 236), width: 420, height: 236,
   }), VIDEO_PIP_CONSTRAINTS);
 
   const isFloating = videoPlayerMode === "pip";

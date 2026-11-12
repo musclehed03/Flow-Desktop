@@ -7,7 +7,7 @@ import { PRELOAD_LEAD_SECONDS } from "../../lib/musicPreload";
 import { recordSongHistory } from "../../lib/musicHistory";
 import type { SongItem } from "../../types/music";
 import { SETTINGS } from "../../lib/settings/schema";
-import { useAppSettingsStore } from "../../store/useAppSettingsStore";
+import { getSettingValue, useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { normalizeAudioProcessingConfig } from "../../lib/audio/eqConfig";
 import { currentOutputDevice, parseOutputDeviceProfiles } from "../../lib/audio/outputDeviceProfiles";
 
@@ -21,6 +21,7 @@ import { musicListens, useMusicListenHistory } from "../../lib/useMusicListenHis
 import { useMusicQueuePersistence } from "../../lib/useMusicQueuePersistence";
 import { sleepTimerTakesEnd, tickSleepTimer, useSleepTimerDriver } from "../../lib/useSleepTimerDriver";
 import { useLyricsLookup } from "../../lib/lyrics/useLyrics";
+import { usePersistedPlayerVolume } from "../../lib/usePersistedPlayerVolume";
 
 /**
  * Wraps a media-element handler so only the element that is playing drives the
@@ -34,12 +35,16 @@ const fromActive =
   };
 
 export function GlobalMusicAudio() {
+  // One shared volume for both engines (fixes batch #5): hydrates the music
+  // store from the PLAYER_VOLUME / PLAYER_MUTED settings and mirrors changes
+  // both ways with the video store. Also mounted in the video player; the
+  // hook is idempotent and the mirror only writes while the two differ.
+  usePersistedPlayerVolume();
   const firstRef = useRef<HTMLAudioElement | null>(null);
   const secondRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = useMusicPlayerStore((s) => s.currentTrack);
   const processingRaw = useAppSettingsStore((s) => s.values[SETTINGS.MUSIC_AUDIO_PROCESSING] ?? "{}");
   const profileRaw = useAppSettingsStore((s) => s.values[SETTINGS.MUSIC_OUTPUT_PROFILES] ?? "{}");
-  const stableVolume = useAppSettingsStore((s) => s.values[SETTINGS.STABLE_VOLUME_ENABLED] === "true");
   const volumeBoost = useAppSettingsStore((s) => s.values[SETTINGS.ALLOW_VOLUME_BOOST] === "true");
   const skipSilence = useAppSettingsStore((s) => s.values[SETTINGS.SKIP_SILENCE_ENABLED] === "true");
   const profiles = useMemo(() => parseOutputDeviceProfiles(profileRaw), [profileRaw]);
@@ -57,7 +62,13 @@ export function GlobalMusicAudio() {
     const s = useMusicPlayerStore.getState();
     musicAudioEngine.setVolume(s.volume);
     musicAudioEngine.setMuted(s.isMuted);
+    // Direct mode is decided before the first graph build of the session; the
+    // toggle says restart to switch, so this is read once at mount.
+    musicAudioEngine.setDirectMode(getSettingValue(SETTINGS.MUSIC_DIRECT_MODE) === "true");
     bindMusicAudioSettings();
+    // Closing the context here releases its PipeWire stream on unmount
+    // (StrictMode remounts included); the next play rebuilds it lazily.
+    return () => { void musicAudioEngine.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -67,10 +78,9 @@ export function GlobalMusicAudio() {
   }, [processingRaw]);
 
   useEffect(() => {
-    musicAudioEngine.setLoudness(useMusicPlayerStore.getState().loudnessDb, stableVolume);
     musicAudioEngine.setVolumeBoostEnabled(volumeBoost);
     musicAudioEngine.setSkipSilenceEnabled(skipSilence);
-  }, [skipSilence, stableVolume, volumeBoost]);
+  }, [skipSilence, volumeBoost]);
 
   useEffect(() => {
     if (profileRaw === "{}") void useAppSettingsStore.getState().setSettingValue(SETTINGS.MUSIC_OUTPUT_PROFILES, JSON.stringify(profiles));

@@ -64,6 +64,8 @@ export function filterSetting(band: EqBand | undefined, sampleRate: number): Fil
       return { type: "lowpass", frequency: band.frequency, q: 20 * Math.log10(band.q), gain: 0 };
     case "HIGH_PASS":
       return { type: "highpass", frequency: band.frequency, q: 20 * Math.log10(band.q), gain: 0 };
+    case "NOTCH":
+      return { type: "notch", frequency: band.frequency, q: band.q, gain: 0 };
   }
 }
 

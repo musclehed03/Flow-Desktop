@@ -51,4 +51,39 @@ describe("VolumePopover wheel", () => {
     expect(toggleMute).toHaveBeenCalledTimes(1);
     expect(setVolume).not.toHaveBeenCalled();
   });
+
+  // A click or focus move back to the library closes the selector, library in
+  // front (fixes batch #19). Each case renders fresh: the dismiss hook fires
+  // once per open session, as it should — the parent closes on the first one.
+  // The trigger and library live on document.body, not the render host:
+  // React clears a host's pre-existing children on mount, which would detach
+  // them and their events would never reach the document listener.
+  const renderOpen = async (onClose: () => void) => {
+    const trigger = document.createElement("button");
+    const library = document.createElement("div");
+    library.textContent = "Library";
+    document.body.append(trigger, library);
+    await act(async () => root.render(createElement(VolumePopover, { open: true, onClose, triggerRef: { current: trigger } })));
+    return { trigger, library, cleanup: () => { trigger.remove(); library.remove(); } };
+  };
+
+  it("closes on a pointerdown back on the library", async () => {
+    useMusicPlayerStore.setState({ setVolume: vi.fn(), toggleMute: vi.fn(), volume: 0.5, isMuted: false });
+    const onClose = vi.fn();
+    const { library, cleanup } = await renderOpen(onClose);
+    await act(async () => { library.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it("closes when focus moves back to the library, but not on the trigger", async () => {
+    useMusicPlayerStore.setState({ setVolume: vi.fn(), toggleMute: vi.fn(), volume: 0.5, isMuted: false });
+    const onClose = vi.fn();
+    const { trigger, library, cleanup } = await renderOpen(onClose);
+    await act(async () => { trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { library.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
 });

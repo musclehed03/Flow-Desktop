@@ -42,7 +42,7 @@ const FIT_SMOOTHING = 6;
 export const GraphicEq = {
   FREQUENCIES: [31, 63, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000] as const,
   Q: 1.41,
-  MAX_GAIN: 12,
+  MAX_GAIN: 15,
   STEP: 0.5,
 
   flatCurve(): EqCurve {

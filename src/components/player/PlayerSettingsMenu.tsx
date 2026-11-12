@@ -19,6 +19,7 @@ import { useBoolPref } from "../../lib/usePreference";
 import { IS_MAIN_WINDOW } from "../../lib/appWindow";
 import { AmbientModeIcon } from "../ui/AmbientModeIcon";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { TypedSlider } from "../ui/TypedSlider";
 import { SETTINGS } from "../../lib/settings/schema";
 import { SleepTimerLabel } from "../sleep/SleepTimerLabel";
 import { SleepTimerPanel } from "../sleep/SleepTimerPanel";
@@ -315,15 +316,15 @@ export function PlayerSettingsMenu({
                   <span>{getString("player_menu_speed_label")}</span>
                   <span className="font-mono text-primary">{playbackRate}x</span>
                 </div>
-                <input
+                <TypedSlider
                   aria-label={getString("player_menu_speed")}
-                  type="range"
                   min={0.25}
                   max={4}
                   step={0.05}
+                  decimals={2}
+                  unit="x"
                   value={playbackRate}
-                  onChange={(event) => onSelectPlaybackRate(Number(event.target.value) as PlaybackRate)}
-                  className="h-1 w-full accent-primary"
+                  onCommit={(rate) => onSelectPlaybackRate(rate as PlaybackRate)}
                 />
               </div>
             )}

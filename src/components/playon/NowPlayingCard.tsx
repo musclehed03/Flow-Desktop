@@ -12,7 +12,7 @@ import { useDebounce } from "../../lib/useDebounce";
 import { useProxiedImageUrl } from "../../lib/useProxiedImageUrl";
 import { usePlayOnStore } from "../../store/usePlayOnStore";
 import { TransportButtons } from "../music/player/PlayerTransport";
-import { Slider } from "../ui/Slider";
+import { TypedSlider } from "../ui/TypedSlider";
 import { DeviceKindIcon } from "./DeviceKindIcon";
 
 /** The chip of a card playing here names the kind of computer. */
@@ -96,7 +96,7 @@ export function NowPlayingCard({ device, nowMs }: { device: PlayOnDevice; nowMs:
         />
         <label ref={volumeWheelRef} className="flex min-w-0 flex-1 items-center gap-2 text-chrome-neutral-400">
           <Volume2 className="h-4 w-4 shrink-0" aria-hidden />
-          <Slider value={volume} min={0} max={100} onChange={setVolume} aria-label={getString("music_volume")} className="flex-1" />
+          <TypedSlider value={volume} min={0} max={100} step={1} decimals={0} unit="%" onCommit={setVolume} aria-label={getString("music_volume")} className="flex-1" />
         </label>
       </div>
     </div>

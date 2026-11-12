@@ -22,6 +22,14 @@ interface AppSettingsState {
   loaded: boolean;
   loading: boolean;
   lastError: string | null;
+  /**
+   * True when the last load fell back to defaults because a setting could not
+   * be read (fixes batch #11): `loaded` alone cannot tell "nothing was ever
+   * saved" from "the read failed", and a consumer that overwrites on the
+   * second reading would destroy a good saved session. Anything that writes
+   * back must refuse while this is set.
+   */
+  loadFailed: boolean;
   loadSettings: () => Promise<void>;
   /** Adopts values another window already read and validated, so a window that
    * has to start playing immediately does not wait on one SQLite round trip per
@@ -56,11 +64,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   loaded: false,
   loading: false,
   lastError: null,
+  loadFailed: false,
 
   loadSettings: async () => {
     if (get().loading) return;
 
-    set({ loading: true, lastError: null });
+    set({ loading: true, lastError: null, loadFailed: false });
     try {
       const entries = await Promise.all(
         SETTING_DEFINITIONS.map(async (definition) => {
@@ -85,6 +94,7 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
         loaded: true,
         loading: false,
         lastError: null,
+        loadFailed: false,
       });
     } catch (error) {
       console.warn("Failed to load app settings", error);
@@ -93,12 +103,13 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
         loaded: true,
         loading: false,
         lastError: error instanceof Error ? error.message : String(error),
+        loadFailed: true,
       });
     }
   },
 
   hydrateSettings: (values) => {
-    set({ values: { ...defaultValues(), ...values }, loaded: true, lastError: null });
+    set({ values: { ...defaultValues(), ...values }, loaded: true, lastError: null, loadFailed: false });
   },
 
   setSettingValue: async (key, value) => {

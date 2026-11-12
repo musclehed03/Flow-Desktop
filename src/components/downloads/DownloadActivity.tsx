@@ -488,8 +488,10 @@ export function DownloadActivity() {
     }
   };
 
+  // Rests above the music dock's lane (fixes batch #17): at bottom-6 this
+  // panel sat on the dock's left end whenever a download ran.
   return (
-    <div className="fixed bottom-6 left-6 z-[120] flex max-h-[70vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden">
+    <div className="fixed bottom-[108px] left-6 z-[120] flex max-h-[70vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden">
       <AnimatePresence initial={false}>
         {runCards.map(({ run, items, fraction, state, detail }) => (
           <GroupDockCard
