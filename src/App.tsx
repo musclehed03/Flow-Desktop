@@ -25,6 +25,7 @@ import { useProfileSwitchListener } from "./lib/profiles/useProfileSwitchListene
 import { markSwitching } from "./store/useProfilesStore";
 import { ProfileSwitchOverlay } from "./components/profiles/ProfileSwitchOverlay";
 import { ProfileSwitchPanel } from "./components/profiles/ProfileSwitchPanel";
+import { SplashIntro } from "./components/common/SplashIntro";
 import { takeSwitchingTo } from "./lib/profiles/switchProfile";
 
 import { PageWrapper } from "./components/layout/PageWrapper";
@@ -200,7 +201,7 @@ function App() {
           {arrivedFrom ? (
             <ProfileSwitchPanel profile={arrivedFrom} />
           ) : (
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <SplashIntro />
           )}
         </div>
       </div>

@@ -120,7 +120,7 @@ export function AboutTab() {
   return (
     <div className="space-y-6 pb-8">
       <div className="flex flex-col items-center py-8">
-        <Logo size={72} />
+        <Logo size={72} intro />
         <h2 className="text-2xl font-bold text-chrome-neutral-100 mt-4">{appName}</h2>
         <p className="text-sm text-chrome-neutral-400 mt-1">{getString('settings_about_subtitle')}</p>
       </div>
