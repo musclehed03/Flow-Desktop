@@ -10,6 +10,11 @@ Upstream is Flow-Tube/Flow-Desktop (`main`). Our line is `deviants-tuned`
 big separation never builds up again. It never decides alone what Sonja
 keeps: it drafts, tests, and routes everything for review.
 
+`ROADMAP.md` (repo root) is the bot's planned-features source: every run
+reads it and flags upstream changes or issues touching a roadmap item as a
+POTENTIAL FUTURE CONFLICT — flagging only, never a draft for something that
+is not in the tree yet.
+
 ## How a run works
 
 1. Fetch `origin` and `upstream` in the review clone.
