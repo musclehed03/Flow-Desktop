@@ -12,8 +12,8 @@ use tauri::State;
 
 use crate::errors::{AppError, ErrorResponse};
 use crate::services::native_audio::{
-    NativeAudioCapabilities, NativeAudioDevice, NativeAudioOpenResult,
-    NativeAudioState, NativeAudioStreamStatus,
+    NativeAudioCapabilities, NativeAudioDevice, NativeAudioOpenResult, NativeAudioState,
+    NativeAudioStreamStatus,
 };
 
 /// What the engine can do on this machine, plus the current stream state.
@@ -21,9 +21,9 @@ use crate::services::native_audio::{
 pub fn native_audio_status(
     state: State<'_, NativeAudioState>,
 ) -> Result<NativeAudioCapabilities, ErrorResponse> {
-    state.capabilities().map_err(|error| {
-        AppError::Internal(format!("Native audio status failed: {error}")).into()
-    })
+    state
+        .capabilities()
+        .map_err(|error| AppError::Internal(format!("Native audio status failed: {error}")).into())
 }
 
 /// The active render endpoints. Empty off Windows. Needs no engine state —
@@ -48,9 +48,7 @@ pub fn native_audio_open(
 ) -> Result<NativeAudioOpenResult, ErrorResponse> {
     state
         .open(device_id.as_deref(), sample_rate, channels)
-        .map_err(|error| {
-            AppError::Internal(format!("Native audio open failed: {error}")).into()
-        })
+        .map_err(|error| AppError::Internal(format!("Native audio open failed: {error}")).into())
 }
 
 /// Feeds interleaved little-endian f32 PCM for the open stream. The bytes
@@ -71,7 +69,7 @@ pub fn native_audio_feed(
 /// Closes the stream, releasing exclusive control. Safe with no stream open.
 #[tauri::command]
 pub fn native_audio_close(state: State<'_, NativeAudioState>) -> Result<(), ErrorResponse> {
-    state.close().map_err(|error| {
-        AppError::Internal(format!("Native audio close failed: {error}")).into()
-    })
+    state
+        .close()
+        .map_err(|error| AppError::Internal(format!("Native audio close failed: {error}")).into())
 }

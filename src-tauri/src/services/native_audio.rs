@@ -15,7 +15,7 @@
 
 use deviant_audio_engine::ffi;
 use serde::{Deserialize, Serialize};
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 use std::sync::Mutex;
 
 /// The format Flow requests: 48 kHz stereo, 24 valid bits in a 32-bit integer
@@ -106,8 +106,7 @@ fn abi_string(mut call: impl FnMut(*mut c_char, usize) -> usize) -> Result<Strin
             if buf[required - 1] != 0 {
                 return Err("engine text was not NUL terminated".into());
             }
-            return String::from_utf8(buf[..required - 1].to_vec())
-                .map_err(|e| e.to_string());
+            return String::from_utf8(buf[..required - 1].to_vec()).map_err(|e| e.to_string());
         }
     }
     Err("engine text size kept changing; giving up".into())
@@ -149,8 +148,7 @@ impl NativeAudioState {
     fn capabilities_json(id: u64) -> Result<NativeAudioCapabilities, String> {
         let text = abi_string(|p, n| unsafe { ffi::dae_capabilities_json(id, p, n) })
             .map_err(|e| format!("{e}: {}", last_error()))?;
-        let parsed: CapabilitiesJson =
-            serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let parsed: CapabilitiesJson = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         Ok(NativeAudioCapabilities {
             hardware_output_available: parsed.hardware_output_available,
             supported_decoders: parsed.supported_decoders,
@@ -319,10 +317,8 @@ mod tests {
 
     #[test]
     fn devices_json_parses() {
-        let devices: Vec<NativeAudioDevice> = serde_json::from_str(
-            r#"[{"id":"{0.0.0.00000000}.{abc}","name":"CM01 DAC"}]"#,
-        )
-        .unwrap();
+        let devices: Vec<NativeAudioDevice> =
+            serde_json::from_str(r#"[{"id":"{0.0.0.00000000}.{abc}","name":"CM01 DAC"}]"#).unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].name, "CM01 DAC");
     }
@@ -363,9 +359,7 @@ mod tests {
     #[test]
     fn feed_without_an_open_stream_fails() {
         let state = NativeAudioState::default();
-        let err = state
-            .feed(&0f32.to_le_bytes(), 48000, 2)
-            .unwrap_err();
+        let err = state.feed(&0f32.to_le_bytes(), 48000, 2).unwrap_err();
         assert!(err.contains("no output stream"), "{err}");
     }
 }
