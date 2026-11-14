@@ -1,6 +1,5 @@
 import { VisualizerToggle } from "../visualizer/Visualizers";
 import { RelatedSongsToggle } from "../radio/RelatedSongsSidebar";
-import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   Captions,
@@ -186,7 +185,6 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
   storyboard,
   activeQualityLabel,
 }) => {
-  const { t: sensoryText } = useTranslation("settings");
   const {
     isPlaying,
     currentVideo,
@@ -569,7 +567,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
           )}
 
           <div
-            data-progress-track role="slider" tabIndex={0} aria-label={sensoryText('sensory.player.seek')}
+            data-progress-track role="slider" tabIndex={0} aria-label={getString("sensory_player_seek")}
             aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(usePlayerStore.getState().currentTime)}
             onKeyDown={(event) => {
               const current = usePlayerStore.getState().currentTime;
@@ -711,7 +709,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <button
                   type="button"
                   data-player-control="previous"
-                  title={sensoryText("sensory.player.previous")} aria-label={sensoryText("sensory.player.previous")}
+                  title={getString("sensory_player_previous")} aria-label={getString("sensory_player_previous")}
                   onClick={playPrevious}
                   className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
                 >
@@ -721,7 +719,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               <button
                 type="button"
                 data-player-control="play-pause"
-                title={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-label={sensoryText(isPlaying ? "sensory.player.pause" : "sensory.player.play")} aria-pressed={isPlaying}
+                title={getString(isPlaying ? "sensory_player_pause" : "sensory_player_play")} aria-label={getString(isPlaying ? "sensory_player_pause" : "sensory_player_play")} aria-pressed={isPlaying}
                 onClick={togglePlay}
                 className="grid h-10 w-10 place-items-center rounded-full bg-chrome-black/20 text-chrome-white hover:bg-chrome-white/10 transition-transform active:scale-95"
               >
@@ -757,7 +755,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <button
                   type="button"
                   data-player-control="next"
-                  title={sensoryText("sensory.player.next")} aria-label={sensoryText("sensory.player.next")}
+                  title={getString("sensory_player_next")} aria-label={getString("sensory_player_next")}
                   onClick={() => playNext()}
                   className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
                 >
@@ -773,9 +771,9 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                   onToggleMute={() => setMuted((value) => !value)}
                   onVolumeChange={changeVolume}
                   labels={{
-                    mute: sensoryText("sensory.player.mute"),
+                    mute: getString("sensory_player_mute"),
                     unmute: getString("music_unmute"),
-                    volume: sensoryText("sensory.player.volume"),
+                    volume: getString("sensory_player_volume"),
                   }}
                   className="bg-chrome-black/20"
                   buttonClassName="h-7 w-7"
@@ -803,7 +801,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 {isLive && (
                   <button
                     type="button"
-                    title={sensoryText("sensory.player.live")} aria-label={sensoryText("sensory.player.live")}
+                    title={getString("sensory_player_live")} aria-label={getString("sensory_player_live")}
                     onClick={seekToLiveEdge}
                     className="flex items-center gap-1 whitespace-nowrap rounded-full bg-chrome-black/20 px-2 py-1 text-xs font-bold uppercase tracking-wide text-chrome-white hover:bg-chrome-white/10"
                   >
@@ -814,7 +812,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               </div>
 
               <button
-                ref={showChapters ? chapterPillRef : undefined} aria-label={sensoryText("sensory.player.chapters")} aria-pressed={isChaptersPanelOpen}
+                ref={showChapters ? chapterPillRef : undefined} aria-label={getString("sensory_player_chapters")} aria-pressed={isChaptersPanelOpen}
                 type="button"
                 onClick={() => togglePanel("chapters")}
                 className="hidden items-center gap-1.5 text-xs font-medium text-chrome-white sm:text-sm bg-chrome-black/20 hover:bg-chrome-white/10 rounded-full px-2 py-1 transition-all select-none cursor-pointer active:scale-95 group/pill max-w-[150px] sm:max-w-[260px] truncate"
@@ -963,7 +961,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <button
                   type="button"
                   data-player-control="pip"
-                  title={sensoryText("sensory.player.pip")} aria-pressed={isPip} aria-label={sensoryText("sensory.player.pip")}
+                  title={getString("sensory_player_pip")} aria-pressed={isPip} aria-label={getString("sensory_player_pip")}
                   onClick={togglePictureInPicture}
                   className={cx(
                     "hidden h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10 sm:grid",
@@ -976,7 +974,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
               {!isFullscreen && showTheater && (
                 <button
                   type="button"
-                  title={sensoryText("sensory.player.theater")} aria-pressed={isTheaterMode} aria-label={sensoryText("sensory.player.theater")}
+                  title={getString("sensory_player_theater")} aria-pressed={isTheaterMode} aria-label={getString("sensory_player_theater")}
                   onClick={() => setIsTheaterMode(!isTheaterMode)}
                   className={cx(
                     "grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10",
@@ -990,7 +988,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <button
                   type="button"
                   data-player-control="fullscreen"
-                  title={sensoryText("sensory.player.fullscreen")} aria-pressed={isFullscreen} aria-label={sensoryText("sensory.player.fullscreen")}
+                  title={getString("sensory_player_fullscreen")} aria-pressed={isFullscreen} aria-label={getString("sensory_player_fullscreen")}
                   onClick={toggleFullscreen}
                   className="grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10"
                 >

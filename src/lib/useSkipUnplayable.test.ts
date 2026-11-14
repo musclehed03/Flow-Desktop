@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSkipUnplayable } from "./useSkipUnplayable";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useUiStore } from "../store/useUiStore";
+import { useDjSession } from "./djSession";
 
 vi.mock("./streamResolution", async (original) => ({ ...(await original<object>()), prefetchStreamInfo: vi.fn() }));
 
@@ -21,6 +22,9 @@ const render = (error: string | null) => act(() => root.render(createElement(Pro
 const currentId = () => usePlayerStore.getState().currentVideo?.id;
 
 beforeEach(() => {
+  // Genius skips videos the session already played, so each case starts with
+  // a fresh session or playNext would walk past the whole queue.
+  useDjSession.setState({ played: [] });
   usePlayerStore.getState().setQueue([v("a"), v("b"), v("c"), v("d"), v("e")], 0);
   vi.spyOn(useUiStore.getState(), "showToast").mockImplementation(() => {});
   root = createRoot(document.createElement("div"));

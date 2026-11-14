@@ -67,7 +67,7 @@ afterEach(() => act(() => root.unmount()));
 
 describe("player bar buttons", () => {
   it.each([
-    ["nextPrevious", "next"],
+    ["nextPrevious", "sensory_player_next"],
     ["queue", "queue_title"],
     ["quality", "player_menu_quality"],
     ["captions", "player_menu_captions"],

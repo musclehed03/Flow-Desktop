@@ -963,9 +963,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const index = nextMusicIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
     if (upcoming && !shouldWatchSong(upcoming)) {
-      const upcomingId = videoIdOf(upcoming);
-      // A downloaded track plays from disk; resolving it would be a wasted request.
-      if (!findDownloadedRecord(upcomingId, "audio")) prefetchMusicStream(upcomingId, getMusicAudioQualitySetting());
+      // A local file plays from disk, like a downloaded one: warmMusicStream
+      // skips both, instead of asking the remote resolver for either.
+      warmMusicStream(videoIdOf(upcoming));
     }
     const previous = state.queue[state.currentIndex - 1];
     if (previous) warmMusicStream(videoIdOf(previous));

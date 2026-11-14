@@ -283,7 +283,8 @@ export function PlayerTab() {
               </div>
               <span className="w-9 text-end font-mono text-xs text-chrome-neutral-400">{ambientIntensity}%</span>
             </div>
-            <ToggleSwitch checked={ambientMode} onChange={setAmbientMode} />          </div>
+            <ToggleSwitch checked={ambientMode} onChange={setAmbientMode} label={getString('settings_ambient_mode')} />
+          </div>
         </SettingItem>
         <SettingItem title={getString('settings_ambient_glow')} description={getString('settings_ambient_glow_desc')} disabled={!ambientMode}>
           <ToggleSwitch checked={ambientMode && ambientGlow} onChange={setAmbientGlow} disabled={!ambientMode} />

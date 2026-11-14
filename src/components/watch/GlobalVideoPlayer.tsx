@@ -3,8 +3,8 @@ import { miniPlayerWidthPx } from "../../lib/miniPlayerSize";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GripHorizontal, Maximize2, RotateCcw, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 
+import { getString } from "../../lib/i18n/index";
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSurfaceLayout } from "../../lib/useSurfaceLayout";
@@ -49,7 +49,6 @@ function boundsEqual(a: PlayerBounds | null, b: PlayerBounds | null) {
 }
 
 export function GlobalVideoPlayer() {
-  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const location = useLocation();
   const currentVideo = usePlayerStore((s) => s.currentVideo);
@@ -85,6 +84,15 @@ export function GlobalVideoPlayer() {
   }, VIDEO_PIP_CONSTRAINTS);
 
   const isFloating = videoPlayerMode === "pip";
+  // The grip and buttons fade with the player's own controls, on the same idle rule. The buttons
+  // sit outside the player, so resting on them counts as leaving it; they hold themselves up then.
+  const playerChromeShown = usePlayerStore((s) => s.isPlayerChromeShown);
+  const [overButtons, setOverButtons] = useState(false);
+  const chromeShown = playerChromeShown || overButtons;
+  // Expand and Close remove the buttons under the pointer, so no pointerleave ever arrives.
+  useEffect(() => {
+    if (!isFloating) setOverButtons(false);
+  }, [isFloating]);
   // Fullscreen keeps the "pip" mode, and its frame fills the window with insets.
   // The pop-out window owns playback in this mode, so this window renders no
   // media element — two decoding the same video would double audio and CPU.
@@ -361,12 +369,23 @@ export function GlobalVideoPlayer() {
         dir="ltr"
       >
         {isFloating && (
-          <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-full bg-chrome-black/80 p-1 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
-            <button type="button" aria-label={t("surface.drag")} title={t("surface.drag")} onPointerDown={pipSurface.beginMove} onKeyDown={pipSurface.keyboardMove} className="grid h-7 w-7 touch-none place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><GripHorizontal size={16} /></button>
-            <button type="button" aria-label={t("surface.reset")} title={t("surface.reset")} onClick={pipSurface.reset} className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><RotateCcw size={15} /></button>
+          <>
+            <div
+              className={`pointer-events-none absolute left-2 top-2 z-40 flex items-center justify-center rounded-full bg-chrome-black/80 px-2 py-1 text-chrome-white/60 transition-opacity duration-200 ease-out ${chromeShown ? "opacity-100" : "opacity-0"}`}
+              aria-hidden="true"
+            >
+              <GripHorizontal size={14} />
+            </div>
+            <div
+              onPointerEnter={() => setOverButtons(true)}
+              onPointerLeave={() => setOverButtons(false)}
+              className={`absolute right-2 top-2 z-40 flex items-center gap-1 rounded-full bg-chrome-black/80 p-1 transition-opacity duration-200 ease-out focus-within:pointer-events-auto focus-within:opacity-100 ${chromeShown ? "opacity-100" : "pointer-events-none opacity-0"}`}
+            >
+            <button type="button" aria-label={getString("surface_drag")} title={getString("surface_drag")} onPointerDown={pipSurface.beginMove} onKeyDown={pipSurface.keyboardMove} className="grid h-7 w-7 touch-none place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><GripHorizontal size={16} /></button>
+            <button type="button" aria-label={getString("surface_reset")} title={getString("surface_reset")} onClick={pipSurface.reset} className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><RotateCcw size={15} /></button>
             <button
               type="button"
-              aria-label={t("surface.expandVideo")}
+              aria-label={getString("player_expand_video")}
               onClick={expandFromFloating}
               className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
@@ -374,17 +393,18 @@ export function GlobalVideoPlayer() {
             </button>
             <button
               type="button"
-              aria-label={t("surface.closeVideo")}
+              aria-label={getString("player_close_video")}
               onClick={dismissVideoPlayer}
               className="grid h-7 w-7 place-items-center rounded-full text-chrome-white hover:bg-chrome-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <X size={16} />
             </button>
-          </div>
+            </div>
+          </>
         )}
         <div className={isVideoFullscreen ? "group h-full min-w-0 flex-1" : "group h-full w-full"}>{playerNode}</div>
         {isVideoFullscreen && <FullscreenPanelHost />}
-        {isFloating && <div role="separator" tabIndex={0} aria-label={t("surface.resize")} onPointerDown={pipSurface.beginResize} onKeyDown={pipSurface.keyboardResize} className="absolute bottom-0 right-0 z-40 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
+        {isFloating && <div role="separator" tabIndex={0} aria-label={getString("surface_resize")} onPointerDown={pipSurface.beginResize} onKeyDown={pipSurface.keyboardResize} className="absolute bottom-0 right-0 z-40 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
       </div>
 
       {isVideoFullscreenTransitioning && (

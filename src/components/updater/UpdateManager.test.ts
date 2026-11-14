@@ -7,13 +7,15 @@ import { LONG_SESSION_CHECK_MS, UpdateManager } from "./UpdateManager";
 
 vi.mock("./UpdateDialog", () => ({ UpdateDialog: () => null }));
 
+const { checkForkRelease } = vi.hoisted(() => ({ checkForkRelease: vi.fn(async () => null) }));
+vi.mock("../../lib/forkUpdateCheck", () => ({ checkForkRelease }));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const STARTUP_MS = 4_000;
 
 describe("UpdateManager", () => {
   let root: Root;
-  const checkForUpdates = vi.fn(async () => "uptodate" as const);
 
   const mount = () =>
     act(() => {
@@ -24,12 +26,11 @@ describe("UpdateManager", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    checkForUpdates.mockClear();
+    checkForkRelease.mockClear();
     useUpdaterStore.setState({
       phase: "idle",
       autoCheck: true,
       prefsLoaded: true,
-      checkForUpdates,
       loadPreferences: async () => {},
     });
   });
@@ -42,10 +43,9 @@ describe("UpdateManager", () => {
   it("checks at launch and again every 12 hours", async () => {
     mount();
     await pass(STARTUP_MS);
-    expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(checkForkRelease).toHaveBeenCalledTimes(1);
     await pass(LONG_SESSION_CHECK_MS);
-    expect(checkForUpdates).toHaveBeenCalledTimes(2);
-    expect(checkForUpdates).toHaveBeenLastCalledWith({ silent: true });
+    expect(checkForkRelease).toHaveBeenCalledTimes(2);
   });
 
   it("leaves an update in progress alone", async () => {
@@ -53,13 +53,13 @@ describe("UpdateManager", () => {
     await pass(STARTUP_MS);
     useUpdaterStore.setState({ phase: "installed" });
     await pass(LONG_SESSION_CHECK_MS);
-    expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(checkForkRelease).toHaveBeenCalledTimes(1);
   });
 
   it("stays quiet when automatic checks are off", async () => {
     useUpdaterStore.setState({ autoCheck: false });
     mount();
     await pass(STARTUP_MS + LONG_SESSION_CHECK_MS);
-    expect(checkForUpdates).not.toHaveBeenCalled();
+    expect(checkForkRelease).not.toHaveBeenCalled();
   });
 });
