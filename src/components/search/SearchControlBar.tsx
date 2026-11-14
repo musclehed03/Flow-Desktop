@@ -3,12 +3,16 @@ import { Chip } from '../ui/Chip';
 import { FilterSelect } from '../ui/FilterSelect';
 import { getString } from '../../lib/i18n/index';
 import { isCategoryOffered } from '../../lib/searchResults';
+import { useShortsEnabled } from '../../lib/useShortsContent';
+import { useMusicEnabled } from '../../lib/useMusicContent';
+import { MUSIC_ONLY_CATEGORIES } from '../../lib/searchFilterState';
 import type { StringKey } from '../../lib/i18n/index';
 import type {
   AdvancedFilters,
   SearchCategory,
   SearchFeatureFilter,
   SearchSortBy,
+  SearchWatchState,
 } from '../../lib/useCombinedSearch';
 
 interface SearchControlBarProps {
@@ -22,8 +26,10 @@ interface SearchControlBarProps {
   offeredMusicFilters: string[] | null;
 }
 
+// Shorts second, as YouTube has it, so the chip people reach for most never scrolls off.
 const CATEGORY_KEYS: { key: SearchCategory; labelKey: StringKey }[] = [
   { key: 'all', labelKey: 'search_cat_all' },
+  { key: 'shorts', labelKey: 'search_cat_shorts' },
   { key: 'videos', labelKey: 'search_cat_videos' },
   { key: 'live', labelKey: 'search_cat_live' },
   { key: 'songs', labelKey: 'search_cat_songs' },
@@ -43,9 +49,13 @@ export function SearchControlBar({
   onFiltersChange,
   offeredMusicFilters,
 }: SearchControlBarProps) {
-  const categories = CATEGORY_KEYS.filter(
-    (c) => c.key === filterType || isCategoryOffered(c.key, offeredMusicFilters),
-  ).map((c) => ({ key: c.key, label: getString(c.labelKey) }));
+  const shortsEnabled = useShortsEnabled();
+  const musicEnabled = useMusicEnabled();
+  const categories = CATEGORY_KEYS.filter((c) => {
+    if (c.key === 'shorts') return shortsEnabled;
+    if (MUSIC_ONLY_CATEGORIES.has(c.key)) return musicEnabled && (c.key === filterType || isCategoryOffered(c.key, offeredMusicFilters));
+    return c.key === filterType || isCategoryOffered(c.key, offeredMusicFilters);
+  }).map((c) => ({ key: c.key, label: getString(c.labelKey) }));
   const labels = categories.map((c) => c.label);
   const activeLabel = categories.find((c) => c.key === filterType)?.label ?? labels[0];
 
@@ -57,7 +67,6 @@ export function SearchControlBar({
   const typeOptions: { value: AdvancedFilters['contentType']; label: string }[] = [
     { value: 'any', label: getString('search_type_any') },
     { value: 'video', label: getString('search_type_video') },
-    { value: 'shorts', label: getString('search_type_shorts') },
     { value: 'movie', label: getString('search_type_movie') },
   ];
   const uploadOptions: { value: AdvancedFilters['uploadDate']; label: string }[] = [
@@ -80,9 +89,16 @@ export function SearchControlBar({
     { value: 'subtitles', label: getString('search_feature_subtitles') },
     { value: 'creative_commons', label: getString('search_feature_creative_commons') },
     { value: 'hdr', label: getString('search_feature_hdr') },
+    { value: '360', label: getString('search_feature_360') },
+    { value: 'vr180', label: getString('search_feature_vr180') },
+    { value: '3d', label: getString('search_feature_3d') },
+    { value: 'location', label: getString('search_feature_location') },
   ];
 
-  const showAdvanced = filterType === 'videos' || filterType === 'live';
+  const showAdvanced = filterType === 'videos' || filterType === 'live' || filterType === 'shorts';
+  const recent = filters.uploadDate === 'week';
+  const toggleWatchState = (state: SearchWatchState) =>
+    onFiltersChange({ ...filters, watchState: filters.watchState === state ? 'any' : state });
   const toggleFeature = (feature: SearchFeatureFilter) =>
     onFiltersChange({
       ...filters,
@@ -141,6 +157,27 @@ export function SearchControlBar({
 
       {showAdvanced && (
         <div className="flex flex-wrap items-center gap-2" aria-label={getString('search_feature_label')}>
+          <Chip
+            active={recent}
+            aria-pressed={recent}
+            onClick={() => onFiltersChange({ ...filters, uploadDate: recent ? 'any' : 'week' })}
+          >
+            {getString('search_filter_recently_uploaded')}
+          </Chip>
+          <Chip
+            active={filters.watchState === 'unwatched'}
+            aria-pressed={filters.watchState === 'unwatched'}
+            onClick={() => toggleWatchState('unwatched')}
+          >
+            {getString('search_filter_unwatched')}
+          </Chip>
+          <Chip
+            active={filters.watchState === 'watched'}
+            aria-pressed={filters.watchState === 'watched'}
+            onClick={() => toggleWatchState('watched')}
+          >
+            {getString('search_filter_watched')}
+          </Chip>
           {featureOptions.map((option) => (
             <Chip
               key={option.value}

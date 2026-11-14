@@ -1,4 +1,4 @@
-import { act, createElement } from "react";
+import { act, createElement, Profiler, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SETTINGS } from "../../lib/settings/schema";
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useHoverPreviewStore } from "../../store/useHoverPreviewStore";
+import { useWatchProgressStore } from "../../store/useWatchProgressStore";
+import { useFeedActionsStore } from "../../store/useFeedActionsStore";
 import type { VideoSummary } from "../../types/video";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -157,5 +160,197 @@ describe("VideoCard title", () => {
     await comesNearScreen();
 
     expect(host.textContent).toContain(ORIGINAL);
+  });
+});
+
+describe("VideoCard on other libraries", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  const render = (props: Partial<ComponentProps<typeof VideoCard>> & { video: VideoSummary }) =>
+    act(() =>
+      root.render(createElement(MemoryRouter, null, createElement(VideoCard, { onPlay: vi.fn(), ...props }))),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    useSettingsStore.setState({ dearrowEnabled: true });
+    setOriginalTitles(true);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+    setOriginalTitles(false);
+  });
+
+  it("never asks a service about a file on this computer", async () => {
+    render({ video: { id: "local_0000000000000001", title: "My film", channelName: "Movies" } });
+    await flush();
+    expect(getDeArrowOverride).not.toHaveBeenCalled();
+    expect(getOriginalTitle).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("My film");
+  });
+
+  it("draws what it is given over the thumbnail", () => {
+    render({
+      video: { id: freshId(), title: "Saving", channelName: "A channel" },
+      thumbnailOverlay: createElement("span", { "data-testid": "overlay" }, "42%"),
+    });
+    expect(host.querySelector(".aspect-video [data-testid=overlay]")?.textContent).toBe("42%");
+  });
+
+  it("marks Not interested and Don't recommend as dangerous and names the channel", () => {
+    render({ video: { id: freshId(), title: "A video", channelName: "Some Channel", channelId: "UCsome" } });
+    act(() => {
+      host.querySelector(".video-card")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 1, clientY: 1 }));
+    });
+    const row = (label: string) =>
+      [...document.body.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label);
+    expect(row("Not interested")?.className).toContain("text-chrome-red-400");
+    expect(row("Don't recommend Some Channel")?.className).toContain("text-chrome-red-400");
+  });
+
+  it("uses the menu it is given in place of its own", () => {
+    const onSelect = vi.fn();
+    render({
+      video: { id: freshId(), title: "A file", channelName: "Movies" },
+      menuActions: [{ id: "own", label: "Only this", icon: null, group: "library", onSelect }],
+    });
+    act(() => {
+      host.querySelector(".video-card")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 1, clientY: 1 }));
+    });
+    const menu = document.body.textContent ?? "";
+    expect(menu).toContain("Only this");
+    expect(menu).not.toContain("Not interested");
+  });
+});
+
+
+describe("VideoCard hover previews", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    useAppSettingsStore.setState({
+      values: { ...useAppSettingsStore.getState().values, [SETTINGS.VIDEO_HOVER_PREVIEW_MODE]: "frames" },
+    });
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+    useHoverPreviewStore.setState({ activeVideoId: null });
+  });
+
+  it("doesn't re-render cards when another card's preview starts or stops", () => {
+    const commits = new Map<string, number>();
+    const onRender = (id: string) => commits.set(id, (commits.get(id) ?? 0) + 1);
+    const card = (id: string) =>
+      createElement(Profiler, { id, onRender },
+        createElement(VideoCard, { video: { id, title: id, channelName: "A channel" } as VideoSummary, onPlay: vi.fn() }));
+    act(() => root.render(createElement(MemoryRouter, null, card("vcdhover0001"), card("vcdhover0002"))));
+    const before = new Map(commits);
+
+    act(() => useHoverPreviewStore.setState({ activeVideoId: "vcdhover0001" }));
+    act(() => useHoverPreviewStore.setState({ activeVideoId: null }));
+
+    expect(commits).toEqual(before);
+  });
+});
+
+describe("VideoCard watch progress", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  const render = (props: Partial<ComponentProps<typeof VideoCard>> & { video: VideoSummary }) =>
+    act(() =>
+      root.render(createElement(MemoryRouter, null, createElement(VideoCard, { onPlay: vi.fn(), ...props }))),
+    );
+  const barWidth = () =>
+    (host.querySelector(".h-\\[3px\\] > div") as HTMLElement | null)?.style.width ?? null;
+  const watched = (videoId: string, watchedSeconds: number, totalSeconds = 600) =>
+    act(() =>
+      useWatchProgressStore.getState().apply({ kind: "record", videoId, watchedSeconds, totalSeconds, skipped: false }),
+    );
+  const setShowProgress = (on: boolean) =>
+    useAppSettingsStore.setState({
+      values: { ...useAppSettingsStore.getState().values, [SETTINGS.SHOW_WATCH_PROGRESS]: String(on) },
+    });
+
+  beforeEach(() => {
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    useWatchProgressStore.setState({ progress: new Map() });
+    useFeedActionsStore.setState({ watchedVideoIds: new Set() });
+    setShowProgress(true);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["grid", "list", "compact"] as const)("shows how far a video was watched in the %s layout", (variant) => {
+    const id = freshId();
+    watched(id, 258);
+    render({ variant: variant === "grid" ? undefined : variant, video: { id, title: "A video", channelName: "A channel", durationSeconds: 600 } });
+    expect(barWidth()).toBe("43%");
+  });
+
+  it("draws nothing for a video not watched, and follows playback as it goes", () => {
+    const id = freshId();
+    render({ video: { id, title: "A video", channelName: "A channel" } });
+    expect(barWidth()).toBeNull();
+    watched(id, 300);
+    expect(barWidth()).toBe("50%");
+    watched(id, 560);
+    expect(barWidth()).toBe("100%");
+  });
+
+  it("fills a video marked as watched", () => {
+    const id = freshId();
+    useFeedActionsStore.setState({ watchedVideoIds: new Set([id]) });
+    render({ video: { id, title: "A video", channelName: "A channel" } });
+    expect(barWidth()).toBe("100%");
+  });
+
+  it("hides the bar with the switch off, except on History", () => {
+    const id = freshId();
+    watched(id, 300);
+    setShowProgress(false);
+    render({ video: { id, title: "A video", channelName: "A channel" } });
+    expect(barWidth()).toBeNull();
+    render({ variant: "history", video: { id, title: "A video", channelName: "A channel", watchProgressPercent: 50 } });
+    expect(barWidth()).toBe("50%");
+  });
+
+  it("leaves Shorts, live videos and a download's own overlay alone", () => {
+    const short = freshId();
+    const live = freshId();
+    const downloading = freshId();
+    for (const id of [short, live, downloading]) watched(id, 300);
+    render({ video: { id: short, title: "A Short", channelName: "A channel", isShort: true } });
+    expect(barWidth()).toBeNull();
+    render({ video: { id: live, title: "Live", channelName: "A channel", isLive: true } });
+    expect(barWidth()).toBeNull();
+    render({
+      video: { id: downloading, title: "Saving", channelName: "A channel" },
+      thumbnailOverlay: createElement("div", null, "42%"),
+    });
+    expect(barWidth()).toBeNull();
   });
 });

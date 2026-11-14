@@ -18,7 +18,9 @@ import {
   type CombinedSearchResults,
   type MusicBucket,
 } from './searchResults';
-import type { PlaylistSummary, SearchFeature } from '../types/video';
+import { DEFAULT_ADVANCED_FILTERS, MUSIC_ONLY_CATEGORIES, type SearchFilterState } from './searchFilterState';
+import { useMusicEnabled } from './useMusicContent';
+import type { PlaylistSummary, SearchFeature, ShortVideoSummary } from '../types/video';
 import { learnFromSearch } from './api/recommendation';
 
 export type { CombinedSearchResults, TopResult } from './searchResults';
@@ -28,6 +30,7 @@ export type { CombinedSearchResults, TopResult } from './searchResults';
 /** Category chips shown in the control bar. */
 export type SearchCategory =
   | 'all'
+  | 'shorts'
   | 'videos'
   | 'songs'
   | 'albums'
@@ -40,15 +43,19 @@ export type SearchCategory =
 /** YouTube reorders by relevance or view count only; recency is the upload-date filter. */
 export type SearchSortBy = 'relevance' | 'views';
 
-export type SearchFeatureFilter = Extract<SearchFeature, 'hd' | '4k' | 'subtitles' | 'creative_commons' | 'hdr'>;
+export type SearchFeatureFilter = Exclude<SearchFeature, 'live'>;
+
+/** YouTube honours this only for a signed-in account, so it is read against local history instead. */
+export type SearchWatchState = 'any' | 'unwatched' | 'watched';
 
 export interface AdvancedFilters {
   uploadDate: 'any' | 'hour' | 'today' | 'week' | 'month' | 'year';
   /** short = under 3 min, medium = 3 to 20 min, long = over 20 min. */
   duration: 'any' | 'short' | 'medium' | 'long';
-  contentType: 'any' | 'video' | 'shorts' | 'movie';
+  contentType: 'any' | 'video' | 'movie';
   /** Every selected feature must hold. */
   features: SearchFeatureFilter[];
+  watchState: SearchWatchState;
 }
 
 export interface UseCombinedSearchOptions {
@@ -67,6 +74,8 @@ export interface UseCombinedSearchReturn {
   setSortBy: (s: SearchSortBy) => void;
   filters: AdvancedFilters;
   setFilters: (f: AdvancedFilters) => void;
+  /** Applies a whole set of filters at once, as running a past search does. */
+  applyFilterState: (state: SearchFilterState) => void;
   results: CombinedSearchResults;
   /** The search runs as typed, after "Search instead for" on a corrected query. */
   exact: boolean;
@@ -135,12 +144,7 @@ export function useCombinedSearch(
 
   const [filterType, setFilterType] = useState<SearchCategory>(initialFilter);
   const [sortBy, setSortBy] = useState<SearchSortBy>('relevance');
-  const [filters, setFilters] = useState<AdvancedFilters>({
-    uploadDate: 'any',
-    duration: 'any',
-    contentType: 'any',
-    features: [],
-  });
+  const [filters, setFilters] = useState<AdvancedFilters>(DEFAULT_ADVANCED_FILTERS);
 
   const [results, setResults] = useState<CombinedSearchResults>(emptyResults);
   const [isLoading, setIsLoading] = useState(false);
@@ -166,6 +170,9 @@ export function useCombinedSearch(
   const hasNextRef = useRef(false);
   const learnedQueryRef = useRef<string | null>(null);
   const fetchingRef = useRef(false);
+  const musicEnabled = useMusicEnabled();
+  const musicRef = useRef(musicEnabled);
+  musicRef.current = musicEnabled;
   queryRef.current = debouncedQuery;
   filterRef.current = filterType;
   sortRef.current = sortBy;
@@ -180,7 +187,8 @@ export function useCombinedSearch(
   const execute = useCallback(
     async (mode: FetchMode) => {
       const q = queryRef.current;
-      const category = filterRef.current;
+      const music = musicRef.current;
+      const category = !music && MUSIC_ONLY_CATEGORIES.has(filterRef.current) ? 'all' : filterRef.current;
 
       if (!q) {
         setResults(emptyResults());
@@ -214,7 +222,7 @@ export function useCombinedSearch(
         if (category === 'all') {
           const [ytRes, musicRes] = await Promise.allSettled([
             searchVideos({ query: q, exact: exactRef.current }),
-            getMusicSearchSummary(q),
+            music ? getMusicSearchSummary(q) : Promise.reject(new Error('Show Music is off')),
           ]);
           if (!alive()) return;
 
@@ -240,9 +248,37 @@ export function useCombinedSearch(
             }),
           );
 
-          if (ytRes.status === 'rejected' && musicRes.status === 'rejected') {
+          if (ytRes.status === 'rejected' && (!music || musicRes.status === 'rejected')) {
             setError(getBackendErrorMessage(ytRes.reason));
           }
+          return;
+        }
+
+        if (category === 'shorts') {
+          const adv = filtersRef.current;
+          const res = await searchVideos({
+            query: q,
+            pageToken: mode === 'next' ? ytTokenRef.current : null,
+            sortBy: sortRef.current,
+            uploadDate: adv.uploadDate,
+            duration: adv.duration,
+            contentType: 'shorts',
+            features: adv.features,
+            exact: exactRef.current,
+          });
+          if (!alive()) return;
+          const page = videoSections(res);
+          const found: ShortVideoSummary[] = [
+            ...page.shorts,
+            ...page.videos.map((video): ShortVideoSummary => ({ ...video, type: 'short' })),
+          ];
+          ytTokenRef.current = res.nextPageToken ?? null;
+          setNext(Boolean(res.nextPageToken));
+          setResults((prev) => ({
+            ...(mode === 'next' ? prev : emptyResults()),
+            correction: page.correction,
+            shorts: dedupe([...(mode === 'next' ? prev.shorts : []), ...found], (v) => v.id),
+          }));
           return;
         }
 
@@ -300,7 +336,7 @@ export function useCombinedSearch(
         if (category === 'artists' || category === 'playlists') {
           // Federated: YouTube Music's artists or playlists, and YouTube's channels or playlists.
           const [musicR, ytR] = await Promise.allSettled([
-            searchMusicTyped(q, categoryToMusicFilter(category)),
+            music ? searchMusicTyped(q, categoryToMusicFilter(category)) : Promise.reject(new Error('Show Music is off')),
             searchVideos({ query: q, contentType: category === 'artists' ? 'channel' : 'playlist' }),
           ]);
           if (!alive()) return;
@@ -321,8 +357,8 @@ export function useCombinedSearch(
             ),
           );
 
-          if (musicR.status === 'rejected' && ytR.status === 'rejected') {
-            setError(getBackendErrorMessage(musicR.reason));
+          if ((!music || musicR.status === 'rejected') && ytR.status === 'rejected') {
+            setError(getBackendErrorMessage(ytR.reason));
           }
           return;
         }
@@ -358,6 +394,7 @@ export function useCombinedSearch(
     filters.contentType,
     filters.features,
     exact,
+    musicEnabled,
     execute,
   ]);
 
@@ -371,6 +408,12 @@ export function useCombinedSearch(
 
   const searchExactly = useCallback(() => setExactQuery(queryRef.current), []);
 
+  const applyFilterState = useCallback((state: SearchFilterState) => {
+    setFilterType(state.category);
+    setSortBy(state.sortBy);
+    setFilters(state.filters);
+  }, []);
+
   return {
     query: debouncedQuery,
     offeredMusicFilters: offered?.query === debouncedQuery ? offered.filters : null,
@@ -380,6 +423,7 @@ export function useCombinedSearch(
     setSortBy,
     filters,
     setFilters,
+    applyFilterState,
     results,
     exact,
     searchExactly,

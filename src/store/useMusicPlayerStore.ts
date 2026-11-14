@@ -22,7 +22,14 @@ import {
   prefetchMusicStream,
   resolveMusicStream,
 } from "../lib/musicStreamResolution";
-import { seedOfflineLyrics } from "../lib/lyrics/offline";
+import { getLocalCover, getLocalStream } from "../lib/api/localMedia";
+import { isLocalMediaId } from "../lib/localMediaId";
+import { LOCAL_FORMAT_UNSUPPORTED, localPlaybackError } from "../lib/localMedia/playability";
+import {
+  LOCAL_EMBEDDED_LYRICS_PROVIDER,
+  LOCAL_FILE_LYRICS_PROVIDER,
+  seedOfflineLyrics,
+} from "../lib/lyrics/offline";
 import { findDownloadedRecord } from "../lib/useDownloads";
 import { useDownloadsLibraryStore } from "./useDownloadsLibraryStore";
 import { normalizeBackendError } from "../lib/api/errors";
@@ -33,6 +40,8 @@ import { musicAudioEngine } from "../lib/audio/musicAudioEngine";
 import { migrateSavedMusicVolume } from "../lib/audio/volumeCurve";
 import { preloadTrack } from "../lib/musicPreload";
 import { upcomingIndex, type QueueRepeatMode } from "../lib/musicQueueOrder";
+import { repeatsItself, skipFadeSeconds } from "../lib/audio/crossfade";
+import { crossfadeSettings } from "../lib/audio/crossfadeSettings";
 import { restoreOriginalOrder, shuffleFrom, shuffleUpcoming } from "../lib/musicShuffle";
 import { getSettingValue, setSettingValue } from "./useAppSettingsStore";
 import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, normalizeGraphicGains, type AudioProcessingConfig } from "../lib/audio/eqConfig";
@@ -47,7 +56,7 @@ import {
 } from "../lib/musicQueueEdits";
 import { radioSession } from "../lib/musicRadioSession";
 import type { RestoredQueue } from "../lib/musicQueuePersistence";
-import { isLongTrack, resumePositionFor } from "../lib/musicResume";
+import { isLongTrack, localResumeStart, resumePositionFor } from "../lib/musicResume";
 import { POOL_LOW_WATER } from "../lib/musicRadioPlanner";
 import { SETTINGS } from "../lib/settings/schema";
 import { shouldSkipUnplayable } from "../lib/musicSkip";
@@ -400,7 +409,8 @@ interface MusicPlayerState {
   // --- internal: driven by the root <audio> controller (element → store) ---
   _ensureRadio: () => Promise<void>;
   /** `autoplay: false` loads the track paused, for a recovery while the user had paused. */
-  _loadIndex: (index: number, options?: { resumeAt?: number; autoplay?: boolean; automatic?: boolean; manual?: boolean }) => Promise<void>;
+  /** `automatic`/`manual` mark an advance or a skip (the beat-aware plan arms the fade); `skipFade` blends the song playing into this one over that many seconds, as a skip does. */
+  _loadIndex: (index: number, options?: { resumeAt?: number; autoplay?: boolean; automatic?: boolean; manual?: boolean; skipFade?: number }) => Promise<void>;
   _prefetchUpcoming: () => void;
   _preloadUpcoming: () => void;
   _onPreloadError: () => void;
@@ -417,8 +427,25 @@ export const selectRadioOn = (s: Pick<MusicPlayerState, "radioEnabled" | "radioS
 
 /** Resolves a song's stream ahead of playing it; a downloaded one plays from disk and needs none. */
 export function warmMusicStream(videoId: string): void {
-  if (findDownloadedRecord(videoId, "audio")) return;
+  if (findDownloadedRecord(videoId, "audio") || isLocalMediaId(videoId)) return;
   prefetchMusicStream(videoId, getMusicAudioQualitySetting(), { preferAac: musicAudioEngine.wantsAac() });
+}
+
+/** A song the listener just started opens the full player, if that's their setting, as on Android. */
+const viewForNewSong = () =>
+  getSettingValue(SETTINGS.MUSIC_OPEN_PLAYER_ON_PLAY) === "true" ? { viewState: "full" as const } : {};
+
+/** How long the song a Next or Previous leaves fades under the one it goes to; 0 when it isn't playing. */
+const skipFade = (s: Pick<MusicPlayerState, "isPlaying" | "duration">): number =>
+  s.isPlaying
+    ? skipFadeSeconds(crossfadeSettings(), musicAudioEngine.getCurrentTime(), s.duration, musicAudioEngine.getSpeed())
+    : 0;
+
+/** The song to buffer ahead: the next one, or this one again when it fades into its own start. */
+function preloadIndex(s: Pick<MusicPlayerState, "queue" | "currentIndex" | "repeatMode" | "isShuffle">): number {
+  return repeatsItself(s) && crossfadeSettings().seconds > 0
+    ? s.currentIndex
+    : upcomingIndex({ ...s, playedIds: geniusEnabled() ? sessionPlayed() : undefined });
 }
 
 export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
@@ -471,7 +498,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const remote = remoteControl();
     if (remote) return remote.play([videoIdOf(track)], 0, true);
     resetRadioSession([videoIdOf(track)]);
-    set({ ...freshQueue([track], get().isShuffle ? [track] : null), radioStationActive: false, queueSource: null });
+    set({
+      ...freshQueue([track], get().isShuffle ? [track] : null),
+      radioStationActive: false,
+      queueSource: null,
+      ...viewForNewSong(),
+    });
     await get()._loadIndex(0);
   },
 
@@ -488,6 +520,8 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       ...freshQueue(shuffled ? shuffleFrom(tracks, first) : tracks, shuffled ? tracks : null),
       radioStationActive: false,
       queueSource: source,
+      // `start` means a restored queue, not a song the listener just picked.
+      ...(start ? {} : viewForNewSong()),
     });
     await get()._loadIndex(shuffled ? 0 : first, start && { resumeAt: start.at, autoplay: start.autoplay });
   },
@@ -588,6 +622,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     // once every shuffled song has had its turn.
     if (remaining > (isShuffle ? 0 : RADIO_LOW_WATER)) return;
 
+    const seed = queue[queue.length - 1] ?? get().currentTrack;
+    // A station needs a song YouTube knows.
+    if (!seed || isLocalMediaId(videoIdOf(seed))) return;
     const generation = radioSession.generation;
 
     const request = (async () => {
@@ -701,6 +738,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     }
 
     // Gapless: the standby element already holds this track, buffered.
+    // A skip fades the song playing under the next one; the beat-aware plan
+    // refines it below when the standby element already holds the track.
+    if (options?.skipFade) musicAudioEngine.armCrossfade(options.skipFade);
     // An advance into a preloaded track fades across it with the beat-aware
     // plan; the audio-settings subscriber arms the plain fade the same way.
     if (resumeAt === 0) {
@@ -722,6 +762,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     }
     // Whatever the standby element holds is not what plays next any more.
     musicAudioEngine.clearPreload();
+    if (options?.skipFade) musicAudioEngine.holdForSkip(options.skipFade);
 
     const audioQuality = getMusicAudioQualitySetting();
     const lookup = () =>
@@ -730,6 +771,32 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       });
 
     try {
+      if (isLocalMediaId(videoId)) {
+        const local = await getLocalStream(videoId);
+        if (get().loadingStreamId !== videoId) return;
+        const problem = localPlaybackError(local);
+        if (problem) throw problem;
+        if (local.lyrics) {
+          seedOfflineLyrics(
+            videoId,
+            local.lyrics.text,
+            local.lyrics.embedded ? LOCAL_EMBEDDED_LYRICS_PROVIDER : LOCAL_FILE_LYRICS_PROVIDER,
+          );
+        }
+        set({ loudnessDb: null, loadingStreamId: null });
+        // Decoding a cover is real work, so it follows the sound rather than holding it up.
+        void getLocalCover(videoId).then((cover) => {
+          const now = get().currentTrack;
+          if (cover && now && videoIdOf(now) === videoId) set({ currentTrack: { ...now, thumbnail: cover } });
+        }, () => {});
+        musicAudioEngine.setLoudness(null, get().normalizationEnabled);
+        await musicAudioEngine.load(local.url, local.contentType, track.duration ?? null);
+        musicAudioEngine.seekWhenReady(options?.resumeAt ?? localResumeStart(local.positionSeconds, local.durationSeconds));
+        await start();
+        afterStart();
+        return;
+      }
+
       // The downloads library is a SQLite read and resolution is a network round
       // trip; when the library still has to load, overlap the two rather than
       // paying them in sequence. Once loaded the offline check is synchronous,
@@ -807,7 +874,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
         return;
       }
       unplayableSkips = 0;
-      if (!navigator.onLine) {
+      if (!navigator.onLine && !isLocalMediaId(videoId)) {
         waitForNetwork(() => {
           if (get().queue[get().currentIndex] === track) void get()._loadIndex(index, { resumeAt, autoplay });
         });
@@ -910,12 +977,12 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   _preloadUpcoming: () => {
     // The engine itself refuses to preload while a fade is running.
     const state = get();
-    const index = nextMusicIndex(state);
+    const index = preloadIndex(state);
     const upcoming = index >= 0 ? state.queue[index] : null;
     if (!upcoming || shouldWatchSong(upcoming)) return;
     void preloadTrack(upcoming, getMusicAudioQualitySetting(), (videoId) => {
       const now = get();
-      const nowTrack = now.queue[nextMusicIndex(now)];
+      const nowTrack = now.queue[preloadIndex(now)];
       return !!nowTrack && videoIdOf(nowTrack) === videoId;
     });
   },
@@ -994,7 +1061,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
         return;
       }
     }
-    void get()._loadIndex(nextIndex, { automatic: true });
+    void get()._loadIndex(nextIndex, { automatic: true, skipFade: skipFade(get()) });
   },
 
   previous: () => {
@@ -1009,7 +1076,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (currentIndex === 0 && repeatMode !== "all" && dispatchMixedMediaPrevious("music")) return;
     let prevIndex = currentIndex - 1;
     if (prevIndex < 0) prevIndex = repeatMode === "all" ? queue.length - 1 : 0;
-    void get()._loadIndex(prevIndex, { manual: true });
+    void get()._loadIndex(prevIndex, { manual: true, skipFade: skipFade(get()) });
   },
 
   seek: (seconds) => {
@@ -1088,6 +1155,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       currentIndex: 0,
       radioStationActive: true,
       queueSource: null,
+      ...viewForNewSong(),
     });
     await get()._loadIndex(0);
   },
@@ -1434,7 +1502,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     const { repeatMode, queue } = get();
     // Repeat-all over one song is a replay; reloading it would fetch it again.
     if (repeatMode === "one" || (repeatMode === "all" && queue.length === 1)) {
-      musicAudioEngine.seek(0);
+      musicAudioEngine.replay();
       void musicAudioEngine.play();
       set({ progress: 0, isPlaying: true });
       return;
@@ -1450,6 +1518,17 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     stopStallWatch();
     const videoId = videoIdOf(currentTrack);
     const code = musicAudioEngine.getErrorCode();
+    if (isLocalMediaId(videoId)) {
+      // A file reads the same on a retry, so the link recovery below has nothing to offer.
+      recordPlayerEvent(`local file refused by the media element (${code ?? "stall"})`);
+      set({
+        isPlaying: false,
+        isBuffering: false,
+        streamError: `media element error ${code ?? "stall"}`,
+        streamErrorKind: LOCAL_FORMAT_UNSUPPORTED,
+      });
+      return;
+    }
     const failure = classifyMediaFailure(code, navigator.onLine);
     recordPlayerEvent(`music playback error (media element ${code ?? "stall"}, ${failure})`);
     // The element rejected the URL it was given, so drop it rather than let any
