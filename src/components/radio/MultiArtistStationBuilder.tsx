@@ -97,7 +97,7 @@ export function MultiArtistStationBuilder() {
         {candidates.map((artist) => <li key={artist.id}>
           <button type="button" data-tooltip={t("radio.multiArtistAdd", { name: artist.title })}
             onClick={() => setSelected((roots) => [...roots, artist])}
-            className="w-full rounded-lg border border-outline-variant px-3 py-2 text-left">
+            className="w-full rounded-lg border border-outline-variant px-3 py-2 text-start">
             {artist.title}
           </button>
         </li>)}

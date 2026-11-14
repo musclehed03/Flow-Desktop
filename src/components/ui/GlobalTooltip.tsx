@@ -219,7 +219,7 @@ export function GlobalTooltip() {
   return createPortal(
     <div id={TOOLTIP_ID} role="tooltip" style={style} className="pointer-events-none fixed z-[900] max-w-xs rounded-lg border-2 border-outline-variant bg-surface-container-highest px-3 py-2 text-center text-xs text-on-surface">
       <span className="font-semibold">{view.text}</span>
-      {view.shortcut && <kbd className="ml-2 rounded border-2 border-outline-variant px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant">{view.shortcut}</kbd>}
+      {view.shortcut && <kbd className="ms-2 rounded border-2 border-outline-variant px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant">{view.shortcut}</kbd>}
       {view.detail && <span className="mt-1 block text-on-surface-variant">{view.detail}</span>}
     </div>,
     document.body,

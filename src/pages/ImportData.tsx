@@ -421,7 +421,7 @@ export const ImportData: React.FC = () => {
               tracks: flowResults.reduce((count, result) => count + result.tracksImported, 0),
             })}</p>
             <div className="max-h-96 overflow-auto rounded-lg border border-chrome-neutral-800">
-              <table className="w-full text-left text-xs text-chrome-neutral-200">
+              <table className="w-full text-start text-xs text-chrome-neutral-200">
                 <thead><tr>{['file', 'playlist', 'imported', 'skipped', 'result'].map((column) =>
                   <th key={column} scope="col" className="p-2">{t(`flowImport.columns.${column}`)}</th>)}</tr></thead>
                 <tbody>{flowResults.map((result, index) => <tr key={`${result.fileName}-${index}`} className="border-t border-chrome-neutral-800">

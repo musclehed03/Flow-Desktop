@@ -26,7 +26,7 @@ export default function MusicMoodsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {group.items.map((item) => <div key={`${item.browseId}:${item.params ?? ''}`} className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
           <button type="button" onClick={() => navigate(musicSeeAllRoute(item.browseId, item.params, item.title))}
-            className="mb-3 block text-left font-medium text-on-surface">{item.title}</button>
+            className="mb-3 block text-start font-medium text-on-surface">{item.title}</button>
           <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio(item)}>{stationText('radio.station')}</Button>
         </div>)}
         </div>

@@ -90,7 +90,7 @@ export function PipWindowApp() {
           className="flex h-full min-w-0 flex-1 items-center rounded-lg px-2"
         >
           {!IS_MACOS_RUNTIME && (
-            <><GripHorizontal className="pointer-events-none mr-2 shrink-0" size={16} /><span className="pointer-events-none truncate text-xs font-medium text-chrome-white">{currentVideo?.title ?? getString("pip_window_title")}</span></>
+            <><GripHorizontal className="pointer-events-none me-2 shrink-0" size={16} /><span className="pointer-events-none truncate text-xs font-medium text-chrome-white">{currentVideo?.title ?? getString("pip_window_title")}</span></>
           )}
         </div>
         {!IS_MACOS_RUNTIME && <button type="button" aria-label={getString("surface_reset")} title={getString("surface_reset")} onClick={() => void resetPipWindowLayout()} className={chromeButton}><RotateCcw size={15} /></button>}

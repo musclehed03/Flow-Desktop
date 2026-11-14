@@ -59,7 +59,7 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
           const presetName = t(`visualizer.preset_${preset.key}`);
           return <button type="button" key={preset.key} onClick={() => load(presetName, preset.config, preset.flashRisk)}
             data-tooltip-detail={t(`visualizer.category_${category}_desc`)} className="rounded-full border-2 border-outline-variant px-3 py-2 text-sm">
-            {presetName}{preset.flashRisk && <span className="ml-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
+            {presetName}{preset.flashRisk && <span className="ms-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
           </button>;
         })}
       </div>
@@ -86,7 +86,7 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
       <h4 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">{t("visualizer.category_custom")}</h4>
       <div className="mt-2 flex flex-wrap gap-2">{presets.map((preset, index) => <button type="button" key={`${preset.name}-${index}`}
         onClick={() => load(preset.name, preset.config, preset.flashRisk)} className="rounded-full border-2 border-outline-variant px-3 py-2 text-sm">
-        {preset.name}{preset.flashRisk && <span className="ml-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
+        {preset.name}{preset.flashRisk && <span className="ms-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
       </button>)}</div>
       <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.category_custom_desc")}</p>
     </div>}

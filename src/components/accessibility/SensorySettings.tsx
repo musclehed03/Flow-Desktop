@@ -15,7 +15,7 @@ function SensoryToggle({ name, setting }: { name: string; setting: SettingKey })
 function SensoryButton({ name, enabled, toggle }: { name: string; enabled: boolean; toggle: () => void }) {
   const { t } = useTranslation('settings');
   return <button type="button" aria-label={t(`sensory.${name}.title`)} aria-pressed={enabled} onClick={toggle}
-    className="flex w-full items-center justify-between gap-4 p-4 text-left text-on-surface">
+    className="flex w-full items-center justify-between gap-4 p-4 text-start text-on-surface">
     <span><span className="block text-sm font-semibold">{t(`sensory.${name}.title`)}</span>
       <span className="block text-xs text-on-surface-variant">{t(`sensory.${name}.description`)}</span></span>
     <span className="flex shrink-0 items-center gap-1 text-xs">

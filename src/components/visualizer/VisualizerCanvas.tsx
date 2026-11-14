@@ -249,7 +249,7 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
 
   return <figure className="relative h-full w-full overflow-hidden rounded-2xl bg-[var(--dd-near-black)]">
     <canvas key={`${effectiveConfig.family}:${safe}:${webglFailed}`} ref={canvas} aria-hidden="true" className="h-full w-full" />
-    <figcaption className="absolute bottom-1 left-2 text-xs text-[var(--dd-light-text)]">
+    <figcaption className="absolute bottom-1 start-2 text-xs text-[var(--dd-light-text)]">
       {t(!consented ? "visualizer.review" : safe ? "visualizer.safeFrame" : status === "waiting" ? "visualizer.waiting" : status === "idle" ? "visualizer.idle" : status === "fallback" ? "visualizer.fallback" : "visualizer.active")}
     </figcaption>
   </figure>;
