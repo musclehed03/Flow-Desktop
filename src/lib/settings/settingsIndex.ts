@@ -55,6 +55,7 @@ const rows = (category: SettingsCategory, entries: Omit<SettingEntry, "category"
 /** Every option in Settings, in the order the tabs show them. `settingsIndex.test.ts` checks it covers them all. */
 export const SETTINGS_INDEX: SettingEntry[] = [
   ...rows("appearance", [
+    { title: "settings_tooltips", summary: "settings_tooltips_desc" },
     { title: "settings_theme_follow_system", summary: "settings_theme_follow_system_desc", keywords: ["dark", "light", "auto"] },
     { title: "settings_theme_light_mode" },
     { title: "settings_theme_dark_mode" },
@@ -148,6 +149,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
     { title: "settings_music_player_follow_light_theme", summary: "settings_music_player_follow_light_theme_desc" },
     { title: "settings_music_audio_quality", summary: "settings_music_audio_quality_desc" },
     { title: "settings_music_restore_queue", summary: "settings_music_restore_queue_desc" },
+    { title: "music_direct_mode", summary: "music_direct_mode_desc" },
     { title: "settings_music_resume_long_tracks", summary: "settings_music_resume_long_tracks_desc" },
     { title: "settings_music_queue_swipe_left", summary: "settings_music_queue_swipe_desc" },
     { title: "settings_music_queue_swipe_right", summary: "settings_music_queue_swipe_desc" },

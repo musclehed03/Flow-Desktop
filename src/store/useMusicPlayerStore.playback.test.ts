@@ -421,7 +421,7 @@ describe("watching and music view preservation", () => {
 
 it("never starts an automatic crossfade merely because a seek lands near the end", async () => {
   const original = useAppSettingsStore.getState().values;
-  useAppSettingsStore.setState({ values: { ...original, [SETTINGS.CROSSFADE_ENABLED]: "true" } });
+  useAppSettingsStore.setState({ values: { ...original, [SETTINGS.MUSIC_CROSSFADE_ENABLED]: "true" } });
   useMusicPlayerStore.setState({ currentTrack: song("seek-current"), queue: [song("seek-current"),song("seek-next")], currentIndex: 0, isPlaying: true, loadingStreamId: null });
   const next = vi.spyOn(useMusicPlayerStore.getState(), "next").mockImplementation(() => {});
   try {

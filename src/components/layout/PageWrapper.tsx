@@ -29,6 +29,7 @@ export function PageWrapper() {
     location.pathname.startsWith('/music/album/') ||
     location.pathname.startsWith('/music/playlist/');
   const isHistoryPage = location.pathname === '/history';
+  const isSettingsPage = location.pathname === '/settings' || location.pathname.startsWith('/settings/');
 
   const mainRef = useRef<HTMLElement>(null);
   // The watch page only fades: its player is a separate frame that follows the page's slot.

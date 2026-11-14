@@ -622,7 +622,6 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     // once every shuffled song has had its turn.
     if (remaining > (isShuffle ? 0 : RADIO_LOW_WATER)) return;
 
-    const seed = queue[queue.length - 1] ?? get().currentTrack;
     // A station needs a song YouTube knows.
     if (!seed || isLocalMediaId(videoIdOf(seed))) return;
     const generation = radioSession.generation;
@@ -679,9 +678,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     set({ restoredPaused: false });
     const outgoing = get().currentTrack;
     const fade = !!outgoing && get().isPlaying && options?.resumeAt === undefined && !shouldWatchSong(track)
-      && shouldCrossfade(getSettingValue(SETTINGS.CROSSFADE_ENABLED) === 'true', options?.automatic || options?.manual ? 'advance' : 'explicit', getSettingValue(SETTINGS.CROSSFADE_EVERYTHING) === 'true');
+      && shouldCrossfade(getSettingValue(SETTINGS.MUSIC_CROSSFADE_ENABLED) === 'true', options?.automatic || options?.manual ? 'advance' : 'explicit', getSettingValue(SETTINGS.CROSSFADE_EVERYTHING) === 'true');
     const outgoingDuration = get().duration || outgoing?.duration || 0;
-    const makePlan = () => planCrossfade(crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS)), musicAudioEngine.getCurrentTime(),
+    const makePlan = () => planCrossfade(crossfadeSeconds(getSettingValue(SETTINGS.MUSIC_CROSSFADE_SECONDS)), musicAudioEngine.getCurrentTime(),
       Math.max(0, outgoingDuration - musicAudioEngine.getCurrentTime()), outgoing?.transition, track.transition);
     if (!options?.automatic) allowReplay(videoIdOf(track));
     rememberPlayed(videoIdOf(track));
@@ -1428,7 +1427,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     // starts a fade on its own.
     const state = get();
     if (
-      getSettingValue(SETTINGS.CROSSFADE_ENABLED) !== "true" ||
+      getSettingValue(SETTINGS.MUSIC_CROSSFADE_ENABLED) !== "true" ||
       Date.now() < suppressAutomaticFadeUntil ||
       !state.isPlaying ||
       state.loadingStreamId ||
@@ -1437,7 +1436,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       seconds <= 0 ||
       nextDuration - seconds <= 0.2
     ) return;
-    const fadeSeconds = crossfadeSeconds(getSettingValue(SETTINGS.CROSSFADE_SECONDS));
+    const fadeSeconds = crossfadeSeconds(getSettingValue(SETTINGS.MUSIC_CROSSFADE_SECONDS));
     const tempo = state.currentTrack?.transition;
     const phraseWindow = tempo?.bpm && tempo.bpm >= 40 && tempo.bpm <= 240 ? Math.min(24, 60 / tempo.bpm * (tempo.beatsPerPhrase ?? 16)) : 0;
     if (nextDuration - seconds > fadeSeconds + phraseWindow) return;

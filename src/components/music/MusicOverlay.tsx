@@ -32,7 +32,7 @@ import { PlayOnButton } from "../playon/PlayOnButton";
 import { LAYOUT_SPRING, NowPlayingColumn } from "./player/NowPlayingColumn";
 import { PlayerSidePane, type SidePaneTab } from "./player/PlayerSidePane";
 import { PlayerTransport } from "./player/PlayerTransport";
-import { GROUP_BUTTON, GROUP_BUTTON_ACTIVE, GroupItem, NO_TAP_SCALE, PlayerButtonGroup } from "./player/PlayerButtonGroup";
+import { GROUP_BUTTON, GROUP_BUTTON_ACTIVE, GroupItem, PlayerButtonGroup } from "./player/PlayerButtonGroup";
 import { useArtworkSwatches } from "../../lib/useArtworkSwatches";
 import { useFullPlayerColors } from "../../lib/usePlayerColors";
 import { coverSurfaceVariables } from "../../lib/playerColors";
@@ -235,7 +235,7 @@ export function MusicOverlay() {
         <div className="absolute top-0 z-40 grid w-full grid-cols-[1fr_auto_1fr] items-center gap-4 p-6">
           <PlayerButtonGroup className="justify-self-start">
             <GroupItem id="collapse">
-              <HapticButton onClick={closeOverlay} aria-label={getString("music_collapse")} whileTap={NO_TAP_SCALE} className={GROUP_BUTTON}>
+              <HapticButton onClick={closeOverlay} aria-label={getString("music_collapse")} className={GROUP_BUTTON}>
                 <ChevronDown className="h-6 w-6" />
               </HapticButton>
             </GroupItem>
@@ -261,7 +261,7 @@ export function MusicOverlay() {
                   onClick={() => setLyricsExpanded(false)}
                   aria-label={getString("music_lyrics_back_to_pane")}
                   title={getString("music_lyrics_back_to_pane")}
-                  whileTap={NO_TAP_SCALE}
+                 
                   className={GROUP_BUTTON}
                 >
                   <Minimize2 className="h-5 w-5" />
@@ -274,7 +274,7 @@ export function MusicOverlay() {
                 onClick={onQueueButton}
                 aria-label={getString("music_queue")}
                 aria-pressed={queueShown}
-                whileTap={NO_TAP_SCALE}
+               
                 className={queueShown ? GROUP_BUTTON_ACTIVE : GROUP_BUTTON}
               >
                 <ListMusic className="h-5 w-5" />
@@ -286,7 +286,7 @@ export function MusicOverlay() {
                 onClick={onLyricsButton}
                 aria-label={getString("music_lyrics")}
                 aria-pressed={lyricsShown}
-                whileTap={NO_TAP_SCALE}
+               
                 className={lyricsShown ? GROUP_BUTTON_ACTIVE : GROUP_BUTTON}
               >
                 <Mic2 className="h-5 w-5" />
@@ -302,7 +302,7 @@ export function MusicOverlay() {
                 onClick={() => setVolumeOpen((v) => !v)}
                 aria-label={getString("music_volume")}
                 aria-pressed={volumeOpen}
-                whileTap={NO_TAP_SCALE}
+               
                 className={volumeOpen ? GROUP_BUTTON_ACTIVE : GROUP_BUTTON}
               >
                 {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
@@ -329,7 +329,7 @@ export function MusicOverlay() {
                 onClick={() => setEqOpen((v) => !v)}
                 aria-label={getString("music_equalizer")}
                 aria-pressed={eqOpen}
-                whileTap={NO_TAP_SCALE}
+               
                 className={eqOpen || eqEnabled ? GROUP_BUTTON_ACTIVE : GROUP_BUTTON}
               >
                 <SlidersHorizontal className="h-5 w-5" />
