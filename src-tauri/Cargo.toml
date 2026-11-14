@@ -109,6 +109,13 @@ deunicode = "1.6.2"
 trash = "5"
 encoding_rs = "0.8"
 
+# Deviant Audio Engine: WASAPI exclusive-mode output + native decode, consumed
+# as a Rust library (rlib path of its cdylib+rlib crate). Pinned to the commit
+# whose standalone hardware test passed on the CM01; the engine's `ffi` module
+# is its public API — its `windows` module is private, so Flow calls the
+# `dae_*` functions directly instead. Static linking: no DLL to ship or find.
+deviant-audio-engine = { git = "https://github.com/musclehed03/Deviant-Audio-Engine", rev = "8df460f298ff68fbd1f0aaa3d743f12b8bb1befc" }
+
 # Native Windows toast notifications: build the toast XML directly so we can attach
 # the app logo + a video thumbnail (hero image) and register a proper AppUserModelID,
 # so the system attributes notifications to "Flow" instead of PowerShell.

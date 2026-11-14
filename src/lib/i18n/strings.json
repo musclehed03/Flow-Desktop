@@ -2545,6 +2545,8 @@
   "audio_source_standard": "Standard",
   "audio_source_direct_unavailable": "Direct unavailable for this track — resampled by the system",
   "audio_source_direct_volume": "volume %s%",
+  "audio_source_native": "Native",
+  "audio_source_native_unavailable": "Native output unavailable — %s. Playing through the system mixer.",
   "music_expand": "Expand",
   "music_collapse": "Collapse",
   "music_now_playing": "Now playing",

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type SyntheticEvent } from "react";
 
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { musicAudioEngine } from "../../lib/audio/musicAudioEngine";
+import { nativeAudioSink, probeNativeAudio } from "../../lib/audio/nativeAudio";
 import { bindMusicAudioSettings, crossfadeTick } from "../../lib/audio/musicAudioSettings";
 import { PRELOAD_LEAD_SECONDS } from "../../lib/musicPreload";
 import { recordSongHistory } from "../../lib/musicHistory";
@@ -67,10 +68,18 @@ export function GlobalMusicAudio() {
     // Direct mode is decided before the first graph build of the session; the
     // toggle says restart to switch, so this is read once at mount.
     musicAudioEngine.setDirectMode(getSettingValue(SETTINGS.MUSIC_DIRECT_MODE) === "true");
+    // Native output (Deviant Audio Engine): the sink is set once, the probe
+    // runs in the background so the answer is cached by first play, and the
+    // badge follows the engine's live state (engaged, or why it fell back).
+    musicAudioEngine.setNativeSink(nativeAudioSink);
+    void probeNativeAudio();
+    const unsubscribeNative = musicAudioEngine.onNativeStateChange((nativeState) => {
+      useMusicPlayerStore.setState({ nativeState });
+    });
     bindMusicAudioSettings();
     // Closing the context here releases its PipeWire stream on unmount
     // (StrictMode remounts included); the next play rebuilds it lazily.
-    return () => { void musicAudioEngine.dispose(); };
+    return () => { void musicAudioEngine.dispose(); unsubscribeNative(); };
   }, []);
 
   useEffect(() => {
