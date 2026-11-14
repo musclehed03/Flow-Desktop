@@ -583,6 +583,8 @@ pub fn run() {
             app.manage(DiscordPresence::new());
             app.manage(commands::discord::DiscordPresenceOwner::default());
             app.manage(services::music_tray::MusicTray::default());
+            // Deviant Audio Engine: one process-wide native output handle.
+            app.manage(services::native_audio::NativeAudioState::default());
             app.manage(services::media_keys::PlaybackTarget::default());
             app.manage(services::system_output::SystemOutputWatch::default());
             app.manage(services::shell_pages::LaunchRequest::from_args(
@@ -778,6 +780,12 @@ pub fn run() {
             commands::local_media::local_media_save_frame,
             commands::local_media::local_media_pick_subtitle,
             commands::local_media::local_media_trash,
+            // Deviant Audio Engine (native output): probe, list, open, feed, close.
+            commands::native_audio::native_audio_status,
+            commands::native_audio::native_audio_devices,
+            commands::native_audio::native_audio_open,
+            commands::native_audio::native_audio_feed,
+            commands::native_audio::native_audio_close,
             delete_downloads,
             clear_downloads,
             create_download_collection,

@@ -30,6 +30,10 @@ import {
   LOCAL_FILE_LYRICS_PROVIDER,
   seedOfflineLyrics,
 } from "../lib/lyrics/offline";
+import {
+  emptyNativeAudioState,
+  type NativeAudioState,
+} from "../lib/audio/nativeAudio";
 import { findDownloadedRecord } from "../lib/useDownloads";
 import { useDownloadsLibraryStore } from "./useDownloadsLibraryStore";
 import { normalizeBackendError } from "../lib/api/errors";
@@ -313,6 +317,12 @@ interface MusicPlayerState {
    * setting, so an AAC track that fell back to Standard says so.
    */
   directActive: boolean;
+  /**
+   * The native output state for the track now playing (Deviant Audio Engine):
+   * engaged/exclusive, or the reason it fell back to the OS mixer. Updated
+   * live by the engine's state listener, not only at load.
+   */
+  nativeState: NativeAudioState;
 
   // --- modes (persisted) ---
   repeatMode: MusicRepeatMode;
@@ -469,6 +479,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
   audioProcessing: initialProcessing,
   streamFormat: null,
   directActive: false,
+  nativeState: emptyNativeAudioState(),
 
   repeatMode: initialConfig.repeatMode,
   isShuffle: initialConfig.isShuffle,
@@ -747,7 +758,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       if (plan) musicAudioEngine.armCrossfade(plan.seconds);
       if (musicAudioEngine.activatePreloaded(videoId)) {
         const loudnessDb = musicAudioEngine.getActiveLoudness();
-        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null, directActive: musicAudioEngine.isDirect?.() ?? false });
+        set({ loudnessDb, loadingStreamId: null, streamFormat: musicAudioEngine.getActiveFormat?.() ?? null, directActive: musicAudioEngine.isDirect?.() ?? false, nativeState: musicAudioEngine.getNativeState?.() ?? emptyNativeAudioState() });
         musicAudioEngine.setLoudness(loudnessDb, get().normalizationEnabled);
         await start();
         if (plan && plan.incomingStart > 0) {
@@ -819,6 +830,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
             loudnessDb: offline.loudnessDb,
             streamFormat: null,
             directActive: false,
+            nativeState: emptyNativeAudioState(),
             loadingStreamId: null,
             ...(offline.artworkUrl
               ? { currentTrack: { ...track, thumbnail: offline.artworkUrl } }
@@ -852,7 +864,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
 
       set({ streamFormat: { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null } });
       musicAudioEngine.setSourceSampleRate?.(info.sampleRate ?? null, info.mimeType);
-      set({ loudnessDb: info.loudnessDb, loadingStreamId: null, directActive: musicAudioEngine.isDirect?.() ?? false });
+      set({ loudnessDb: info.loudnessDb, loadingStreamId: null, directActive: musicAudioEngine.isDirect?.() ?? false, nativeState: musicAudioEngine.getNativeState?.() ?? emptyNativeAudioState() });
       if (loadStartedAt?.videoId === videoId) loadStartedAt.resolvedAt = performance.now();
       musicAudioEngine.setLoudness(info.loudnessDb, get().normalizationEnabled);
       await musicAudioEngine.load(info.audioUrl, info.mimeType, listedSeconds(info, track), { mimeType: info.mimeType, bitrate: info.bitrate, sampleRate: info.sampleRate ?? null });
@@ -948,6 +960,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       loudnessDb: null,
       streamFormat: null,
       directActive: false,
+      nativeState: emptyNativeAudioState(),
       loadingStreamId: null,
       streamError: null,
       streamErrorKind: null,

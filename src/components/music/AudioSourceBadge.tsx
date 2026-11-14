@@ -14,6 +14,7 @@ const codec = (mimeType: string) => {
 export function AudioSourceBadge() {
   const format = useMusicPlayerStore((state) => state.streamFormat);
   const directActive = useMusicPlayerStore((state) => state.directActive);
+  const nativeState = useMusicPlayerStore((state) => state.nativeState);
   const volume = useMusicPlayerStore((state) => state.volume);
   const directMode = useAppSettingsStore((state) => state.values[SETTINGS.MUSIC_DIRECT_MODE] === "true");
   if (!format) return null;
@@ -21,14 +22,18 @@ export function AudioSourceBadge() {
   // Direct is a mode, not a quality claim: the source stays lossy, and the
   // volume slider still scales the element — both stay visible. An AAC (or
   // unknown-rate) track with the mode on falls back to Standard, and says so
-  // instead of passing as Direct.
+  // instead of passing as Direct. Native adds its own word only while the
+  // engine actually holds the device exclusively; a failed native open says
+  // why underneath instead of passing as Direct.
+  const native = nativeState.engaged ? getString("audio_source_native") : null;
   const mode = directActive ? getString("audio_source_direct") : directMode ? getString("audio_source_standard") : null;
   const volumeNote = directActive && volume < 1 ? getString("audio_source_direct_volume", Math.round(volume * 100)) : null;
-  const pill = [mode, getString("audio_source_lossy"), ...details, volumeNote].filter(Boolean).join(" · ");
+  const pill = [native, mode, getString("audio_source_lossy"), ...details, volumeNote].filter(Boolean).join(" · ");
   return (
     <div className="mt-2 flex flex-col items-start gap-1">
       <p className="inline-flex rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant" aria-label={getString("audio_source_details")}>{pill}</p>
       {directMode && !directActive ? <p className="text-xs text-on-surface-variant">{getString("audio_source_direct_unavailable")}</p> : null}
+      {directActive && !nativeState.engaged && nativeState.error ? <p className="text-xs text-on-surface-variant">{getString("audio_source_native_unavailable", nativeState.error)}</p> : null}
     </div>
   );
 }

@@ -9,6 +9,12 @@ import { defaultAudioProcessingConfig, normalizeAudioProcessingConfig, type Audi
 import { pastListedEnd, playableLength } from "./listedLength";
 import { volumeGain } from "./volumeCurve";
 import { webAudioHears } from "./webAudioFormats";
+import { NATIVE_TAP_PROCESSOR_NAME } from "./nativeTapProcessor";
+import {
+  emptyNativeAudioState,
+  type NativeAudioSink,
+  type NativeAudioState,
+} from "./nativeAudio";
 
 /**
  * One of the two <audio> elements. While one plays, the other can hold the next
@@ -121,6 +127,21 @@ export class MusicAudioEngine {
    * `isDirect`); anything else falls back to Standard for that track.
    */
   private directMode = false;
+  /** The native output sink (the Deviant Audio Engine), set once at startup; null in tests and where the engine cannot run. */
+  private nativeSink: NativeAudioSink | null = null;
+  /** The native stream is open for the track now playing. */
+  private nativeActive = false;
+  /** The element URL the native stream was opened for; a new track re-opens, flushing the old queue. */
+  private nativeOpenKey: string | null = null;
+  /** The tap feeding the engine, and the silent sink it drains into. */
+  private nativeTap: AudioWorkletNode | null = null;
+  private nativeZero: GainNode | null = null;
+  /** Consecutive feed failures; the tap detaches to the mixer after three. */
+  private nativeFeedFailures = 0;
+  /** One in-flight tap-graph + open, so concurrent plays never open twice. */
+  private nativeEngagePromise: Promise<void> | null = null;
+  private nativeState: NativeAudioState = emptyNativeAudioState();
+  private nativeStateListeners = new Set<(state: NativeAudioState) => void>();
   private eqSpec: EqGraphSpec = EQ_GRAPH_OFF;
   private eqEngaged = false;
   private speed = 1;
@@ -205,7 +226,20 @@ export class MusicAudioEngine {
     this.volGain = null;
     this.analyser?.disconnect();
     this.analyser = null;
+    try {
+      this.nativeTap?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    this.nativeTap = null;
+    try {
+      this.nativeZero?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    this.nativeZero = null;
     this.graphReady = false;
+    void this.closeNativeStream();
   }
 
   /** Closes the audio context and drops the graph; the next play rebuilds it lazily. */
@@ -250,6 +284,13 @@ export class MusicAudioEngine {
    */
   private ensureGraph(): void {
     if (this.graphReady || this.webAudioFailed || !this.slots[0].el || !this.slots[1].el) return;
+    if (this.isDirect() && this.shouldUseNative()) {
+      // The tap graph loads its worklet module asynchronously; play() awaits
+      // the same setup, so this is only the fire-and-forget path from a
+      // mid-song settings change.
+      void this.engageNative();
+      return;
+    }
     try {
       if (!this.ctx) {
         // Opus — the preferred codec — is natively 48 kHz, so the Standard
@@ -687,6 +728,235 @@ export class MusicAudioEngine {
     this.directMode = enabled;
   }
 
+  // --- native output (Deviant Audio Engine) --------------------------------
+
+  /** The native output sink the engine feeds when Direct mode can use it. */
+  setNativeSink(sink: NativeAudioSink | null): void {
+    this.nativeSink = sink;
+  }
+
+  /** The native output state the badge reads: engaged, exclusive, or why it fell back. */
+  getNativeState(): NativeAudioState {
+    return { ...this.nativeState, supported: this.nativeSink?.isAvailable() ?? false };
+  }
+
+  onNativeStateChange(listener: (state: NativeAudioState) => void): () => void {
+    this.nativeStateListeners.add(listener);
+    return () => {
+      this.nativeStateListeners.delete(listener);
+    };
+  }
+
+  private setNativeState(patch: Partial<NativeAudioState>): void {
+    this.nativeState = { ...this.nativeState, ...patch };
+    const snapshot = this.getNativeState();
+    for (const listener of this.nativeStateListeners) listener(snapshot);
+  }
+
+  /** Direct mode can hand this track to the native engine: the mode is on, a sink is set, this machine can open exclusive, and the track is Opus at 48 kHz. */
+  private shouldUseNative(): boolean {
+    return (
+      this.directMode &&
+      this.nativeSink !== null &&
+      this.nativeSink.isAvailable() &&
+      this.formatIsDirect(this.active.format)
+    );
+  }
+
+  /** Builds the tap graph and opens the exclusive stream (one in-flight attempt at a time). A failure anywhere leaves the element playing through the OS mixer with the reason recorded — never silence. */
+  private engageNative(): Promise<void> {
+    if (!this.nativeEngagePromise) {
+      this.nativeEngagePromise = (async () => {
+        await this.ensureNativeTapGraph();
+        await this.openNativeForActive();
+      })().finally(() => {
+        this.nativeEngagePromise = null;
+      });
+    }
+    return this.nativeEngagePromise;
+  }
+
+  /** The tap-only graph: source -> worklet tap -> silent gain -> destination, so the element's samples reach the engine and nothing reaches the mixer. No EQ, no dynamics, no analyser — Direct semantics. */
+  private async ensureNativeTapGraph(): Promise<void> {
+    if (this.graphReady) return;
+    if (!this.ctx) {
+      const ctx = createAudioContext({ sampleRate: 48_000 });
+      if (!ctx) {
+        // No Web Audio at all: the element still plays straight to the mixer
+        // (plain Direct), and the badge says the native path never started.
+        this.setNativeState({ engaged: false, exclusive: false, error: "Web Audio unavailable" });
+        this.webAudioFailed = true;
+        this.notifyAvailability();
+        return;
+      }
+      this.ctx = ctx;
+      keepRunning(ctx, () => !!this.active.el && !this.active.el.paused);
+    }
+    const ctx = this.ctx;
+    try {
+      await ctx.audioWorklet.addModule(new URL("./nativeTapProcessor.ts", import.meta.url));
+    } catch (err) {
+      console.warn("[musicAudioEngine] native tap unavailable, playing through the OS mixer", err);
+      this.setNativeState({ engaged: false, exclusive: false, error: "tap module failed to load" });
+      return;
+    }
+    if (!this.attachNativeTap()) {
+      this.setNativeState({ engaged: false, exclusive: false, error: "tap node failed to start" });
+      return;
+    }
+    this.graphReady = true;
+    this.applyGain();
+    if (this.active.el && !this.active.el.paused) void resumeWithin(ctx);
+  }
+
+  /** Creates the tap node and wires both elements' sources into it. Returns false when the node cannot be made. */
+  private attachNativeTap(): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    try {
+      const tap = new AudioWorkletNode(ctx, NATIVE_TAP_PROCESSOR_NAME);
+      tap.port.onmessage = (event: MessageEvent) => this.onNativeTapMessage(event);
+      const zero = ctx.createGain();
+      zero.gain.value = 0;
+      tap.connect(zero);
+      zero.connect(ctx.destination);
+      for (const slot of this.slots) {
+        if (!slot.el) continue;
+        if (!slot.source) slot.source = ctx.createMediaElementSource(slot.el);
+        slot.source.disconnect();
+        slot.source.connect(tap);
+      }
+      this.nativeTap = tap;
+      this.nativeZero = zero;
+      return true;
+    } catch (err) {
+      console.warn("[musicAudioEngine] native tap failed to attach", err);
+      return false;
+    }
+  }
+
+  /** Moves the element sources back to the mixer, silently dropping the tap. The track keeps playing; only the native path ends. */
+  private detachNativeToMixer(): void {
+    const ctx = this.ctx;
+    if (ctx) {
+      for (const slot of this.slots) {
+        if (!slot.source) continue;
+        try {
+          slot.source.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        try {
+          slot.source.connect(ctx.destination);
+        } catch {
+          // Context closed underneath.
+        }
+      }
+    }
+    try {
+      this.nativeTap?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    this.nativeTap = null;
+    try {
+      this.nativeZero?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    this.nativeZero = null;
+    this.nativeActive = false;
+    this.nativeFeedFailures = 0;
+  }
+
+  /** The element URL the native stream belongs to; a new track re-opens, flushing the old queue. */
+  private nativeOpenKeyFor(): string | null {
+    const src = this.active.el?.currentSrc || this.active.el?.src || "";
+    return src === "" ? null : src;
+  }
+
+  /** Opens the exclusive stream for the track now playing, unless the same stream is already open for it. A failure detaches the tap to the mixer and records the engine's reason — the track still plays. */
+  private async openNativeForActive(): Promise<void> {
+    const sink = this.nativeSink;
+    if (!sink || !this.shouldUseNative()) return;
+    const key = this.nativeOpenKeyFor();
+    if (key === null) return;
+    if (this.nativeActive && this.nativeOpenKey === key) return;
+    // No tap, no stream: opening exclusive with nothing feeding it would hold
+    // the device while the sound came from the mixer. Re-attach first when
+    // the graph is live but the tap was detached after a failure.
+    if (!this.graphReady) return;
+    if (!this.nativeTap && !this.attachNativeTap()) {
+      this.setNativeState({ engaged: false, exclusive: false, error: "tap node failed to start" });
+      return;
+    }
+    const rate = this.active.format?.sampleRate ?? 48_000;
+    try {
+      const result = await sink.open(rate, 2);
+      if (!result.exclusive || !result.format) {
+        this.nativeActive = false;
+        this.nativeOpenKey = null;
+        this.setNativeState({ engaged: false, exclusive: false, error: result.error ?? "exclusive open failed" });
+        this.detachNativeToMixer();
+        return;
+      }
+      this.nativeActive = true;
+      this.nativeOpenKey = key;
+      this.setNativeState({ engaged: true, exclusive: true, format: result.format, error: null });
+      if (this.graphReady && !this.nativeTap) this.attachNativeTap();
+    } catch (err) {
+      this.nativeActive = false;
+      this.nativeOpenKey = null;
+      this.setNativeState({ engaged: false, exclusive: false, error: err instanceof Error ? err.message : "native open failed" });
+      this.detachNativeToMixer();
+    }
+  }
+
+  /** Closes the native stream, releasing exclusive control. A failure reason from the last open or feed stays until the next open succeeds. */
+  private async closeNativeStream(): Promise<void> {
+    if (!this.nativeActive && this.nativeOpenKey === null) return;
+    this.nativeActive = false;
+    this.nativeOpenKey = null;
+    this.nativeFeedFailures = 0;
+    const sink = this.nativeSink;
+    if (sink) await sink.close();
+    this.setNativeState({ engaged: false, exclusive: false, format: null });
+  }
+
+  /** Re-opens the stream after a seek, so pre-seek samples queued in the engine never play. */
+  private async reopenNativeForSeek(): Promise<void> {
+    if (!this.nativeActive) return;
+    await this.closeNativeStream();
+    await this.openNativeForActive();
+  }
+
+  /** A tap chunk, forwarded to the engine. Dropped while paused or with no stream open; three consecutive failures detach to the mixer rather than letting the track go silent. */
+  private onNativeTapMessage(event: MessageEvent): void {
+    const data = event.data as { type?: unknown; samples?: unknown } | null;
+    if (!data || data.type !== "pcm" || !(data.samples instanceof Float32Array)) return;
+    if (!this.nativeActive || !this.active.el || this.active.el.paused) return;
+    const rate = this.active.format?.sampleRate ?? 48_000;
+    const bytes = new Uint8Array(data.samples.buffer, data.samples.byteOffset, data.samples.byteLength);
+    void this.feedNative(bytes, rate, 2);
+  }
+
+  private async feedNative(bytes: Uint8Array, rate: number, channels: number): Promise<void> {
+    const sink = this.nativeSink;
+    if (!sink || !this.nativeActive) return;
+    try {
+      await sink.feed(bytes, rate, channels);
+      this.nativeFeedFailures = 0;
+    } catch (err) {
+      this.nativeFeedFailures += 1;
+      if (this.nativeFeedFailures >= 3) {
+        console.warn("[musicAudioEngine] native feed failed repeatedly, falling back to the OS mixer", err);
+        this.setNativeState({ engaged: false, exclusive: false, error: err instanceof Error ? err.message : "native feed failed" });
+        this.detachNativeToMixer();
+        void this.closeNativeStream();
+      }
+    }
+  }
+
   setSourceSampleRate(sampleRate: number | null, mimeType?: string): void {
     // Records the resolved track's format on the active slot, so `isDirect`
     // answers for this track before `load()` runs. The rate alone cannot
@@ -762,7 +1032,8 @@ export class MusicAudioEngine {
   async play(): Promise<void> {
     const el = this.active.el;
     if (!el) return;
-    if (this.needsGraph()) this.ensureGraph();
+    if (this.shouldUseNative()) await this.engageNative();
+    else if (this.needsGraph()) this.ensureGraph();
     if (this.ctx) await resumeWithin(this.ctx);
     try {
       await el.play();
@@ -782,6 +1053,8 @@ export class MusicAudioEngine {
     this.quickFadeIn = false;
     this.endSolo();
     this.active.el?.pause();
+    // Holding exclusive while paused would lock the device for nothing; the next play re-opens.
+    void this.closeNativeStream();
   }
 
   stop(): void {
@@ -790,6 +1063,7 @@ export class MusicAudioEngine {
     this.quickFadeIn = false;
     this.endSolo();
     for (const slot of this.slots) this.release(slot);
+    void this.closeNativeStream();
   }
 
   seek(seconds: number): void {
@@ -802,6 +1076,8 @@ export class MusicAudioEngine {
       el.currentTime = Math.max(0, seconds);
       this.active.listedEndTaken = false;
     }
+    // The engine queue holds pre-seek samples; re-open so they never play.
+    void this.reopenNativeForSeek();
   }
 
   getCurrentTime(): number {
@@ -978,8 +1254,9 @@ export class MusicAudioEngine {
 
   private needsGraph(): boolean {
     // Direct runs the element straight to the OS mixer: no graph, no gain
-    // stages, no analyser — so no visualizer input and no skip-silence either.
-    if (this.isDirect()) return false;
+    // stages, no analyser — unless the native engine is taking the samples,
+    // in which case a tap-only graph carries them to the engine.
+    if (this.isDirect()) return this.shouldUseNative();
     return this.eqEngaged || this.crossfadeEnabled || this.processing.enabled;
   }
 

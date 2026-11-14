@@ -17,6 +17,7 @@ pub mod media_keys;
 pub mod music;
 pub mod music_brain;
 pub mod music_queue;
+pub mod native_audio;
 pub mod notes;
 pub mod notifications;
 pub mod pip;
