@@ -974,7 +974,7 @@ export const SETTING_DEFINITIONS = [
   num(SETTINGS.AUTO_BACKUP_LAST_RUN, "data", 0, "wired", 0, undefined, "internal"),
   str(SETTINGS.AUTO_BACKUP_LAST_ERROR, "data", "", "wired", undefined, "internal", "internal"),
 
-  bool(SETTINGS.SPONSORBLOCK_ENABLED, "extensions", true, "wired"),
+  bool(SETTINGS.SPONSORBLOCK_ENABLED, "extensions", false, "wired"), // Sonja 2026-11-14: kept, default OFF — must not phone home to the SponsorBlock server unless the user turns it on
   bool(SETTINGS.DEARROW_ENABLED, "extensions", true, "wired"),
   bool(SETTINGS.DEARROW_BADGE_ENABLED, "extensions", true, "wired"),
   bool(SETTINGS.DEARROW_RANDOM_FRAME, "extensions", true, "wired"),
