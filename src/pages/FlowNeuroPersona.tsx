@@ -8,6 +8,7 @@ import { usePersonaData } from "../lib/usePersonaData";
 import { leaveGroupFirst } from "../lib/linked/leaveFirst";
 import { clearHomeFeed } from "../lib/api/homeFeed";
 import { useFeedActionsStore } from "../store/useFeedActionsStore";
+import { useUiStore } from "../store/useUiStore";
 
 import { SkeletonLoader } from "../components/persona/SkeletonLoader";
 import { PersonaOverview } from "../components/persona/PersonaOverview";
@@ -22,6 +23,7 @@ import { MusicTopArtists } from "../components/persona/MusicTopArtists";
 import { MusicGenreAffinity } from "../components/persona/MusicGenreAffinity";
 import { MusicListeningPatterns } from "../components/persona/MusicListeningPatterns";
 import { MusicBlockedArtists } from "../components/persona/MusicBlockedArtists";
+import { useMusicEnabled } from "../lib/useMusicContent";
 import { LearningActivity } from "../components/persona/LearningActivity";
 import { ProfileData } from "../components/persona/ProfileData";
 
@@ -55,6 +57,7 @@ export function FlowNeuroPersona() {
   const { choices, viewing, choose, activeId } = useViewedProfile();
   const readOnly = viewing !== null;
   const { brain, persona, musicProfile, loading, refreshing, failed, refresh } = usePersonaData(viewing?.id ?? null);
+  const musicEnabled = useMusicEnabled();
 
   const handleUnblockTopic = async (topic: string) => {
     try {
@@ -71,6 +74,16 @@ export function FlowNeuroPersona() {
       await refresh(true);
     } catch (e) {
       console.error("Failed to unblock channel:", e);
+    }
+  };
+
+  const handleBlockChannel = async (channelId: string, channelName: string) => {
+    try {
+      await useFeedActionsStore.getState().blockChannel({ channelId, channelName });
+      await refresh(true);
+    } catch (e) {
+      console.error("Failed to block channel:", e);
+      useUiStore.getState().showToast({ variant: "error", message: getString("persona_channel_block_failed") });
     }
   };
 
@@ -155,7 +168,7 @@ export function FlowNeuroPersona() {
           </div>
 
           {choices.length > 1 && (
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ms-auto flex items-center gap-2">
               <span className="text-xs font-semibold text-[var(--color-on-surface-variant)]">
                 {getString("persona_profile_label")}
               </span>
@@ -202,7 +215,7 @@ export function FlowNeuroPersona() {
 
         {/* Creator Memories & Blocked Filters */}
         <div className="col-span-12 lg:col-span-6">
-          <ChannelMemory brain={activeBrain} />
+          <ChannelMemory brain={activeBrain} onBlockChannel={readOnly ? undefined : (id, name) => void handleBlockChannel(id, name)} />
         </div>
 
         {/* Blocked Filters Section (rendered conditionally if blocks exist) */}
@@ -217,7 +230,7 @@ export function FlowNeuroPersona() {
         )}
 
         {/* Music taste profile — learned locally by the dedicated music engine */}
-        {musicProfile && (
+        {musicEnabled && musicProfile && (
           <>
             <div className="col-span-12">
               <MusicTasteOverview profile={musicProfile} />

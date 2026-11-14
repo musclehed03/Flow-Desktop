@@ -158,7 +158,7 @@ export function EqBandList({ bands, selected, canAdd, onSelect, onChange, onRemo
                 <Trash2 className="h-4 w-4" />
               </button>
               {/* The shape, drawn and spelled out: what this band does to the sound. */}
-              <div className="flex w-full items-center gap-2 pl-7">
+              <div className="flex w-full items-center gap-2 ps-7">
                 <EqShapeIcon band={band} />
                 <p id={shapeDescId} className="text-xs text-chrome-neutral-500">
                   {getString(shapeDescriptionKey(band))}

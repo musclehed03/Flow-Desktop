@@ -8,8 +8,8 @@ import { TypedSlider } from '../ui/TypedSlider';
 
 export function CrossfadeSettings() {
   const { t } = useTranslation('settings');
-  const [enabled, setEnabled] = useBoolPref(SETTINGS.CROSSFADE_ENABLED);
-  const [seconds, setSeconds] = useNumberPref(SETTINGS.CROSSFADE_SECONDS);
+  const [enabled, setEnabled] = useBoolPref(SETTINGS.MUSIC_CROSSFADE_ENABLED);
+  const [seconds, setSeconds] = useNumberPref(SETTINGS.MUSIC_CROSSFADE_SECONDS);
   const [everything, setEverything] = useBoolPref(SETTINGS.CROSSFADE_EVERYTHING);
   return <SettingsGroup title={t('crossfade.title')}>
     <SettingItem title={t('crossfade.enabled')} description={t('crossfade.description')}>

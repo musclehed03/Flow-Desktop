@@ -17,12 +17,18 @@ interface MediaScrubberProps {
   className?: string;
   /** Opt in to the Material 3 Expressive look; ignored when the user turns it off. */
   expressive?: boolean;
+  /** Which shape the Expressive look takes. */
+  barStyle?: string;
   /**
    * The media's own clock. While `playing`, the bar follows it every frame
    * instead of waiting for `progress`, which only changes about once a second.
    */
   clock?: () => number;
   playing?: boolean;
+  /** Seconds already loaded ahead, drawn lighter behind the fill. */
+  buffered?: number;
+  /** Where the pointer is along the bar, 0 to 1, while it hovers or drags; null once it leaves. */
+  onHover?: (ratio: number | null) => void;
 }
 
 export function MediaScrubber({
@@ -36,8 +42,11 @@ export function MediaScrubber({
   ariaLabel = getString("music_seek"),
   className = "",
   expressive = false,
+  barStyle = "default",
   clock,
   playing = false,
+  buffered = 0,
+  onHover,
 }: MediaScrubberProps) {
   const expressiveEnabled = useExpressiveSliders();
   const isExpressive = expressive && expressiveEnabled;
@@ -94,6 +103,7 @@ export function MediaScrubber({
   const moveDrag = (r: number) => {
     dragRatioRef.current = r;
     setDragRatio(r);
+    onHover?.(r);
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -104,8 +114,13 @@ export function MediaScrubber({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging || duration <= 0) return;
-    moveDrag(ratioFromClientX(e.clientX));
+    if (duration <= 0) return;
+    if (dragging) moveDrag(ratioFromClientX(e.clientX));
+    else onHover?.(ratioFromClientX(e.clientX));
+  };
+
+  const onPointerLeave = () => {
+    if (!dragging) onHover?.(null);
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -117,6 +132,7 @@ export function MediaScrubber({
     }
     if (e.type === "pointerup") moveDrag(ratioFromClientX(e.clientX));
     setDragging(false);
+    onHover?.(null);
     onSeek(dragRatioRef.current * duration);
   };
 
@@ -167,6 +183,7 @@ export function MediaScrubber({
     onPointerMove,
     onPointerUp: endDrag,
     onPointerCancel: endDrag,
+    onPointerLeave,
     onKeyDown,
     onWheel,
   };
@@ -176,6 +193,7 @@ export function MediaScrubber({
       {...sliderProps}
       className="m3-slider flex-1 cursor-pointer outline-none"
       data-pressed={dragging}
+      data-bar-style={barStyle}
       style={{ "--m3-fill": ratio } as CSSProperties}
     >
       <span className="m3-slider__track m3-slider__track--active" />
@@ -189,9 +207,15 @@ export function MediaScrubber({
       className={`group/scrub relative flex ${hitH} flex-1 cursor-pointer touch-none outline-none`}
     >
       <div className={`relative ${trackH} w-full overflow-hidden ${trackShape}`}>
+        {buffered > 0 && duration > 0 && (
+          <div
+            className={`absolute inset-y-0 start-0 bg-chrome-white/35 ${fillShape}`}
+            style={{ width: `${toRatio(buffered) * 100}%` }}
+          />
+        )}
         <div
           ref={fillRef}
-          className={`absolute inset-y-0 left-0 bg-[var(--color-primary)] ${fillShape}`}
+          className={`absolute inset-y-0 start-0 bg-[var(--color-primary)] ${fillShape}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -206,16 +230,21 @@ export function MediaScrubber({
   );
 
   if (isEdge || !showTimes) {
-    return <div className={`flex w-full items-center ${className}`}>{bar}</div>;
+    return (
+      <div dir="ltr" className={`flex w-full items-center ${className}`}>
+        {bar}
+      </div>
+    );
   }
 
   const rightLabel = countdown
     ? `-${formatTime(Math.max(0, duration - ratio * duration))}`
     : formatTime(duration);
 
+  // A timeline runs left to right in every language, with its times on the same sides.
   return (
-    <div className={`flex w-full items-center gap-3 ${className}`}>
-      <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-chrome-neutral-400">
+    <div dir="ltr" className={`flex w-full items-center gap-3 ${className}`}>
+      <span className="w-10 shrink-0 text-end font-mono text-xs tabular-nums text-chrome-neutral-400">
         {formatTime(ratio * duration)}
       </span>
       {bar}

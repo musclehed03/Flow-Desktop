@@ -53,7 +53,7 @@ export function PlayerTransportControls({
           playButtonClassName,
         )}
       >
-        {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
+        {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ms-0.5" />}
       </button>
       <button type="button" data-player-control="next" title={labels.next} aria-label={labels.next} onClick={onNext} className={sideButton}>
         <SkipForward size={16} fill="currentColor" />
@@ -106,7 +106,7 @@ export function PlayerVolumeControl({
       >
         {silent ? <VolumeX size={18} /> : volume < 0.55 ? <Volume1 size={18} /> : <Volume2 size={18} />}
       </button>
-      <div className="w-44 pr-2 opacity-100">
+      <div className="w-44 pe-2 opacity-100">
         <TypedSlider
           aria-label={labels.volume}
           min={0}

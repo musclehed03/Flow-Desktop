@@ -49,7 +49,7 @@ export function RelatedSongsSidebar() {
   if (!state.open) return null;
   const title = state.seed?.kind === 'music' ? state.seed.song.title : state.seed?.video.title;
   return <aside ref={sidebarRef} id="related-songs-sidebar" data-sensory-essential="true" role="region" aria-label={t('related.title')}
-    className="fixed bottom-0 right-0 top-[var(--app-titlebar-height,0px)] z-[560] w-[min(28rem,100vw)] overflow-y-auto border-l border-outline-variant bg-background p-4 text-on-surface">
+    className="fixed bottom-0 end-0 top-[var(--app-titlebar-height,0px)] z-[560] w-[min(28rem,100vw)] overflow-y-auto border-s border-outline-variant bg-background p-4 text-on-surface">
     <header className="mb-4 flex items-start justify-between gap-3">
       <div><h2 className="text-xl font-semibold">{t('related.title')}</h2><p className="text-sm text-on-surface-variant">{t('related.snapshot', { name: title })}</p></div>
       <button ref={close} type="button" aria-label={t('related.close')} onClick={state.close} className="rounded-full border border-outline-variant p-2"><X size={18} /></button>

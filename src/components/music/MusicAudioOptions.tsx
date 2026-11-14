@@ -14,8 +14,8 @@ export function MusicAudioOptions() {
   const [normalization, setNormalization] = useBoolPref(SETTINGS.MUSIC_LOUDNESS_NORMALIZATION);
   const [directMode, setDirectMode] = useBoolPref(SETTINGS.MUSIC_DIRECT_MODE, false);
   const [speed, setSpeed] = useNumberPref(SETTINGS.MUSIC_PLAYBACK_SPEED);
-  const [crossfade, setCrossfade] = useBoolPref(SETTINGS.CROSSFADE_ENABLED);
-  const [crossfadeSeconds, setCrossfadeSeconds] = useNumberPref(SETTINGS.CROSSFADE_SECONDS);
+  const [crossfade, setCrossfade] = useBoolPref(SETTINGS.MUSIC_CROSSFADE_ENABLED);
+  const [crossfadeSeconds, setCrossfadeSeconds] = useNumberPref(SETTINGS.MUSIC_CROSSFADE_SECONDS);
 
   return (
     <div className="flex flex-col gap-3">

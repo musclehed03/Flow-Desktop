@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Loader2, Search, X } from 'lucide-react';
 import { SearchSuggestionsPanel, suggestionOptionId } from '../search/SearchSuggestionsPanel';
 import { resolveChannelId } from '../../lib/api/youtube';
@@ -9,20 +9,32 @@ import { buildSuggestionColumns, type SuggestionRow } from '../../lib/searchSugg
 import { SETTINGS } from '../../lib/settings/schema';
 import { prefetchStreamInfo } from '../../lib/streamResolution';
 import { useSearchSuggestions } from '../../lib/useSearchSuggestions';
-import { parseYoutubeUrl, routeForYoutubeUrl } from '../../lib/youtubeUrl';
+import { FOCUS_SEARCH_EVENT } from '../../lib/windowEvents';
+import { channelRoute, parseYoutubeUrl, routeForYoutubeUrl } from '../../lib/youtubeUrl';
 import { useAppSettingsStore } from '../../store/useAppSettingsStore';
 import { useMusicHiddenFilter } from '../../store/useMusicActionsStore';
 import { useMusicPlayerStore } from '../../store/useMusicPlayerStore';
-import { useSearchHistoryStore } from '../../store/useSearchHistoryStore';
+import { useMusicEnabled } from '../../lib/useMusicContent';
+import { useSearchHistoryStore, useVisibleSearchHistory } from '../../store/useSearchHistoryStore';
+import { useSettingsSearchStore } from '../../store/useSettingsSearchStore';
+import type { SearchFilterState } from '../../lib/searchFilterState';
 import { useUiStore } from '../../store/useUiStore';
 
 const SHORTCUT_LABEL = IS_MACOS_RUNTIME ? '⌘K' : 'Ctrl K';
 
 export function TopbarSearch() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Only the Settings page itself; Import, Discover channels and Diagnostics live under /settings/ too.
+  const isSettingsPage = /^\/settings\/?$/.test(location.pathname);
+  const settingsQuery = useSettingsSearchStore((s) => s.query);
+  const setSettingsQuery = useSettingsSearchStore((s) => s.setQuery);
+  const clearSettingsQuery = useSettingsSearchStore((s) => s.clearQuery);
+
   const setSearchQuery = useUiStore((s) => s.setSearchQuery);
   const region = useAppSettingsStore((s) => s.values[SETTINGS.TRENDING_REGION]);
-  const history = useSearchHistoryStore((s) => s.entries);
+  const history = useVisibleSearchHistory();
+  const suggestionsEnabled = useAppSettingsStore((s) => s.values[SETTINGS.SEARCH_SUGGESTIONS_ENABLED] !== 'false');
   const recordSearch = useSearchHistoryStore((s) => s.record);
   const removeSearch = useSearchHistoryStore((s) => s.remove);
   const clearHistory = useSearchHistoryStore((s) => s.clear);
@@ -36,13 +48,20 @@ export function TopbarSearch() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { suggestions, musicItems } = useSearchSuggestions(text, region);
+  const musicEnabled = useMusicEnabled();
+  const { suggestions, musicItems } = useSearchSuggestions(
+    isSettingsPage ? '' : text,
+    region,
+    suggestionsEnabled,
+    musicEnabled,
+  );
   const columns = useMemo(
-    () => buildSuggestionColumns({ query: text, history, suggestions, musicItems, isHiddenSong }),
-    [text, history, suggestions, musicItems, isHiddenSong],
+    () => buildSuggestionColumns({ query: isSettingsPage ? '' : text, history, suggestions, musicItems, isHiddenSong }),
+    [isSettingsPage, text, history, suggestions, musicItems, isHiddenSong],
   );
   const rows = useMemo(() => [...columns.main, ...columns.side], [columns]);
-  const panelVisible = open && rows.length > 0;
+  const panelVisible = !isSettingsPage && open && rows.length > 0;
+  const currentValue = isSettingsPage ? settingsQuery : text;
 
   // A changed row set invalidates whatever row the keyboard was on.
   useEffect(() => setActiveKey(null), [rows]);
@@ -51,17 +70,22 @@ export function TopbarSearch() {
     const onOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
     };
+    const focusSearch = () => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      setOpen(true);
+    };
     const onShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-        setOpen(true);
+        focusSearch();
       }
     };
     document.addEventListener('mousedown', onOutside);
     window.addEventListener('keydown', onShortcut);
+    window.addEventListener(FOCUS_SEARCH_EVENT, focusSearch);
     return () => {
+      window.removeEventListener(FOCUS_SEARCH_EVENT, focusSearch);
       document.removeEventListener('mousedown', onOutside);
       window.removeEventListener('keydown', onShortcut);
     };
@@ -73,16 +97,16 @@ export function TopbarSearch() {
     inputRef.current?.blur();
   };
 
-  const runTextSearch = (query: string) => {
+  const runTextSearch = (query: string, searchFilters?: SearchFilterState) => {
     recordSearch(query);
     setText(query);
     setSearchQuery(query);
     close();
-    navigate(`/search?q=${encodeURIComponent(query)}`);
+    navigate(`/search?q=${encodeURIComponent(query)}`, searchFilters ? { state: { searchFilters } } : undefined);
   };
 
   const pick = (row: SuggestionRow) => {
-    if (row.kind === 'history') return runTextSearch(row.query);
+    if (row.kind === 'history') return runTextSearch(row.query, useSearchHistoryStore.getState().filtersOf(row.query));
     if (row.kind === 'query') return runTextSearch(row.text);
     recordSearch(text);
     close();
@@ -103,13 +127,39 @@ export function TopbarSearch() {
   };
 
   const fill = (value: string) => {
-    setText(value);
-    setOpen(true);
+    if (isSettingsPage) {
+      setSettingsQuery(value);
+    } else {
+      setText(value);
+      setOpen(true);
+    }
     inputRef.current?.focus();
+  };
+
+  const onInputChange = (val: string) => {
+    if (isSettingsPage) {
+      setSettingsQuery(val);
+    } else {
+      setText(val);
+      setOpen(true);
+    }
+  };
+
+  const onClear = () => {
+    if (isSettingsPage) {
+      clearSettingsQuery();
+      inputRef.current?.focus();
+    } else {
+      fill('');
+    }
   };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isSettingsPage) {
+      inputRef.current?.blur();
+      return;
+    }
     const query = text.trim();
     if (!query || resolving) return;
 
@@ -118,7 +168,7 @@ export function TopbarSearch() {
     if (parsed) {
       const route = routeForYoutubeUrl(parsed);
       if (route) {
-        if (parsed.kind === 'video') prefetchStreamInfo(parsed.videoId);
+        if (parsed.kind === 'video' || parsed.kind === 'short') prefetchStreamInfo(parsed.videoId);
         close();
         navigate(route);
         return;
@@ -129,7 +179,7 @@ export function TopbarSearch() {
         try {
           const channelId = await resolveChannelId(parsed.url);
           close();
-          navigate(parsed.music ? `/music/artist/${channelId}` : `/channel/${channelId}`);
+          navigate(channelRoute(channelId, parsed.music));
         } catch {
           runTextSearch(parsed.query || query);
         } finally {
@@ -146,12 +196,18 @@ export function TopbarSearch() {
       if (panelVisible) {
         setOpen(false);
         setActiveKey(null);
+      } else if (isSettingsPage) {
+        if (settingsQuery) {
+          clearSettingsQuery();
+        } else {
+          inputRef.current?.blur();
+        }
       } else {
         inputRef.current?.blur();
       }
       return;
     }
-    if (!panelVisible) return;
+    if (isSettingsPage || !panelVisible) return;
 
     const index = rows.findIndex((row) => row.key === activeKey);
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -178,7 +234,7 @@ export function TopbarSearch() {
       <form
         onSubmit={submit}
         role="search"
-        className={`flex h-10 w-full items-center gap-2 rounded-full border pl-1.5 pr-2 transition-colors duration-200 ease-out ${
+        className={`flex h-10 w-full items-center gap-2 rounded-full border ps-1.5 pe-2 transition-colors duration-200 ease-out ${
           panelVisible
             ? 'border-chrome-neutral-700 bg-surface-container'
             : 'border-chrome-neutral-800 bg-surface-container-low hover:border-chrome-neutral-700 focus-within:border-chrome-neutral-700 focus-within:bg-surface-container'
@@ -187,8 +243,8 @@ export function TopbarSearch() {
         <button
           type="submit"
           disabled={resolving}
-          aria-label={getString('search_submit')}
-          title={getString('search_submit')}
+          aria-label={getString(isSettingsPage ? 'settings_search_placeholder' : 'search_submit')}
+          title={getString(isSettingsPage ? 'settings_search_placeholder' : 'search_submit')}
           className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-chrome-neutral-400 transition-colors hover:bg-surface-container-highest hover:text-chrome-neutral-100 disabled:opacity-70"
         >
           {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -196,30 +252,33 @@ export function TopbarSearch() {
         <input
           ref={inputRef}
           type="text"
-          placeholder={getString('search_placeholder')}
-          value={text}
-          role="combobox"
-          aria-expanded={panelVisible}
-          aria-controls="search-suggestions"
-          aria-autocomplete="list"
-          aria-activedescendant={activeKey ? suggestionOptionId(activeKey) : undefined}
+          placeholder={getString(isSettingsPage ? 'settings_search_placeholder' : 'search_placeholder')}
+          value={currentValue}
+          {...(isSettingsPage
+            ? { 'aria-label': getString('settings_search_placeholder') }
+            : {
+                role: 'combobox',
+                'aria-expanded': panelVisible,
+                'aria-controls': panelVisible ? 'search-suggestions' : undefined,
+                'aria-autocomplete': 'list' as const,
+                'aria-activedescendant': activeKey ? suggestionOptionId(activeKey) : undefined,
+              })}
           autoComplete="off"
           spellCheck={false}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          onChange={(event) => {
-            setText(event.target.value);
-            setOpen(true);
+          onFocus={() => {
+            if (!isSettingsPage) setOpen(true);
           }}
+          onKeyDown={onKeyDown}
+          onChange={(event) => onInputChange(event.target.value)}
           className="h-10 min-w-0 flex-1 bg-transparent text-sm text-chrome-neutral-100 outline-none placeholder:text-chrome-neutral-500"
         />
-        {text ? (
+        {currentValue ? (
           <button
             type="button"
             aria-label={getString('search_clear')}
             title={getString('search_clear')}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => fill('')}
+            onClick={onClear}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-chrome-neutral-400 transition-colors hover:bg-surface-container-highest hover:text-chrome-neutral-100"
           >
             <X className="h-4 w-4" />

@@ -1,12 +1,13 @@
 import { SensorySettings } from "../../accessibility/SensorySettings";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState, type ChangeEvent } from "react";
 import { Download, Plus, Upload } from "lucide-react";
 import { ThemeFileSection } from "../../theme/ThemeFileSection";
 import { ThemePreview } from "../../theme/ThemePreview";
 import { Button } from "../../ui/Button";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
-import { useBoolPref } from "../../../lib/usePreference";
-import { SETTINGS } from "../../../lib/settings/schema";
+import { useBoolPref, usePreference } from "../../../lib/usePreference";
+import { NEW_SETTING_DAYS, SETTINGS } from "../../../lib/settings/schema";
+import { Select } from "../../ui/Select";
 import { confirmAction } from "../../../lib/dialogs";
 import { getString } from "../../../lib/i18n/index";
 import {
@@ -23,8 +24,6 @@ import { useThemeTransfer } from "../../../lib/useThemeTransfer";
 import { IS_LINUX_RUNTIME } from "../../../lib/platform";
 import { GraphicsCompatibilitySection } from "../GraphicsCompatibilitySection";
 import { getSettingValue } from "../../../store/useAppSettingsStore";
-import { mergeImportedThemes, parseThemeFile } from "../../../lib/themePresetFile";
-import { useUiStore } from "../../../store/useUiStore";
 import { SettingItem } from "../SettingItem";
 import { SettingsGroup } from "../SettingsGroup";
 
@@ -35,17 +34,32 @@ export function AppearanceTab() {
     themeId,
     variant,
     customThemes,
+    followSystem,
     setTheme,
     setVariant,
     saveCustomThemes,
   } = useTheme();
   const [editingTheme, setEditingTheme] = useState<CustomThemeDefinition | null>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
-  const importRef = useRef<HTMLInputElement>(null);
+  const [, setFollowSystem] = useBoolPref(SETTINGS.THEME_FOLLOW_SYSTEM, false);
+  const [lightThemeId, setLightThemeId] = usePreference(SETTINGS.THEME_LIGHT_ID, "default");
+  const [darkThemeId, setDarkThemeId] = usePreference(SETTINGS.THEME_DARK_ID, "default");
+  const [darkStyle, setDarkStyle] = usePreference(SETTINGS.THEME_DARK_STYLE, "dark");
+  const [appFont, setAppFont] = usePreference(SETTINGS.APP_FONT, "inter");
+  const themeOptions = [...BUILTIN_THEMES, ...customThemes].map((theme) => ({ value: theme.id, label: theme.name }));
   const [expressiveSliders, setExpressiveSliders] = useBoolPref(SETTINGS.EXPRESSIVE_SLIDERS_ENABLED, true);
   const [tooltips, setTooltips] = useBoolPref(SETTINGS.TOOLTIPS_ENABLED, true);
-  const { exportThemes } = useThemeTransfer();
+  const [highlightNew, setHighlightNew] = useBoolPref(SETTINGS.HIGHLIGHT_NEW_SETTINGS, false);
+  const [highlightDays, setHighlightDays] = usePreference(SETTINGS.HIGHLIGHT_NEW_SETTINGS_DAYS, "7");
+  const { exportThemes, importThemes } = useThemeTransfer();
+  const importInputRef = useRef<HTMLInputElement>(null);
   const usingThemeFile = themeId === THEME_FILE_ID;
+
+  const handleImportFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void importThemes(file);
+  };
 
   const openEditor = (theme: CustomThemeDefinition) => {
     editorOpenerRef.current = document.activeElement as HTMLElement | null;
@@ -93,19 +107,6 @@ export function AppearanceTab() {
     }
   };
 
-  const importThemes = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      const merged = mergeImportedThemes(customThemes, parseThemeFile(await file.text()));
-      await saveCustomThemes(merged);
-      useUiStore.getState().showToast({ message: getString("theme_import_success"), variant: "success" });
-    } catch {
-      useUiStore.getState().showToast({ message: getString("theme_import_failed"), variant: "error" });
-    } finally {
-      if (importRef.current) importRef.current.value = "";
-    }
-  };
-
   return (
     <div className="mx-auto max-w-5xl pb-28">
       <SensorySettings />
@@ -122,8 +123,8 @@ export function AppearanceTab() {
           <p className="mt-2 text-sm text-chrome-neutral-400">{getString("theme_page_description")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input ref={importRef} type="file" accept=".ddtheme,.json,application/json" className="hidden" onChange={(event) => void importThemes(event.target.files?.[0])} />
-          <Button variant="secondary" onClick={() => importRef.current?.click()}><Upload size={17} />{getString("theme_import")}</Button>
+          <input ref={importInputRef} type="file" accept=".ddtheme,.json,application/json" onChange={handleImportFile} className="hidden" />
+          <Button variant="secondary" onClick={() => importInputRef.current?.click()} disabled={customThemes.length >= MAX_CUSTOM_THEMES}><Upload size={17} />{getString("theme_import")}</Button>
           <Button variant="secondary" onClick={() => void exportThemes(customThemes)} disabled={customThemes.length === 0}>
             <Download size={17} />
             {getString("theme_export_all")}
@@ -141,20 +142,65 @@ export function AppearanceTab() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {THEME_VARIANTS.map((item) => (
-            <Button key={item} variant={variant === item ? "primary" : "secondary"} onClick={() => void setVariant(item)} disabled={usingThemeFile}>
+            <Button key={item} variant={variant === item ? "primary" : "secondary"} onClick={() => void setVariant(item)} disabled={usingThemeFile || followSystem}>
               {getString(`theme_variant_${item}` as Parameters<typeof getString>[0])}
             </Button>
           ))}
         </div>
       </section>
 
-      <section className="mt-8 flex items-center justify-between gap-6 rounded-2xl border border-chrome-neutral-800 bg-surface-container-low p-5">
-        <div className="min-w-0">
-          <h2 className="text-base font-medium text-chrome-neutral-200">{getString("settings_expressive_sliders")}</h2>
-          <p className="mt-1 text-sm text-chrome-neutral-400">{getString("settings_expressive_sliders_desc")}</p>
-        </div>
-        <ToggleSwitch checked={expressiveSliders} onChange={setExpressiveSliders} />
-      </section>
+      <div className="mt-8">
+        <SettingsGroup>
+          <SettingItem title={getString("settings_theme_follow_system")} description={getString("settings_theme_follow_system_desc")}>
+            <ToggleSwitch checked={followSystem} onChange={setFollowSystem} />
+          </SettingItem>
+          {followSystem && (
+            <>
+              <SettingItem title={getString("settings_theme_light_mode")}>
+                <Select value={lightThemeId} onChange={setLightThemeId} options={themeOptions} />
+              </SettingItem>
+              <SettingItem title={getString("settings_theme_dark_mode")}>
+                <Select value={darkThemeId} onChange={setDarkThemeId} options={themeOptions} />
+              </SettingItem>
+              <SettingItem title={getString("settings_theme_dark_style")}>
+                <Select
+                  value={darkStyle}
+                  onChange={setDarkStyle}
+                  options={[
+                    { value: "dark", label: getString("theme_variant_dark") },
+                    { value: "amoled", label: getString("theme_variant_amoled") },
+                  ]}
+                />
+              </SettingItem>
+            </>
+          )}
+          <SettingItem title={getString("settings_app_font")} description={getString("settings_app_font_desc")}>
+            <Select
+              value={appFont}
+              onChange={setAppFont}
+              options={[
+                { value: "inter", label: "Inter" },
+                { value: "system", label: getString("settings_app_font_system") },
+              ]}
+            />
+          </SettingItem>
+          <SettingItem title={getString("settings_expressive_sliders")} description={getString("settings_expressive_sliders_desc")}>
+            <ToggleSwitch checked={expressiveSliders} onChange={setExpressiveSliders} />
+          </SettingItem>
+          <SettingItem title={getString("settings_highlight_new")} description={getString("settings_highlight_new_desc")}>
+            <ToggleSwitch checked={highlightNew} onChange={setHighlightNew} />
+          </SettingItem>
+          {highlightNew && (
+            <SettingItem title={getString("settings_highlight_new_days")}>
+              <Select
+                value={highlightDays}
+                onChange={setHighlightDays}
+                options={NEW_SETTING_DAYS.map((days) => ({ value: days, label: getString("settings_highlight_new_days_option", days) }))}
+              />
+            </SettingItem>
+          )}
+        </SettingsGroup>
+      </div>
 
       {IS_LINUX_RUNTIME && <GraphicsCompatibilitySection />}
 

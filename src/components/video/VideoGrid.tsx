@@ -6,6 +6,7 @@ import { useGridStyle, useResolvedGridColumns } from '../../lib/useGridColumns';
 import { IMPRESSION_ATTRIBUTE, useFeedImpressions } from '../../lib/useFeedImpressions';
 import { GRID_INDEX_ATTRIBUTE, useLastVisibleCard } from '../../lib/useLastVisibleCard';
 import { thumbnailNeedsHighRes } from '../../lib/thumbnails';
+import { SCROLL_ANCHOR_ATTRIBUTE } from '../../lib/useScrollAnchor';
 
 interface VideoGridProps {
   videos?: VideoSummary[];
@@ -23,8 +24,22 @@ interface VideoGridProps {
   trackImpressions?: boolean;
   /** Why a feed shows a card, offered in its menu. */
   getReason?: (video: VideoSummary) => string | undefined;
+  /** A line shown on the card itself, for the few reasons worth saying up front. */
+  getReasonLine?: (video: VideoSummary) => string | undefined;
   /** The position of the last card on screen, for a feed that pages as it nears the end. */
   onLastVisibleIndex?: (index: number) => void;
+  /** Marks each card with its key, for a page that keeps the card being read in place. */
+  scrollAnchors?: boolean;
+}
+
+/**
+ * The card the slot follows: the end of the first row, whatever the resolved column count is, so a
+ * fixed index cannot strand the row's leftovers on a second row above it. -1 while the grid is not
+ * measured yet.
+ */
+export function insertAfterCard(hasSlot: boolean, columns: number, cardCount: number): number {
+  if (!hasSlot) return -1;
+  return columns > 0 ? Math.min(columns, cardCount) - 1 : -1;
 }
 
 function VideoCardSkeleton() {
@@ -55,7 +70,9 @@ function VideoGridComponent({
   hideChannelAvatar,
   trackImpressions = false,
   getReason,
+  getReasonLine,
   onLastVisibleIndex,
+  scrollAnchors = false,
 }: VideoGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   useFeedImpressions(gridRef, videos, trackImpressions && !loading);
@@ -66,12 +83,7 @@ function VideoGridComponent({
   const highResThumbnails = trackWidth > 0 ? thumbnailNeedsHighRes(trackWidth) : undefined;
   const gridClass = "flow-grid gap-y-8 pb-8";
 
-  /*
-    The slot goes after the last card of the first row, whatever the resolved
-    column count is — a fixed index would leave the row's leftovers stranded on
-    a second row above the slot. -1 until the grid has been measured.
-  */
-  const insertAfterIndex = insertNode && columns > 0 ? Math.min(columns, videos.length) - 1 : -1;
+  const insertAfterIndex = insertAfterCard(Boolean(insertNode), columns, videos.length);
 
   if (loading) {
     return (
@@ -84,9 +96,15 @@ function VideoGridComponent({
   }
 
   return (
-    <div ref={gridRef} className={gridClass} style={gridStyle}>
-      {videos.map((video, index) => (
-        <Fragment key={getVideoKey ? getVideoKey(video, index) : `${video.id}-${index}`}>
+    <div
+      ref={gridRef}
+      className={gridClass}
+      style={gridStyle}
+    >
+      {videos.map((video, index) => {
+        const key = getVideoKey ? getVideoKey(video, index) : `${video.id}-${index}`;
+        return (
+        <Fragment key={key}>
           {/*
             content-visibility lets the browser skip layout/paint for offscreen
             cards — feeds can hold hundreds, and Linux composites on the CPU.
@@ -98,6 +116,7 @@ function VideoGridComponent({
             className="flow-grid-card p-2 -m-2"
             {...(trackImpressions ? { [IMPRESSION_ATTRIBUTE]: video.id } : {})}
             {...(onLastVisibleIndex ? { [GRID_INDEX_ATTRIBUTE]: index } : {})}
+            {...(scrollAnchors ? { [SCROLL_ANCHOR_ATTRIBUTE]: key } : {})}
           >
             <VideoCard
               video={video}
@@ -107,6 +126,7 @@ function VideoGridComponent({
               variant={variant}
               hideChannelAvatar={hideChannelAvatar}
               reason={getReason?.(video)}
+              reasonLine={getReasonLine?.(video)}
               highResThumbnail={highResThumbnails}
             />
           </div>
@@ -116,7 +136,8 @@ function VideoGridComponent({
             </div>
           ) : null}
         </Fragment>
-      ))}
+        );
+      })}
     </div>
   );
 }

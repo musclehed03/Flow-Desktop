@@ -2,7 +2,7 @@ import { getSetting, setSetting } from "./api/db";
 import { isTauriEnv } from "./api/env";
 import { writeBackupFile } from "./api/files";
 import { getChannelDetails } from "./api/youtube";
-import { buildSettingsBackupJson, type SettingsBackupScope } from "./settings/backup";
+import { buildSettingsBackup, type SettingsBackupScope } from "./settings/backup";
 import { SETTINGS } from "./settings/schema";
 import { getSettingValue } from "../store/useAppSettingsStore";
 import { useSubscriptionStore } from "../store/useSubscriptionStore";
@@ -28,7 +28,7 @@ export async function runScheduledBackup(now = Date.now()): Promise<"written" | 
   if (!backupIsDue(frequency, lastRun, now)) return "not-due";
   if (!directory || !(await isTauriEnv())) return "not-configured";
   const scope = getSettingValue(SETTINGS.AUTO_BACKUP_TYPE) as SettingsBackupScope;
-  const contents = await buildSettingsBackupJson(scope);
+  const contents = JSON.stringify(await buildSettingsBackup(scope), null, 2);
   const stamp = new Date(now).toISOString().replace(/:/g, "-");
   const separator = directory.includes("\\") ? "\\" : "/";
   await writeBackupFile(`${directory.replace(/[\\/]$/, "")}${separator}flow_backup_${scope.toLowerCase()}_${stamp}.json`, contents);

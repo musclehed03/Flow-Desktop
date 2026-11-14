@@ -31,6 +31,7 @@ export function usePersistedPlayerVolume(): void {
   const muted = usePlayerStore((state) => state.muted);
   const musicVolume = useMusicPlayerStore((state) => state.volume);
   const musicMuted = useMusicPlayerStore((state) => state.isMuted);
+  const volumeBoost = usePlayerStore((state) => state.volumeBoost);
   const hydratedRef = useRef(false);
   const lastSyncedRef = useRef({ volume: 1, muted: false });
 
@@ -43,6 +44,8 @@ export function usePersistedPlayerVolume(): void {
     const video = usePlayerStore.getState();
     video.setVolume(level);
     video.setMuted(storedMuted);
+    const storedBoost = Number(getSettingValue(SETTINGS.PLAYER_VOLUME_BOOST));
+    if (Number.isFinite(storedBoost)) video.setVolumeBoost(storedBoost);
     const music = useMusicPlayerStore.getState();
     music.setVolume(level);
     music.setMuted(storedMuted);
@@ -71,8 +74,9 @@ export function usePersistedPlayerVolume(): void {
     const synced = lastSyncedRef.current;
     const timer = setTimeout(() => {
       void setSettingValue(SETTINGS.PLAYER_VOLUME, String(synced.volume));
+      void setSettingValue(SETTINGS.PLAYER_VOLUME_BOOST, String(volumeBoost));
       void setSettingValue(SETTINGS.PLAYER_MUTED, String(synced.muted));
     }, PERSIST_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [musicMuted, musicVolume, muted, volume]);
+  }, [musicMuted, musicVolume, muted, volume, volumeBoost]);
 }

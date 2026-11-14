@@ -94,7 +94,7 @@ export function Visualizers() {
   const visible = config.enabled && !simple && !focus && (surface === 'music' ? !!music : !!video);
   const floating = visible && (config.mode !== 'inline' || surface === 'video');
   return <>
-    {visible && !acknowledged && <section role="alert" data-sensory-essential="true" className="fixed bottom-28 right-4 z-[590] max-w-sm rounded-2xl border border-outline-variant bg-background p-4 text-on-surface"><p>{t('visualizer.advisory')}</p><button type="button" className="mt-2 rounded-full border border-outline-variant px-3 py-2" onClick={openVisualizerCustomizer}>{t('visualizer.review')}</button></section>}
+    {visible && !acknowledged && <section role="alert" data-sensory-essential="true" className="fixed bottom-28 end-4 z-[590] max-w-sm rounded-2xl border border-outline-variant bg-background p-4 text-on-surface"><p>{t('visualizer.advisory')}</p><button type="button" className="mt-2 rounded-full border border-outline-variant px-3 py-2" onClick={openVisualizerCustomizer}>{t('visualizer.review')}</button></section>}
     {floating && <section aria-label={t('visualizer.title')} data-sensory-essential="true"
       style={config.mode === 'fullscreen' ? undefined : { left: miniSurface.layout.x, top: miniSurface.layout.y, width: miniSurface.layout.width, height: miniSurface.layout.height }}
       className={config.mode === 'fullscreen' ? 'fixed inset-0 z-[580] flex flex-col bg-background p-4 text-on-surface' : 'fixed z-[80] flex flex-col overflow-hidden rounded-2xl border border-outline-variant bg-background text-on-surface'}>
@@ -139,9 +139,9 @@ export function Visualizers() {
         <button type="button" data-player-control="visualizer" aria-label={t('visualizer.customize')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={openVisualizerCustomizer}><SlidersHorizontal size={18} /></button>
         <button type="button" aria-label={t('visualizer.close')} onClick={() => update({ ...config, enabled: false })}><X size={18} /></button>
       </div>
-      {config.mode !== 'fullscreen' && <div role="separator" tabIndex={0} aria-label={t('surface.resize')} onPointerDown={miniSurface.beginResize} onKeyDown={miniSurface.keyboardResize} className="absolute bottom-0 right-0 z-20 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
+      {config.mode !== 'fullscreen' && <div role="separator" tabIndex={0} aria-label={t('surface.resize')} onPointerDown={miniSurface.beginResize} onKeyDown={miniSurface.keyboardResize} className="absolute bottom-0 end-0 z-20 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
     </section>}
-    {open && <Suspense fallback={<p role="status" className="fixed right-4 top-4 z-[620] rounded-lg bg-surface-container p-3 text-on-surface">{t('visualizer.loading')}</p>}>
+    {open && <Suspense fallback={<p role="status" className="fixed end-4 top-4 z-[620] rounded-lg bg-surface-container p-3 text-on-surface">{t('visualizer.loading')}</p>}>
       <VisualizerCustomizerPanel config={config} openerRef={opener} onChange={saveConfig} onClose={close} />
     </Suspense>}
   </>;

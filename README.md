@@ -54,6 +54,7 @@ The following is the upstream README, preserved in full. Upstream download links
   <p>
   <a href="https://github.com/Flow-Tube/Flow-Desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/pill/get-windows-dark.svg"><img alt="Download for Windows" src="https://assets.flow-tube.org/v1/badges/pill/get-windows-light.svg" height="60"></picture></a>
   <a href="https://github.com/Flow-Tube/Flow-Desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/pill/get-linux-dark.svg"><img alt="Download for Linux" src="https://assets.flow-tube.org/v1/badges/pill/get-linux-light.svg" height="60"></picture></a>
+  <a href="https://flatpark.org/apps/io.github.aedev.flow.desktop/"><img alt="Get it on FlatPark" src="https://flatpark.org/badges/get-it-on-flatpark.svg" height="60"></a>
   </p>
   <p>
   [Desktop: Windows · Linux](#downloads-and-supported-systems)
@@ -61,7 +62,7 @@ The following is the upstream README, preserved in full. Upstream download links
   <a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.flow-tube.org/v1/badges/split/license-dark.svg"><img alt="License: GPL-3.0" src="https://assets.flow-tube.org/v1/badges/split/license-light.svg" height="32"></picture></a>
   </p>
 
-  [**Downloads**](https://github.com/FlowNeuro/Flow-Desktop/releases) · [**Android app**](https://github.com/Flow-Tube/Flow) · [**Community**](https://www.reddit.com/r/Flow_Official/) · [**Support development**](#support--donations)
+  [**Downloads**](https://github.com/Flow-Tube/Flow-Desktop/releases) · [**Android app**](https://github.com/Flow-Tube/Flow) · [**Community**](https://www.reddit.com/r/Flow_Official/) · [**Support development**](#support--donations)
 </div>
 
 > Flow Desktop is under active development. Features and storage formats may change before the first stable release.
@@ -104,18 +105,45 @@ Flow still contacts YouTube and optional services such as SponsorBlock, DeArrow,
 
 Apple builds are upstream-only — this fork ships Windows and Linux.
 
-Release builds are published through [GitHub Releases](https://github.com/FlowNeuro/Flow-Desktop/releases).
+Release builds are published through [GitHub Releases](https://github.com/Flow-Tube/Flow-Desktop/releases).
 
 - **Stable:** reviewed releases intended for normal use.
 - **Beta / RC:** public GitHub prereleases for wider testing. These install as **Flow Beta** with isolated application data.
-- **Nightly:** automatic snapshots from `main`. These install as **Flow Nightly**, use isolated data, and may be unstable. Download the latest packages from [GitHub Actions](https://github.com/FlowNeuro/Flow-Desktop/actions/workflows/build.yml) or [nightly.link](https://nightly.link/FlowNeuro/Flow-Desktop/workflows/build/main) without a GitHub account.
+- **Nightly:** automatic snapshots from `main`. These install as **Flow Nightly**, use isolated data, and may be unstable. Download the latest packages from the [Nightly release](https://github.com/Flow-Tube/Flow-Desktop/releases/tag/nightly), which every new build replaces.
 
 | Platform | Supported versions | Architectures | Packages |
 | --- | --- | --- | --- |
 | Windows | Windows 10 22H2, Windows 11 | x64, ARM64 | NSIS installer |
-| Linux | Ubuntu 22.04+, Debian 12+, and comparable modern distributions | x64, ARM64 | AppImage, `.deb`, `.rpm` |
+| Linux | Ubuntu 22.04+, Debian 12+, and comparable modern distributions | x64, ARM64 | AppImage, `.deb`, `.rpm`, Flatpak ([FlatPark](https://flatpark.org/apps/io.github.aedev.flow.desktop/)) |
 
-Linux builds require a compatible glibc, GTK 3, and WebKitGTK 4.1 environment. Legacy 32-bit systems are not supported.
+Linux builds require a compatible glibc, GTK 3, and WebKitGTK 4.1 environment. Legacy 32-bit systems are not supported. See [docs/LINUX.md](docs/LINUX.md) for which package to pick, graphics problems, codecs, sync and moving from Beta to Stable.
+
+### Opening Flow on macOS
+
+Flow isn't signed with an Apple Developer ID or notarized yet, so the first launch is blocked with a message such as "Apple could not verify Flow is free of malware" or "Flow is damaged and can't be opened". To open it:
+
+1. Open the DMG and drag Flow into your Applications folder. Flow can only update itself from there.
+2. In Terminal, remove the download mark macOS puts on the app:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Flow.app
+   ```
+
+   For a Beta or Nightly build, use `"/Applications/Flow Beta.app"` or `"/Applications/Flow Nightly.app"`, with the quotes.
+3. Open Flow as usual.
+
+Without Terminal: try to open Flow once, then go to **System Settings > Privacy & Security**, scroll down to the message about Flow and click **Open Anyway**. Updates Flow installs itself don't need this again.
+
+### Flatpak (FlatPark)
+
+[FlatPark](https://flatpark.org/apps/io.github.aedev.flow.desktop/) offers Flow as a Flatpak. It downloads the official `.deb` from this repository's releases, unmodified, at install time, and runs it on the GNOME runtime with its codecs, so H.264, VP9 and AV1 all play. Updates come through Flatpak; Flow's own updater stays off there.
+
+```sh
+flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install flatpark io.github.aedev.flow.desktop
+```
+
+FlatPark follows the latest GitHub release, betas included, and not the nightly builds. The packaging lives in the [FlatPark registry](https://github.com/flatpark/flatpark/tree/main/registry/io.github.aedev.flow.desktop), where packaging issues go.
 
 ### Linux media codecs
 
@@ -123,7 +151,7 @@ On Linux, video decoding goes through WebKitGTK and the system GStreamer plugins
 
 - **AppImage** — bundles the required GStreamer codec plugins (including `gst-libav` for H.264); no system codec packages are needed.
 - **`.deb`** — declares the codec plugins as dependencies. Install with `sudo apt install ./Flow_*.deb` so they are pulled in automatically.
-- **`.rpm`** — the freely licensed plugins are hard dependencies. On Fedora, H.264 decoding (`gstreamer1-libav`, `gstreamer1-plugins-bad-freeworld`) is only available from [RPM Fusion](https://rpmfusion.org/Configuration) for patent reasons: enable RPM Fusion and run `sudo dnf install gstreamer1-libav gstreamer1-plugins-bad-freeworld`, or use the AppImage instead.
+- **`.rpm`** — the freely licensed plugins are hard dependencies. On Fedora, a full H.264 decoder is only available through [RPM Fusion](https://rpmfusion.org/Configuration) for patent reasons (Fedora's own OpenH264 can't decode most YouTube video): enable RPM Fusion and run `sudo dnf swap ffmpeg-free ffmpeg --allowerasing` and `sudo dnf install gstreamer1-plugin-libav`, or use the AppImage instead. Without it, Flow plays VP9, which Fedora always has.
 
 ### Linux startup crashes and blank windows
 
@@ -137,7 +165,7 @@ rm squashfs-root/usr/lib/*wayland*so*
 ./squashfs-root/AppRun
 ```
 
-On Arch-family distributions the AUR package and the planned Flatpak build avoid this class of issue; prefer those when available.
+The `.deb`, `.rpm` and the FlatPark Flatpak use the system's or the runtime's own libraries and avoid this class of issue; prefer those when the AppImage fails.
 
 ---
 

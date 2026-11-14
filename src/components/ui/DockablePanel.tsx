@@ -31,14 +31,14 @@ interface DockablePanelProps {
 
 const edges: PanelResizeEdge[] = ["top", "right", "bottom", "left", "top-left", "top-right", "bottom-left", "bottom-right"];
 const edgeClasses: Record<PanelResizeEdge, string> = {
-  top: "left-3 right-3 top-0 h-2 cursor-ns-resize",
-  right: "bottom-3 right-0 top-3 w-2 cursor-ew-resize",
-  bottom: "bottom-0 left-3 right-3 h-2 cursor-ns-resize",
-  left: "bottom-3 left-0 top-3 w-2 cursor-ew-resize",
-  "top-left": "left-0 top-0 h-3 w-3 cursor-nwse-resize",
-  "top-right": "right-0 top-0 h-3 w-3 cursor-nesw-resize",
-  "bottom-left": "bottom-0 left-0 h-3 w-3 cursor-nesw-resize",
-  "bottom-right": "bottom-0 right-0 h-3 w-3 cursor-nwse-resize",
+  top: "start-3 end-3 top-0 h-2 cursor-ns-resize",
+  right: "bottom-3 end-0 top-3 w-2 cursor-ew-resize",
+  bottom: "bottom-0 start-3 end-3 h-2 cursor-ns-resize",
+  left: "bottom-3 start-0 top-3 w-2 cursor-ew-resize",
+  "top-left": "start-0 top-0 h-3 w-3 cursor-nwse-resize",
+  "top-right": "end-0 top-0 h-3 w-3 cursor-nesw-resize",
+  "bottom-left": "bottom-0 start-0 h-3 w-3 cursor-nesw-resize",
+  "bottom-right": "bottom-0 end-0 h-3 w-3 cursor-nwse-resize",
 };
 
 function viewport() { return { width: window.innerWidth, height: window.innerHeight }; }

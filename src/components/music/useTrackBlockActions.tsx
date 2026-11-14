@@ -1,5 +1,6 @@
 import { Ban, EyeOff, ShieldX } from 'lucide-react';
 
+import { dontRecommendLabel } from '../../lib/dontRecommendLabel';
 import { getString } from '../../lib/i18n/index';
 import { useMusicActionsStore } from '../../store/useMusicActionsStore';
 import { useUiStore } from '../../store/useUiStore';
@@ -27,6 +28,7 @@ export function useTrackBlockActions(track: SongItem | null): MusicMenuAction[] 
       label: getString('music_not_interested'),
       icon: <EyeOff size={16} />,
       group: 'feed',
+      danger: true,
       onSelect: async () => {
         await notInterested(track);
         showToast({ variant: 'success', message: getString('music_not_interested_toast') });
@@ -46,9 +48,10 @@ export function useTrackBlockActions(track: SongItem | null): MusicMenuAction[] 
   if (artistName) {
     actions.push({
       id: 'block-artist',
-      label: getString('music_dont_recommend_artist').replace('{artist}', artistName),
+      label: dontRecommendLabel(artistName),
       icon: <Ban size={16} />,
       group: 'feed',
+      danger: true,
       onSelect: async () => {
         await blockArtist({ id: primary?.id ?? null, name: artistName });
         showToast({

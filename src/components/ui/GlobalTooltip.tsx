@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
+import { getString, type StringKey } from "../../lib/i18n/index";
 import { SETTINGS } from "../../lib/settings/schema";
 import { useAppSettingsStore } from "../../store/useAppSettingsStore";
 
@@ -82,7 +82,6 @@ interface TooltipSession {
 }
 
 export function GlobalTooltip() {
-  const { t } = useTranslation("settings");
   const enabled = useAppSettingsStore((state) => state.values[SETTINGS.TOOLTIPS_ENABLED] !== "false");
   const [view, setView] = useState<TooltipView | null>(null);
   const session = useRef<TooltipSession | null>(null);
@@ -114,7 +113,21 @@ export function GlobalTooltip() {
     current.target.setAttribute("aria-describedby", describedBy);
     current.shown = true;
     const control = shortcutKey(current.target);
-    const translatedShortcut = control ? t(`sensory.tooltips.shortcuts.${control}`) : "";
+    // Shortcut letters moved out of the deleted settings.json namespace into
+    // strings.json; the map keeps the key static so getString stays typed.
+    const shortcutKeys: Record<string, StringKey> = {
+      playPause: "sensory_tooltips_shortcuts_play_pause",
+      previous: "sensory_tooltips_shortcuts_previous",
+      next: "sensory_tooltips_shortcuts_next",
+      seek: "sensory_tooltips_shortcuts_seek",
+      mute: "sensory_tooltips_shortcuts_mute",
+      volume: "sensory_tooltips_shortcuts_volume",
+      fullscreen: "sensory_tooltips_shortcuts_fullscreen",
+      pip: "sensory_tooltips_shortcuts_pip",
+      captions: "sensory_tooltips_shortcuts_captions",
+      miniPlayer: "sensory_tooltips_shortcuts_mini_player",
+    };
+    const translatedShortcut = control && shortcutKeys[control] ? getString(shortcutKeys[control]!) : "";
     setView({
       text,
       detail: current.target.dataset.tooltipDetail
@@ -126,7 +139,7 @@ export function GlobalTooltip() {
       below: rect.top < 88,
     });
     if (touch) hideTimer.current = setTimeout(clear, TOUCH_VISIBLE_MS);
-  }, [clear, t]);
+  }, [clear]);
 
   const schedule = useCallback((target: HTMLElement, delay: number, touch = false) => {
     if (session.current?.target === target) return;
@@ -206,7 +219,7 @@ export function GlobalTooltip() {
   return createPortal(
     <div id={TOOLTIP_ID} role="tooltip" style={style} className="pointer-events-none fixed z-[900] max-w-xs rounded-lg border-2 border-outline-variant bg-surface-container-highest px-3 py-2 text-center text-xs text-on-surface">
       <span className="font-semibold">{view.text}</span>
-      {view.shortcut && <kbd className="ml-2 rounded border-2 border-outline-variant px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant">{view.shortcut}</kbd>}
+      {view.shortcut && <kbd className="ms-2 rounded border-2 border-outline-variant px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant">{view.shortcut}</kbd>}
       {view.detail && <span className="mt-1 block text-on-surface-variant">{view.detail}</span>}
     </div>,
     document.body,

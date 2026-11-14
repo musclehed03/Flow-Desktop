@@ -134,7 +134,7 @@ function EqualizerEditor({ onClose }: { onClose: () => void }) {
           <Chip active={!graphic} onClick={() => setMode("PARAMETRIC")} className="h-8 px-3 text-sm">
             {getString("eq_mode_parametric")}
           </Chip>
-          <EqCompareButton className="ml-auto" />
+          <EqCompareButton className="ms-auto" />
         </div>
 
         <EqInputModeSelector />

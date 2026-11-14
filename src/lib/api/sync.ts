@@ -79,15 +79,17 @@ export interface DeviceInfo {
   deviceName: string;
 }
 
-export const SYNC_COLLECTIONS: ReadonlyArray<{ key: string; label: string; description: string }> = [
-  { key: "watch_history", label: "Watch history", description: "Everything you've watched, with progress" },
-  { key: "playlists", label: "Playlists", description: "Your playlists and Watch Later" },
-  { key: "likes", label: "Likes", description: "Liked videos and songs" },
-  { key: "settings", label: "Player & UI settings", description: "Playback, content and quality preferences" },
-  { key: "flow_neuro_brain", label: "Recommendation brain", description: "Your FlowNeuro taste profile" },
-  { key: "music_brain", label: "Music taste", description: "Artist affinities and listening history" },
-  { key: "subscribed_channels", label: "Subscriptions", description: "The channels you follow" },
-  { key: "subscriptions", label: "Subscription groups", description: "The folders you sort your channels into" },
+/** What a sync can carry, in the order the Sync page lists them; the page names each one. */
+export const SYNC_COLLECTIONS: ReadonlyArray<{ key: string }> = [
+  { key: "watch_history" },
+  { key: "playlists" },
+  { key: "likes" },
+  { key: "settings" },
+  { key: "flow_neuro_brain" },
+  { key: "music_brain" },
+  { key: "subscribed_channels" },
+  { key: "subscriptions" },
+  { key: "notes" },
 ];
 
 export const SYNC_STATUS_EVENT = "sync://status";
@@ -101,6 +103,18 @@ export function getSyncDeviceInfo(): Promise<DeviceInfo> {
 
 export function getSyncStatus(): Promise<SyncStatus> {
   return invokeBackend<SyncStatus>("sync_status");
+}
+
+/** Mirrors `commands::sync::FirewallHelp`. */
+export interface FirewallHelp {
+  /** `ufw` and/or `firewalld`, when installed; always empty off Linux. */
+  firewalls: string[];
+  /** The port Linked devices listens on, once its service started. */
+  linkedPort: number | null;
+}
+
+export function getSyncFirewallHelp(): Promise<FirewallHelp> {
+  return invokeBackend<FirewallHelp>("sync_firewall_help");
 }
 
 export function startSyncHost(collections: string[]): Promise<HostStartInfo> {

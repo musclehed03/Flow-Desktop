@@ -161,7 +161,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
           {showSkipControls && (
             <button
               type="button"
-              title={`Back ${seekIntervalSeconds}s`}
+              title={getString('player_mini_back_seconds', seekIntervalSeconds)}
               onClick={() => skip(-seekIntervalSeconds)}
               className={sideBtn}
             >
@@ -185,7 +185,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
           {showSkipControls && (
             <button
               type="button"
-              title={`Forward ${seekIntervalSeconds}s`}
+              title={getString('player_mini_forward_seconds', seekIntervalSeconds)}
               onClick={() => skip(seekIntervalSeconds)}
               className={sideBtn}
             >

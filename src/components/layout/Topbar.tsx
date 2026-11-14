@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, HatGlasses, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react';
+import { usePlayerStore } from '../../store/usePlayerStore';
 import { useUiStore } from '../../store/useUiStore';
 import { useAppSettingsStore } from '../../store/useAppSettingsStore';
 import Logo from '../common/Logo';
@@ -11,6 +12,7 @@ import { toggleDeepFlow } from '../../lib/deepFlow';
 import { NotificationsBell } from '../notifications/NotificationsBell';
 import { activeTab, useTabsStore } from '../../store/useTabsStore';
 import { ProfileMenuButton } from '../profiles/ProfileMenuButton';
+import { useSidebarDrawer } from '../../lib/useSidebarDrawer';
 
 /** PageWrapper returns focus here when Escape closes the drawer. */
 export const SIDEBAR_MENU_BUTTON_ID = 'sidebar-menu-button';
@@ -22,7 +24,11 @@ export function Topbar() {
   const isWatchSidebarOpen = useUiStore((s) => s.isWatchSidebarOpen);
   const navigate = useNavigate();
   const location = useLocation();
-  const usesDrawer = location.pathname.startsWith('/watch/') || location.pathname.startsWith('/settings');
+  const isWatchPage = location.pathname.startsWith('/watch/');
+  const usesDrawer = useSidebarDrawer();
+  // Lets the glow above the player through. Solid again the moment the video reaches the bar,
+  // with no fade, so the picture never shows behind the search box.
+  const seeThrough = usePlayerStore((s) => s.isAmbientSpreadShown && s.isPlayerBelowTopbar) && isWatchPage;
   const sidebarOpen = usesDrawer ? isWatchSidebarOpen : isSidebarExpanded;
   const showAppLogo = useAppSettingsStore((state) => state.values[SETTINGS.SHOW_APP_LOGO_ICON] !== 'false');
   const deepFlowActive = useAppSettingsStore((state) => state.values[SETTINGS.DEEP_FLOW_ACTIVE] === 'true');
@@ -34,7 +40,11 @@ export function Topbar() {
   });
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-transparent bg-background px-3">
+    <header
+      className={`sticky top-0 z-40 flex h-14 items-center justify-between border-b border-transparent px-3 ${
+        seeThrough ? 'bg-transparent transition-colors duration-200 ease-out' : 'bg-background'
+      }`}
+    >
       {/* Left */}
       <div className="flex min-w-0 items-center gap-2">
         <IconButton
@@ -43,7 +53,7 @@ export function Topbar() {
           aria-expanded={sidebarOpen}
           onClick={usesDrawer ? toggleWatchSidebar : toggleSidebar}
         >
-          {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+          {sidebarOpen ? <PanelLeftClose className="rtl:-scale-x-100" /> : <PanelLeftOpen className="rtl:-scale-x-100" />}
         </IconButton>
         {usesDrawer && tabCount > 1 && (
           <IconButton
@@ -61,7 +71,7 @@ export function Topbar() {
             <Logo size={36} showText={true} />
           </div>
         )}
-        <div className="hidden ml-1 items-center sm:flex">
+        <div className="hidden ms-1 items-center sm:flex">
           <IconButton
             title={getString('topbar_back')}
             aria-label={getString('topbar_back')}
@@ -69,7 +79,7 @@ export function Topbar() {
             disabled={!canGoBack}
             className="text-chrome-neutral-300 hover:text-chrome-neutral-100"
           >
-            <ArrowLeft />
+            <ArrowLeft className="rtl:-scale-x-100" />
           </IconButton>
           <IconButton
             title={getString('topbar_forward')}
@@ -78,7 +88,7 @@ export function Topbar() {
             disabled={!canGoForward}
             className="text-chrome-neutral-300 hover:text-chrome-neutral-100"
           >
-            <ArrowRight />
+            <ArrowRight className="rtl:-scale-x-100" />
           </IconButton>
         </div>
       </div>

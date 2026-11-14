@@ -10,6 +10,8 @@
 use tauri::Manager;
 
 use crate::errors::{AppError, ErrorResponse};
+use crate::services::crash_report::{CrashReport, CrashReports};
+use tauri::State;
 
 /// Cap on the number of trailing log lines returned to the UI, so the viewer and
 /// the clipboard payload stay bounded even after long sessions.
@@ -28,6 +30,29 @@ fn is_log_file(path: &std::path::Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with("flow") && name.contains("log"))
+}
+
+/// The report the last backend crash left, if any.
+#[tauri::command]
+#[must_use]
+pub fn crash_report_read(reports: State<'_, CrashReports>) -> Option<CrashReport> {
+    reports.read()
+}
+
+/// Stop offering the report at launch; it stays on the Diagnostics page.
+#[tauri::command]
+pub fn crash_report_dismiss(reports: State<'_, CrashReports>) -> Result<(), ErrorResponse> {
+    reports.dismiss().map_err(|error| {
+        AppError::Internal(format!("Could not dismiss the report: {error}")).into()
+    })
+}
+
+/// Delete the kept report.
+#[tauri::command]
+pub fn crash_report_delete(reports: State<'_, CrashReports>) -> Result<(), ErrorResponse> {
+    reports
+        .delete()
+        .map_err(|error| AppError::Internal(format!("Could not delete the report: {error}")).into())
 }
 
 /// Records a frontend diagnostic event in the backend log under the
@@ -171,6 +196,45 @@ pub fn get_graphics_mode(app: tauri::AppHandle) -> &'static str {
     {
         let _ = app;
         "automatic"
+    }
+}
+
+/// How this Linux system installs video decoders ("apt", "dnf", "pacman",
+/// "appimage", "flatpak" or "other"), for the no-picture banner's steps.
+/// Always "other" on other platforms.
+#[tauri::command]
+#[must_use]
+pub fn linux_codec_source() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        use crate::linux_system::CodecSource;
+        match crate::linux_system::detect_codec_source() {
+            CodecSource::Apt => "apt",
+            CodecSource::Dnf => "dnf",
+            CodecSource::Pacman => "pacman",
+            CodecSource::Appimage => "appimage",
+            CodecSource::Flatpak => "flatpak",
+            CodecSource::Other => "other",
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        "other"
+    }
+}
+
+/// Graphics facts of this Linux launch for the About tab and bug reports;
+/// `None` on other platforms.
+#[tauri::command]
+#[must_use]
+pub fn graphics_report() -> Option<crate::linux_system::GraphicsReport> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux_system::graphics_report()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
     }
 }
 

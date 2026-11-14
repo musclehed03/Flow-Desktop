@@ -10,7 +10,10 @@ use crate::models::live_chat::LiveChatResponse;
 use crate::models::playlist::PlaylistDetailsResponse;
 use crate::models::search::{SearchSuggestion, SearchVideosRequest, SearchVideosResponse};
 use crate::models::shorts::{ShortItem, ShortsFeed};
-use crate::models::video::{RelatedPage, StreamInfo, VideoBasics, VideoDetails, VideoMetadata};
+use crate::models::video::{
+    PaidPromotionLabel, RelatedPage, StoryboardLevel, StreamInfo, VideoBasics, VideoDetails,
+    VideoMetadata,
+};
 
 #[derive(Clone)]
 pub struct YoutubeService {
@@ -44,6 +47,17 @@ impl YoutubeService {
 
     pub async fn get_video_metadata(&self, video_id: &str) -> AppResult<VideoMetadata> {
         self.extractor.get_video_metadata(video_id).await
+    }
+
+    pub async fn get_paid_promotion(
+        &self,
+        video_id: &str,
+    ) -> AppResult<Option<PaidPromotionLabel>> {
+        self.extractor.get_paid_promotion(video_id).await
+    }
+
+    pub async fn get_video_storyboard(&self, video_id: &str) -> AppResult<Vec<StoryboardLevel>> {
+        self.extractor.get_video_storyboard(video_id).await
     }
 
     pub async fn get_video_category(&self, video_id: &str) -> AppResult<Option<String>> {

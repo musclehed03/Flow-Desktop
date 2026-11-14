@@ -1,17 +1,38 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import settings from "../../locales/en/settings.json";
+import strings from "../../lib/i18n/strings.json";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({ library: vi.fn(), catalog: vi.fn(), start: vi.fn() }));
+// The builder still calls useTranslation("settings"); the strings it needs live
+// in the new flat system (src/lib/i18n/strings.json) under the inventory's
+// settings_radio_* names, so the mock resolves its dotted keys through them.
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, string>) => {
-      const value = key.split(".").reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], settings);
+      const flat: Record<string, string> = {
+        "radio.multiArtist": "settings_radio_multiArtist",
+        "radio.multiArtistDescription": "settings_radio_multiArtistDescription",
+        "radio.multiArtistNew": "settings_radio_multiArtistNew",
+        "radio.multiArtistHide": "settings_radio_multiArtistHide",
+        "radio.multiArtistSearch": "settings_radio_multiArtistSearch",
+        "radio.multiArtistSelected": "settings_radio_multiArtistSelected",
+        "radio.multiArtistAdd": "settings_radio_multiArtistAdd",
+        "radio.multiArtistRemove": "settings_radio_multiArtistRemove",
+        "radio.multiArtistStart": "settings_radio_multiArtistStart",
+        "radio.multiArtistStarting": "settings_radio_multiArtistStarting",
+        "radio.multiArtistLoading": "settings_radio_multiArtistLoading",
+        "radio.multiArtistFailed": "settings_radio_multiArtistFailed",
+        "radio.retry": "settings_radio_retry",
+      };
+      const value = flat[key] ? (strings as Record<string, string>)[flat[key]!] : undefined;
       if (typeof value !== "string") return key;
-      return options ? value.replace(/\{\{(\w+)\}\}/g, (_, name) => options[name] ?? "") : value;
+      if (!options) return value;
+      const values = Object.values(options);
+      let index = 0;
+      return value.replace(/%s/g, () => values[index++] ?? "");
     },
   }),
 }));

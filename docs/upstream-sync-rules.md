@@ -10,6 +10,11 @@ Upstream is Flow-Tube/Flow-Desktop (`main`). Our line is `deviants-tuned`
 big separation never builds up again. It never decides alone what Sonja
 keeps: it drafts, tests, and routes everything for review.
 
+`ROADMAP.md` (repo root) is the bot's planned-features source: every run
+reads it and flags upstream changes or issues touching a roadmap item as a
+POTENTIAL FUTURE CONFLICT — flagging only, never a draft for something that
+is not in the tree yet.
+
 ## How a run works
 
 1. Fetch `origin` and `upstream` in the review clone.
@@ -75,13 +80,17 @@ on the same conflict in one run — after two failed drafts, stop and report.
 | i18n | `src/locales/en/*.json`, `src/locales/en/settings.json`, `src/lib/i18n/strings.json` | Strings only, never hardcoded. A merge that introduces a hardcoded user-facing string gets a draft that moves it into locales. Upstream consolidated to one string system in 9fe80332 (deleted `src/locales/en/settings.json`) — our settings strings migrate into `strings.json` under the new system, the deleted file is NOT restored. |
 | Monetization seams | `src/lib/monetization/status.ts`, `src/lib/monetization/tiers.ts`, `src/store/useSupporterStore.ts` (arrive with the fixes merge) | Supporter tier $8/mo, pack $10.99, site-bought packs unlock in Telegram. Seams only — no paywall, no checkout changes. Monetization gate: a first clear path must pass "ADDS HONEST QUALITY, FEATURES, EXPERIENCE". Never a bare paywall. Flow is GPLv3 — the app itself can never be paywalled. |
 | Queue / playback session | `src/lib/musicQueuePersistence.ts`, `src/store/useMusicPlayerStore.ts` | Saved queue restores on refresh/update; a failed settings load must never destroy the saved queue; one bad track must never drop the queue. |
+| SponsorBlock (kept, default OFF) | `src/lib/sponsorBlock*.ts`, `src/lib/useSponsorBlock*.ts`, `src/lib/useManualSponsorSegment.ts`, `**/SponsorBlockSkipButton.tsx`, setting `sponsorblock_enabled` | Kept per Sonja's decision 2026-11-14, but default OFF (`false` in schema): the feature fetches segment data from the SponsorBlock server, so it must never phone home unless the user turns it on. |
 | Never-ending playback | `src/lib/musicPreload.ts`, `src/lib/musicStation.ts` | Music must never end — true gapless is core. Preload next track, retry once on failure. |
 
 ## Never-build list
 
 Do not build, adopt, or re-enable any of these, even if upstream adds them
-or makes them easy: SponsorBlock, standalone sleep timer, ListenBrainz,
+or makes them easy: standalone sleep timer, ListenBrainz,
 downloads expansion, Discord Rich Presence.
+
+(SponsorBlock was here until Sonja decided 2026-11-14: KEEP, default OFF —
+see the protected table. The other items above are still never-build.)
 
 (Upstream already ships a sleep timer and scrobbling — those stay out of
 Sonja's build per the pending decisions below, not adopted by the sync.)
