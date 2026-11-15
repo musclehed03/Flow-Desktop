@@ -133,18 +133,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
             appimage: aarch64
             args: --target aarch64-unknown-linux-gnu --bundles appimage
-          # The DMG is for first installs. The app bundle is what the updater
-          # installs, as .app.tar.gz listed under darwin-* in latest.json.
-          - name: macOS Intel
-            slug: macos-x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles app,dmg
-          - name: macOS Apple Silicon
-            slug: macos-arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles app,dmg
 
     runs-on: ${{ matrix.runner }}
 
@@ -496,17 +484,6 @@ jobs:
           pattern: release-*
           path: upload
           merge-multiple: true
-
-      - name: Check the disk images
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for arch in x64 aarch64; do
-            test -f "upload/Flow_${VERSION}_darwin_${arch}.dmg" \
-              || { echo "missing Flow_${VERSION}_darwin_${arch}.dmg" >&2; exit 1; }
-          done
 
       - name: Write latest.json
         env:
