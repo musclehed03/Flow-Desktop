@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import { importFlowPlaylistFiles, type FlowImportResult } from "../lib/flowPlaylistImport";
 import React, { useState, useRef } from "react";
 import { ArchiveRestore, Upload, Check, AlertCircle, FolderHeart, Heart, History, Tv, Loader2, Brain, Database, FileText, SlidersHorizontal, StickyNote } from "lucide-react";
@@ -48,7 +47,6 @@ interface ParseChannelResult { id: string; name: string; }
 interface LocalPlaylist { id: string; name: string; description?: string; tracks: VideoSummary[]; }
 
 export const ImportData: React.FC = () => {
-  const { t } = useTranslation('settings');
   const flowInputRef = useRef<HTMLInputElement>(null);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowResults, setFlowResults] = useState<FlowImportResult[]>([]);
@@ -406,28 +404,25 @@ export const ImportData: React.FC = () => {
         <p className="mt-1 text-sm text-chrome-neutral-400">{getString("import_subtitle")}</p>
       </header>
 
-      <SettingsGroup title={t('flowImport.title')}>
+      <SettingsGroup title={getString('flowImport_title')}>
         <input type="file" ref={flowInputRef} onChange={handleFlowFiles} multiple accept=".json,.zip" className="hidden" />
-        <p className="text-sm text-chrome-neutral-400">{t('flowImport.description')}</p>
+        <p className="text-sm text-chrome-neutral-400">{getString('flowImport_description')}</p>
         <button type="button" onClick={() => flowInputRef.current?.click()} disabled={flowBusy}
           className="rounded-full border border-chrome-neutral-800 bg-surface-container px-4 py-2 text-sm text-chrome-neutral-100 disabled:opacity-50">
-          {flowBusy ? t('flowImport.processing') : t('flowImport.select')}
+          {flowBusy ? getString('flowImport_processing') : getString('flowImport_select')}
         </button>
         <div aria-live="polite">
-          {flowError && <p role="alert" className="text-sm text-chrome-red-400">{t('flowImport.libraryFailed')}</p>}
+          {flowError && <p role="alert" className="text-sm text-chrome-red-400">{getString('flowImport_libraryFailed')}</p>}
           {flowResults.length > 0 && <>
-            <p className="my-3 text-sm text-chrome-neutral-200">{t('flowImport.total', {
-              playlists: flowResults.filter((result) => result.status === 'imported').length,
-              tracks: flowResults.reduce((count, result) => count + result.tracksImported, 0),
-            })}</p>
+            <p className="my-3 text-sm text-chrome-neutral-200">{getString('flowImport_total', flowResults.filter((result) => result.status === 'imported').length, flowResults.reduce((count, result) => count + result.tracksImported, 0))}</p>
             <div className="max-h-96 overflow-auto rounded-lg border border-chrome-neutral-800">
               <table className="w-full text-start text-xs text-chrome-neutral-200">
                 <thead><tr>{['file', 'playlist', 'imported', 'skipped', 'result'].map((column) =>
-                  <th key={column} scope="col" className="p-2">{t(`flowImport.columns.${column}`)}</th>)}</tr></thead>
+                  <th key={column} scope="col" className="p-2">{getString(`flowImport_columns_${column}` as StringKey)}</th>)}</tr></thead>
                 <tbody>{flowResults.map((result, index) => <tr key={`${result.fileName}-${index}`} className="border-t border-chrome-neutral-800">
                   <td className="p-2 break-all">{result.fileName}</td><td className="p-2">{result.playlistName}</td>
                   <td className="p-2">{result.tracksImported}</td><td className="p-2">{result.tracksSkipped}</td>
-                  <td className="p-2">{result.reason ? t(`flowImport.reasons.${result.reason}`) : t('flowImport.done')}</td>
+                  <td className="p-2">{result.reason ? getString(`flowImport_reasons_${result.reason}` as StringKey) : getString('flowImport_done')}</td>
                 </tr>)}</tbody>
               </table>
             </div>

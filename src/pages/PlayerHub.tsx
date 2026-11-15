@@ -1,12 +1,11 @@
+import { getString } from "../lib/i18n/index";
 import { ListMusic, MonitorPlay, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 import { usePlayerStore } from "../store/usePlayerStore";
 
 export default function PlayerHub() {
-  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const musicQueue = useMusicPlayerStore((state) => state.queue);
   const musicIndex = useMusicPlayerStore((state) => state.currentIndex);
@@ -31,26 +30,26 @@ export default function PlayerHub() {
       <div className="flex items-center gap-3">
         <MonitorPlay className="h-7 w-7 text-primary" aria-hidden="true" />
         <div>
-          <h1 className="text-2xl font-semibold text-on-surface">{t("playerHub.title")}</h1>
-          <p className="text-sm text-on-surface-variant">{t("playerHub.description")}</p>
+          <h1 className="text-2xl font-semibold text-on-surface">{getString('playerHub_title')}</h1>
+          <p className="text-sm text-on-surface-variant">{getString('playerHub_description')}</p>
         </div>
       </div>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <button type="button" disabled={!music} onClick={() => openOverlay("full")} className="rounded-xl border border-outline-variant p-4 text-start disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
           <ListMusic className="mb-2 h-5 w-5" aria-hidden="true" />
-          <span className="block font-medium">{t("playerHub.music")}</span>
-          <span className="mt-1 block truncate text-sm text-on-surface-variant">{music?.title ?? t("playerHub.emptyQueue")}</span>
+          <span className="block font-medium">{getString('playerHub_music')}</span>
+          <span className="mt-1 block truncate text-sm text-on-surface-variant">{music?.title ?? getString('playerHub_emptyQueue')}</span>
         </button>
         <button type="button" disabled={!video} onClick={() => video && navigate(`/watch/${video.id}`)} className="rounded-xl border border-outline-variant p-4 text-start disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
           <MonitorPlay className="mb-2 h-5 w-5" aria-hidden="true" />
-          <span className="block font-medium">{t("playerHub.watch")}</span>
-          <span className="mt-1 block truncate text-sm text-on-surface-variant">{video?.title ?? t("playerHub.emptyQueue")}</span>
+          <span className="block font-medium">{getString('playerHub_watch')}</span>
+          <span className="mt-1 block truncate text-sm text-on-surface-variant">{video?.title ?? getString('playerHub_emptyQueue')}</span>
         </button>
       </div>
       <div className="mt-6 flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-outline-variant px-5 text-center">
         <Upload className="mb-3 h-7 w-7 text-primary" aria-hidden="true" />
-        <p className="font-medium">{t("playerHub.dropTitle")}</p>
-        <p className="mt-1 max-w-lg text-sm text-on-surface-variant">{t("playerHub.dropDescription")}</p>
+        <p className="font-medium">{getString('playerHub_dropTitle')}</p>
+        <p className="mt-1 max-w-lg text-sm text-on-surface-variant">{getString('playerHub_dropDescription')}</p>
       </div>
     </div>
   </main>;

@@ -1,5 +1,5 @@
+import { getString, type StringKey } from "../../lib/i18n/index";
 import { useEffect, useState, type RefObject } from "react";
-import { useTranslation } from "react-i18next";
 import { groupMilkdropPresets, milkdropPresetNames } from "../../lib/audio/milkdrop";
 import { enforceReducedFlash, parseVisualizerPresets, type VisualizerConfig } from "../../lib/audio/visualizer";
 import { useLivePreviewHistory } from "../../lib/livePreviewHistory";
@@ -29,7 +29,6 @@ const sliderDefinitions = [
 ] as const;
 
 export function VisualizerCustomizerPanel({ config, openerRef, onChange, onClose }: VisualizerCustomizerPanelProps) {
-  const { t } = useTranslation("settings");
   const { value, apply, undo, reset, canUndo } = useLivePreviewHistory(config, onChange);
   const [presetsRaw, savePresets] = usePreference(SETTINGS.VISUALIZER_PRESETS);
   const presets = parseVisualizerPresets(presetsRaw);
@@ -48,64 +47,64 @@ export function VisualizerCustomizerPanel({ config, openerRef, onChange, onClose
     if (reducedFlash) apply(enforceReducedFlash(value));
   }, [reducedFlash]);
 
-  return <DockablePanel panelId="visualizer-editor" title={t("visualizer.title")} description={t("visualizer.livePreview")}
+  return <DockablePanel panelId="visualizer-editor" title={getString('visualizer_title')} description={getString('visualizer_livePreview')}
     openerRef={openerRef} onClose={onClose} onUndo={undo} onReset={reset} canUndo={canUndo}>
     <div className="space-y-4">
       <div role="note" className="rounded-xl border-2 border-outline-variant p-3">
-        <p className="text-sm">{t("visualizer.advisory")}</p>
-        <label className="mt-2 flex items-center gap-2 text-sm" data-tooltip-detail={t("visualizer.acknowledgeDesc")}>
+        <p className="text-sm">{getString('visualizer_advisory')}</p>
+        <label className="mt-2 flex items-center gap-2 text-sm" data-tooltip-detail={getString('visualizer_acknowledgeDesc')}>
           <input type="checkbox" checked={acknowledged} onChange={(event) => acceptVisualizerAdvisory(event.target.checked)} />
-          {t("visualizer.acknowledge")}
+          {getString('visualizer_acknowledge')}
         </label>
-        <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.acknowledgeDesc")}</p>
+        <p className="mt-1 text-xs text-on-surface-variant">{getString('visualizer_acknowledgeDesc')}</p>
       </div>
 
-      <VisualizerControl label={t("visualizer.enabled")} description={t("visualizer.enabledDesc")}>
-        <button type="button" aria-pressed={value.enabled} aria-label={t("visualizer.enabled")} disabled={!acknowledged && !value.enabled}
+      <VisualizerControl label={getString('visualizer_enabled')} description={getString('visualizer_enabledDesc')}>
+        <button type="button" aria-pressed={value.enabled} aria-label={getString('visualizer_enabled')} disabled={!acknowledged && !value.enabled}
           onClick={() => previewApply({ ...value, enabled: !value.enabled })} className="rounded-full border-2 border-outline-variant px-4 py-2 disabled:opacity-40">
-          {t(value.enabled ? "sensory.on" : "sensory.off")} · {t("visualizer.enabled")}
+          {getString(value.enabled ? 'sensory_on' : 'sensory_off')} · {getString('visualizer_enabled')}
         </button>
       </VisualizerControl>
 
-      <VisualizerControl label={t("sensory.reducedFlash.title")} description={t("visualizer.reducedFlashDesc")}>
-        <ToggleSwitch checked={reducedFlash} onChange={setReducedFlash} label={t("sensory.reducedFlash.title")} />
+      <VisualizerControl label={getString('sensory_reducedFlash_title')} description={getString('visualizer_reducedFlashDesc')}>
+        <ToggleSwitch checked={reducedFlash} onChange={setReducedFlash} label={getString('sensory_reducedFlash_title')} />
       </VisualizerControl>
-      {(simple || focus) && <p role="status" className="rounded-xl border-2 border-outline-variant p-3 text-sm">{t("visualizer.suiteHidden")}</p>}
+      {(simple || focus) && <p role="status" className="rounded-xl border-2 border-outline-variant p-3 text-sm">{getString('visualizer_suiteHidden')}</p>}
       {pendingFlashConfig && <div role="alert" className="rounded-xl border-2 border-error p-3 text-sm">
-        <p className="font-semibold">{t("visualizer.milkdropWarning")}</p>
-        <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.milkdropWarningDesc")}</p>
+        <p className="font-semibold">{getString('visualizer_milkdropWarning')}</p>
+        <p className="mt-1 text-xs text-on-surface-variant">{getString('visualizer_milkdropWarningDesc')}</p>
         <div className="mt-3 flex gap-2">
-          <button type="button" onClick={() => { previewApply(pendingFlashConfig); setPendingFlashConfig(null); }} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.applyPreset")}</button>
-          <button type="button" onClick={() => setPendingFlashConfig(null)} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.cancelPreset")}</button>
+          <button type="button" onClick={() => { previewApply(pendingFlashConfig); setPendingFlashConfig(null); }} className="rounded-full border-2 border-outline-variant px-3 py-2">{getString('visualizer_applyPreset')}</button>
+          <button type="button" onClick={() => setPendingFlashConfig(null)} className="rounded-full border-2 border-outline-variant px-3 py-2">{getString('visualizer_cancelPreset')}</button>
         </div>
       </div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <VisualizerControl label={t("visualizer.family")} description={t("visualizer.familyDesc")}>
-          <select aria-label={t("visualizer.family")} value={value.family} onChange={(event) => {
+        <VisualizerControl label={getString('visualizer_family')} description={getString('visualizer_familyDesc')}>
+          <select aria-label={getString('visualizer_family')} value={value.family} onChange={(event) => {
             const next = { ...value, family: event.target.value as VisualizerConfig["family"] };
             if (next.family === "feedback" && !reducedFlash) setPendingFlashConfig(next); else previewApply(next);
           }} className={visualizerSelectClass}>
-            {(["spectrum", "waveform", "radial", "nebula", "feedback"] as const).map((family) => <option key={family} value={family} disabled={reducedFlash && family === "feedback"}>{t(`visualizer.${family}`)}</option>)}
+            {(["spectrum", "waveform", "radial", "nebula", "feedback"] as const).map((family) => <option key={family} value={family} disabled={reducedFlash && family === "feedback"}>{getString(`visualizer_${family}` as StringKey)}</option>)}
           </select>
         </VisualizerControl>
-        <VisualizerControl label={t("visualizer.mode")} description={t("visualizer.modeDesc")}>
-          <select aria-label={t("visualizer.mode")} value={value.mode} onChange={(event) => previewApply({ ...value, mode: event.target.value as VisualizerConfig["mode"] })} className={visualizerSelectClass}>
-            {(["inline", "mini", "fullscreen"] as const).map((mode) => <option key={mode} value={mode}>{t(`visualizer.${mode}`)}</option>)}
+        <VisualizerControl label={getString('visualizer_mode')} description={getString('visualizer_modeDesc')}>
+          <select aria-label={getString('visualizer_mode')} value={value.mode} onChange={(event) => previewApply({ ...value, mode: event.target.value as VisualizerConfig["mode"] })} className={visualizerSelectClass}>
+            {(["inline", "mini", "fullscreen"] as const).map((mode) => <option key={mode} value={mode}>{getString(`visualizer_${mode}` as StringKey)}</option>)}
           </select>
         </VisualizerControl>
-        <VisualizerControl label={t("visualizer.mirror")} description={t("visualizer.mirrorDesc")}>
-          <select aria-label={t("visualizer.mirror")} value={value.mirror} onChange={(event) => previewApply({ ...value, mirror: event.target.value as VisualizerConfig["mirror"] })} className={visualizerSelectClass}>
-            {(["none", "horizontal", "vertical", "quad", "kaleidoscope"] as const).map((mirror) => <option key={mirror} value={mirror} disabled={reducedFlash && mirror === "kaleidoscope"}>{t(`visualizer.mirror_${mirror}`)}</option>)}
+        <VisualizerControl label={getString('visualizer_mirror')} description={getString('visualizer_mirrorDesc')}>
+          <select aria-label={getString('visualizer_mirror')} value={value.mirror} onChange={(event) => previewApply({ ...value, mirror: event.target.value as VisualizerConfig["mirror"] })} className={visualizerSelectClass}>
+            {(["none", "horizontal", "vertical", "quad", "kaleidoscope"] as const).map((mirror) => <option key={mirror} value={mirror} disabled={reducedFlash && mirror === "kaleidoscope"}>{getString(`visualizer_mirror_${mirror}` as StringKey)}</option>)}
           </select>
         </VisualizerControl>
-        <VisualizerControl label={t("visualizer.direction")} description={t("visualizer.directionDesc")}>
-          <select aria-label={t("visualizer.direction")} value={value.direction} onChange={(event) => previewApply({ ...value, direction: event.target.value as VisualizerConfig["direction"] })} className={visualizerSelectClass}>
-            {(["up", "down", "left", "right"] as const).map((direction) => <option key={direction} value={direction}>{t(`visualizer.direction_${direction}`)}</option>)}
+        <VisualizerControl label={getString('visualizer_direction')} description={getString('visualizer_directionDesc')}>
+          <select aria-label={getString('visualizer_direction')} value={value.direction} onChange={(event) => previewApply({ ...value, direction: event.target.value as VisualizerConfig["direction"] })} className={visualizerSelectClass}>
+            {(["up", "down", "left", "right"] as const).map((direction) => <option key={direction} value={direction}>{getString(`visualizer_direction_${direction}` as StringKey)}</option>)}
           </select>
         </VisualizerControl>
-        <VisualizerControl label={t("visualizer.fps")} description={t("visualizer.fpsDesc")}>
-          <select aria-label={t("visualizer.fps")} value={value.fps} onChange={(event) => previewApply({ ...value, fps: Number(event.target.value) as VisualizerConfig["fps"] })} className={visualizerSelectClass}>
+        <VisualizerControl label={getString('visualizer_fps')} description={getString('visualizer_fpsDesc')}>
+          <select aria-label={getString('visualizer_fps')} value={value.fps} onChange={(event) => previewApply({ ...value, fps: Number(event.target.value) as VisualizerConfig["fps"] })} className={visualizerSelectClass}>
             {[15, 30, 60].map((fps) => <option key={fps} value={fps} disabled={reducedFlash && fps > 30}>{fps}</option>)}
           </select>
         </VisualizerControl>
@@ -115,16 +114,16 @@ export function VisualizerCustomizerPanel({ config, openerRef, onChange, onClose
         {sliderDefinitions.map(([key, min, max, step]) => {
           const safeMin = reducedFlash && key === "smoothing" ? 0.82 : reducedFlash && key === "falloff" ? 0.78 : min;
           const safeMax = reducedFlash && key === "sensitivity" ? 1.4 : reducedFlash && key === "beat" ? 0.35 : max;
-          return <VisualizerControl key={key} label={t(`visualizer.${key}`)} description={t(`visualizer.${key}Desc`)}>
-          <TypedSlider aria-label={t(`visualizer.${key}`)} min={safeMin} max={safeMax} step={step}
+          return <VisualizerControl key={key} label={getString(`visualizer_${key}` as StringKey)} description={getString(`visualizer_${key}Desc` as StringKey)}>
+          <TypedSlider aria-label={getString(`visualizer_${key}` as StringKey)} min={safeMin} max={safeMax} step={step}
             decimals={step >= 1 ? 0 : step >= 0.1 ? 1 : 2} value={value[key]}
             onCommit={(next) => previewApply({ ...value, [key]: next })} />
         </VisualizerControl>;
         })}
       </div>
 
-      {value.family === "feedback" && <VisualizerControl label={t("visualizer.milkdropPreset")} description={t("visualizer.milkdropPresetDesc")}>
-        <select aria-label={t("visualizer.milkdropPreset")} value={value.milkdropPreset ?? milkdropNames[0] ?? ""}
+      {value.family === "feedback" && <VisualizerControl label={getString('visualizer_milkdropPreset')} description={getString('visualizer_milkdropPresetDesc')}>
+        <select aria-label={getString('visualizer_milkdropPreset')} value={value.milkdropPreset ?? milkdropNames[0] ?? ""}
           onChange={(event) => {
             const next = { ...value, milkdropPreset: event.target.value };
             if (reducedFlash) previewApply(next); else setPendingFlashConfig(next);

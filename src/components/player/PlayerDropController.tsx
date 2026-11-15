@@ -1,6 +1,6 @@
+import { getString } from "../../lib/i18n/index";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 import { Upload, Play, X } from "lucide-react";
 import { classifyPlayerDrop, listenForNativePlayerDrops } from "../../lib/playerDrop";
 import { importDroppedVideo, resolveDroppedVideo } from "../../lib/playerDropActions";
@@ -9,7 +9,6 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useUiStore } from "../../store/useUiStore";
 
 export function PlayerDropController() {
-  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const pending = usePlayerDropStore((state) => state.pending);
   const setPending = usePlayerDropStore((state) => state.setPending);
@@ -54,15 +53,15 @@ export function PlayerDropController() {
     try {
       const video = await resolveDroppedVideo(pending.videoId);
       if (action === "import") {
-        await importDroppedVideo(video, t("playerDrop.playlistName"), t("playerDrop.playlistDescription"));
-        showToast({ message: t("playerDrop.imported") });
+        await importDroppedVideo(video, getString('playerDrop_playlistName'), getString('playerDrop_playlistDescription'));
+        showToast({ message: getString('playerDrop_imported') });
       } else {
         usePlayerStore.getState().setQueue([video], 0);
         navigate(`/watch/${video.id}`);
       }
       setPending(null);
     } catch {
-      showToast({ variant: "error", message: t("playerDrop.failed") });
+      showToast({ variant: "error", message: getString('playerDrop_failed') });
     }
   };
 
@@ -71,14 +70,14 @@ export function PlayerDropController() {
       <div className="flex items-start gap-3">
         <Upload className="mt-1 h-5 w-5 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h2 id="player-drop-title" className="text-lg font-semibold">{t("playerDrop.title")}</h2>
-          <p className="mt-1 text-sm text-on-surface-variant">{isVideo ? t("playerDrop.description") : pending.kind === "local-files" ? t("playerDrop.localUnsupported") : t("playerDrop.unsupported")}</p>
+          <h2 id="player-drop-title" className="text-lg font-semibold">{getString('playerDrop_title')}</h2>
+          <p className="mt-1 text-sm text-on-surface-variant">{isVideo ? getString('playerDrop_description') : pending.kind === "local-files" ? getString('playerDrop_localUnsupported') : getString('playerDrop_unsupported')}</p>
         </div>
-        <button ref={closeButton} type="button" onClick={() => setPending(null)} aria-label={t("playerDrop.close")} className="rounded-full p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"><X size={18} /></button>
+        <button ref={closeButton} type="button" onClick={() => setPending(null)} aria-label={getString('playerDrop_close')} className="rounded-full p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"><X size={18} /></button>
       </div>
       <div className="mt-5 flex flex-wrap justify-end gap-2">
-        <button type="button" disabled={!isVideo} onClick={() => void act("import")} className="rounded-full border border-outline-variant px-4 py-2 text-sm disabled:opacity-40">{t("playerDrop.import")}</button>
-        <button type="button" disabled={!isVideo} onClick={() => void act("play")} className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm text-on-primary disabled:opacity-40"><Play size={16} />{t("playerDrop.play")}</button>
+        <button type="button" disabled={!isVideo} onClick={() => void act("import")} className="rounded-full border border-outline-variant px-4 py-2 text-sm disabled:opacity-40">{getString('playerDrop_import')}</button>
+        <button type="button" disabled={!isVideo} onClick={() => void act("play")} className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm text-on-primary disabled:opacity-40"><Play size={16} />{getString('playerDrop_play')}</button>
       </div>
     </section>
   </div>;

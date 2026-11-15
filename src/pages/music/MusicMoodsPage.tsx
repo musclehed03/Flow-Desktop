@@ -1,6 +1,5 @@
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
 import { getString } from '../../lib/i18n/index';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { Button } from '../../components/ui/Button';
@@ -8,7 +7,6 @@ import { useMusicMoods } from '../../lib/useMusicMoods';
 import { musicSeeAllRoute } from '../../lib/musicRoutes';
 
 export default function MusicMoodsPage() {
-  const { t: stationText } = useTranslation('settings');
   const navigate = useNavigate();
   const { groups, loading, error, reload } = useMusicMoods();
 
@@ -27,7 +25,7 @@ export default function MusicMoodsPage() {
         {group.items.map((item) => <div key={`${item.browseId}:${item.params ?? ''}`} className="rounded-2xl border border-outline-variant bg-surface-container-low p-4">
           <button type="button" onClick={() => navigate(musicSeeAllRoute(item.browseId, item.params, item.title))}
             className="mb-3 block text-start font-medium text-on-surface">{item.title}</button>
-          <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio(item)}>{stationText('radio.station')}</Button>
+          <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio(item)}>{getString('settings_radio_station')}</Button>
         </div>)}
         </div>
       </section>)}

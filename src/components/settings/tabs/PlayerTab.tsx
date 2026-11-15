@@ -1,6 +1,5 @@
 import { CrossfadeSettings } from "../../music/CrossfadeSettings";
 import { GeniusControls } from "../../radio/GeniusControls";
-import { useTranslation } from "react-i18next";
 import { SettingsGroup } from '../SettingsGroup';
 import { SettingItem } from '../SettingItem';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
@@ -39,7 +38,6 @@ function PlayerButtonSwitch({ row }: { row: PlayerButtonRow }) {
 }
 
 export function PlayerTab() {
-  const { t } = useTranslation('settings');
   const [videoFirst, setVideoFirst] = useBoolPref(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, true);
   const [keepWatching, setKeepWatching] = useBoolPref(SETTINGS.KEEP_WATCHING_VIEW_ENABLED, true);
   const [resumeOnOpen, setResumeOnOpen] = useBoolPref(SETTINGS.RESUME_PLAYBACK_ON_OPEN, false);
@@ -104,19 +102,19 @@ export function PlayerTab() {
       <GeniusControls surface="settings" />
       <CrossfadeSettings />
       <SettingsGroup title={getString('settings_group_playback')}>
-        <SettingItem title={t('videoFirst.title')} description={t('videoFirst.description')}>
+        <SettingItem title={getString('videoFirst_title')} description={getString('videoFirst_description')}>
           <ToggleSwitch checked={videoFirst} onChange={setVideoFirst} />
         </SettingItem>
-        <SettingItem title={t('keepWatching.title')} description={t('keepWatching.description')}>
+        <SettingItem title={getString('keepWatching_title')} description={getString('keepWatching_description')}>
           <ToggleSwitch checked={keepWatching} onChange={setKeepWatching} />
         </SettingItem>
-        <SettingItem title={t('launchPlayback.resume')} description={t('launchPlayback.resumeDescription')}>
+        <SettingItem title={getString('launchPlayback_resume')} description={getString('launchPlayback_resumeDescription')}>
           <ToggleSwitch checked={resumeOnOpen} onChange={(enabled) => {
             setResumeOnOpen(enabled);
             if (enabled) setRestorePaused(false);
           }} />
         </SettingItem>
-        <SettingItem title={t('launchPlayback.paused')} description={t('launchPlayback.pausedDescription')}>
+        <SettingItem title={getString('launchPlayback_paused')} description={getString('launchPlayback_pausedDescription')}>
           <ToggleSwitch checked={restorePaused} onChange={(enabled) => {
             setRestorePaused(enabled);
             if (enabled) setResumeOnOpen(false);

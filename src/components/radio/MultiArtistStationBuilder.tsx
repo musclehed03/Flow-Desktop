@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { getString } from "../../lib/i18n/index";
 import { fetchLibraryArtists, searchCatalogArtists } from "../../lib/multiArtistSearch";
 import { useDebounce } from "../../lib/useDebounce";
@@ -13,9 +12,6 @@ import type { ArtistItem } from "../../types/music";
  * rotation discovers across the rest.
  */
 export function MultiArtistStationBuilder() {
-  const { t } = useTranslation("settings");
-  // radio.multiArtistEmpty / radio.multiArtistLibraryEmpty have no equivalent in
-  // strings.json yet, so this file keeps the settings namespace for those two keys.
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query);
@@ -106,7 +102,7 @@ export function MultiArtistStationBuilder() {
         </li>)}
       </ul>
       {!loading && !candidates.length && <p className="mt-2 text-sm text-on-surface-variant">
-        {t(query.trim() ? "radio.multiArtistEmpty" : "radio.multiArtistLibraryEmpty")}</p>}
+        {getString(query.trim() ? 'settings_radio_multiArtistEmpty' : 'settings_radio_multiArtistLibraryEmpty')}</p>}
       {error && <p role="status" className="mt-2 text-sm text-on-surface">{getString('settings_radio_multiArtistFailed')}{" "}
         <button type="button" className="rounded-lg border border-outline-variant px-3 py-1"
           onClick={() => setLibraryAttempt((attempt) => attempt + 1)}>{getString('settings_radio_retry')}</button></p>}

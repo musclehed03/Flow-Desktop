@@ -1,7 +1,6 @@
 import { usePreference } from "../../lib/usePreference";
 import { SETTINGS } from "../../lib/settings/schema";
 import { getString } from '../../lib/i18n/index';
-import { useTranslation } from 'react-i18next';
 import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -15,7 +14,6 @@ import { episodeAsSong } from '../../lib/searchResults';
 import type { SongItem, YTItem } from '../../types/music';
 
 export default function MusicBrowsePage() {
-  const { t: stationText } = useTranslation('settings');
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [videoFirst] = usePreference(SETTINGS.MUSIC_VIDEO_FIRST_ENABLED, 'true');
@@ -91,7 +89,7 @@ export default function MusicBrowsePage() {
   };
 
   return <main className="px-6 py-8 lg:px-8">
-    {browseId && <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio({ browseId, params: browseParams, title })}>{stationText('radio.station')}</Button>}
+    {browseId && <Button variant="secondary" onClick={() => void useMusicPlayerStore.getState().startGenreRadio({ browseId, params: browseParams, title })}>{getString('settings_radio_station')}</Button>}
     <h1 dir="auto" className="mb-6 text-3xl font-bold tracking-tight text-chrome-neutral-100">{title}</h1>
     {error && <div className="mb-6 flex items-center gap-3 text-sm text-chrome-neutral-400">
       <span>{error}</span><Button variant="secondary" onClick={reload}>{getString('music_retry')}</Button>
