@@ -87,10 +87,10 @@ describe("nightly updater manifests", () => {
 
   it("refuses a manifest without every platform", () => {
     const signatures = signed();
-    delete signatures[`Flow-Nightly_${V}_macos-arm64.app.tar.gz`];
+    delete signatures[`Flow-Nightly_${V}_windows-arm64-setup.exe`];
     expect(() =>
       buildNightlyManifests({
-        files: FILES.filter((name) => !name.endsWith("macos-arm64.app.tar.gz")),
+        files: FILES.filter((name) => !name.endsWith("windows-arm64-setup.exe")),
         signatures,
         repository: "Flow-Tube/Flow-Desktop",
         runNumber: "812",
@@ -98,7 +98,7 @@ describe("nightly updater manifests", () => {
         notes: "",
         pubDate: "",
       }),
-    ).toThrow(/latest\.json is missing darwin-aarch64/);
+    ).toThrow(/latest\.json is missing windows-aarch64/);
   });
 });
 

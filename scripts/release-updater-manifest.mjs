@@ -14,7 +14,10 @@ import { ARCH, BUNDLE, buildManifests, expectedKeys, readSignatures } from "./up
 // The names earlier releases used, which download links and the AUR
 // PKGBUILDs depend on.
 const PACKAGE = /^Flow_(.+)_(windows|darwin|linux)_(x64|amd64|x86_64|arm64|aarch64)(-setup\.exe|\.app\.tar\.gz|\.deb|\.rpm|\.AppImage)$/;
-const EXPECTED = { "latest.json": expectedKeys(["windows", "darwin", "linux"]) };
+// The fork builds no macOS packages, so latest.json must not require
+// darwin keys (upstream does) — otherwise a tagged release fails at the
+// sign job's verify step after all builds succeed.
+const EXPECTED = { "latest.json": expectedKeys(["windows", "linux"]) };
 
 export function releaseDownloadUrl(repository, tag, asset) {
   return `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(asset)}`;

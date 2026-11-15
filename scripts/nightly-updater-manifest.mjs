@@ -1,5 +1,5 @@
 // Plans the signing of the nightly updater packages in a folder, then writes
-// their manifests from the signatures: latest.json for Windows and macOS,
+// their manifests from the signatures: latest.json for Windows,
 // latest-linux.json for Linux (see nightly-version.mjs for why they differ).
 // Usage: node scripts/nightly-updater-manifest.mjs plan <folder>
 //          prints "<version>\t<file>" for each package to sign
@@ -19,7 +19,9 @@ const PACKAGE = /^Flow-Nightly_[^_]+_(windows|macos|linux)-(x64|arm64)(-setup\.e
 const OS = { windows: "windows", macos: "darwin", linux: "linux" };
 
 const EXPECTED = {
-  "latest.json": expectedKeys(["windows", "darwin"]),
+  // The fork builds no macOS packages, so latest.json must not require
+  // darwin keys (upstream does).
+  "latest.json": expectedKeys(["windows"]),
   "latest-linux.json": expectedKeys(["linux"]),
 };
 

@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { parseChangelog } from "./changelog-format.mjs";
 
 export const SUPPORT_MESSAGE =
-  "Enjoying Flow? Consider supporting its development on [Open Collective](https://opencollective.com/flow-tube) or [Patreon](https://patreon.com/A_EDev) to help keep the app free, open source, ad-free, and improving!";
+  "Flow — Dollhouse Deviants Tuned is a community fork of Flow Desktop. Learn more at [Dollhouse Deviants](https://dollhousedeviants.com).";
 
 // Sentence-casing a heading would otherwise print "Macos" or "Youtube".
 const PROPER_NOUNS = { macos: "macOS", linux: "Linux", android: "Android", youtube: "YouTube" };
