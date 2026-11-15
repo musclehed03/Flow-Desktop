@@ -41,6 +41,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
   toggleFullscreen,
 }) => {
   const { t: sensoryText } = useTranslation("settings");
+  // sensory.controls has no equivalent in strings.json yet; this hook stays for it.
   const playNext = usePlayerStore((s) => s.playNext);
   const playPrevious = usePlayerStore((s) => s.playPrevious);
   const volume = usePlayerStore((s) => s.volume);
@@ -122,7 +123,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
       <div className="pointer-events-auto" data-drag-ignore="true" onClick={(event) => event.stopPropagation()}>
         {/* Progress bar */}
         <div
-          ref={trackRef} role="slider" tabIndex={0} aria-label={sensoryText('sensory.player.seek')}
+          ref={trackRef} role="slider" tabIndex={0} aria-label={getString('sensory_player_seek')}
           aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={0}
           onKeyDown={(event) => {
             const current = usePlayerStore.getState().currentTime;
@@ -174,10 +175,10 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
             onTogglePlay={togglePlay}
             onNext={() => playNext()}
             labels={{
-              previous: sensoryText("sensory.player.previous"),
-              play: sensoryText("sensory.player.play"),
-              pause: sensoryText("sensory.player.pause"),
-              next: sensoryText("sensory.player.next"),
+              previous: getString('sensory_player_previous'),
+              play: getString('sensory_player_play'),
+              pause: getString('sensory_player_pause'),
+              next: getString('sensory_player_next'),
             }}
             className={showNextPrevControls ? undefined : "[&>button:first-child]:hidden [&>button:last-child]:hidden"}
             playButtonClassName="h-11 w-11"
@@ -203,9 +204,9 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
               setMuted(value === 0);
             }}
             labels={{
-              mute: sensoryText("sensory.player.mute"),
+              mute: getString('sensory_player_mute'),
               unmute: getString("music_unmute"),
-              volume: sensoryText("sensory.player.volume"),
+              volume: getString('sensory_player_volume'),
             }}
             className="bg-chrome-black/20"
           />
@@ -233,7 +234,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
           <button
             type="button"
             data-player-control="fullscreen"
-            aria-label={sensoryText("sensory.player.fullscreen")}
+            aria-label={getString('sensory_player_fullscreen')}
             aria-pressed={isFullscreen}
             onClick={toggleFullscreen}
             className={sideBtn}
