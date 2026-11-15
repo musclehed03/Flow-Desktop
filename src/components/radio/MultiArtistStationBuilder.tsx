@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { getString } from "../../lib/i18n/index";
 import { fetchLibraryArtists, searchCatalogArtists } from "../../lib/multiArtistSearch";
 import { useDebounce } from "../../lib/useDebounce";
 import { useMusicPlayerStore } from "../../store/useMusicPlayerStore";
@@ -13,6 +14,8 @@ import type { ArtistItem } from "../../types/music";
  */
 export function MultiArtistStationBuilder() {
   const { t } = useTranslation("settings");
+  // radio.multiArtistEmpty / radio.multiArtistLibraryEmpty have no equivalent in
+  // strings.json yet, so this file keeps the settings namespace for those two keys.
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query);
@@ -71,31 +74,31 @@ export function MultiArtistStationBuilder() {
 
   return <section className="mb-6 rounded-2xl border border-outline-variant p-4 text-on-surface">
     <div className="flex items-center justify-between gap-3">
-      <h2 className="text-xl font-semibold">{t("radio.multiArtist")}</h2>
-      <button type="button" aria-expanded={open} data-tooltip={t(open ? "radio.multiArtistHide" : "radio.multiArtistNew")}
+      <h2 className="text-xl font-semibold">{getString('settings_radio_multiArtist')}</h2>
+      <button type="button" aria-expanded={open} data-tooltip={getString(open ? 'settings_radio_multiArtistHide' : 'settings_radio_multiArtistNew')}
         onClick={() => setOpen((value) => !value)} className="rounded-full border border-outline-variant px-4 py-2">
-        {open ? "▾" : "▸"} {t(open ? "radio.multiArtistHide" : "radio.multiArtistNew")}
+        {open ? "▾" : "▸"} {getString(open ? 'settings_radio_multiArtistHide' : 'settings_radio_multiArtistNew')}
       </button>
     </div>
     {open && <>
-      <p className="mt-2 text-sm text-on-surface-variant">{t("radio.multiArtistDescription")}</p>
-      <div className="mt-3 flex flex-wrap gap-2" aria-label={t("radio.multiArtistSelected")}>
+      <p className="mt-2 text-sm text-on-surface-variant">{getString('settings_radio_multiArtistDescription')}</p>
+      <div className="mt-3 flex flex-wrap gap-2" aria-label={getString('settings_radio_multiArtistSelected')}>
         {selected.map((artist) => <span key={artist.id} className="flex items-center gap-2 rounded-full border border-outline-variant px-3 py-1">
           {artist.title}
-          <button type="button" aria-label={t("radio.multiArtistRemove", { name: artist.title })}
-            data-tooltip={t("radio.multiArtistRemove", { name: artist.title })}
+          <button type="button" aria-label={getString('settings_radio_multiArtistRemove', artist.title)}
+            data-tooltip={getString('settings_radio_multiArtistRemove', artist.title)}
             onClick={() => setSelected((roots) => roots.filter((root) => root.id !== artist.id))}
             className="rounded-lg px-1">×</button>
         </span>)}
       </div>
-      <input aria-label={t("radio.multiArtistSearch")} placeholder={t("radio.multiArtistSearch")}
+      <input aria-label={getString('settings_radio_multiArtistSearch')} placeholder={getString('settings_radio_multiArtistSearch')}
         value={query} onChange={(event) => setQuery(event.target.value)}
-        data-tooltip={t("radio.multiArtistSearch")}
+        data-tooltip={getString('settings_radio_multiArtistSearch')}
         className="mt-3 w-full rounded-lg border border-outline-variant bg-surface px-2 py-1 text-on-surface" />
-      {loading && <p role="status" className="mt-2 text-sm text-on-surface-variant">{t("radio.multiArtistLoading")}</p>}
+      {loading && <p role="status" className="mt-2 text-sm text-on-surface-variant">{getString('settings_radio_multiArtistLoading')}</p>}
       <ul className="mt-2 flex flex-col gap-1">
         {candidates.map((artist) => <li key={artist.id}>
-          <button type="button" data-tooltip={t("radio.multiArtistAdd", { name: artist.title })}
+          <button type="button" data-tooltip={getString('settings_radio_multiArtistAdd', artist.title)}
             onClick={() => setSelected((roots) => [...roots, artist])}
             className="w-full rounded-lg border border-outline-variant px-3 py-2 text-start">
             {artist.title}
@@ -104,13 +107,13 @@ export function MultiArtistStationBuilder() {
       </ul>
       {!loading && !candidates.length && <p className="mt-2 text-sm text-on-surface-variant">
         {t(query.trim() ? "radio.multiArtistEmpty" : "radio.multiArtistLibraryEmpty")}</p>}
-      {error && <p role="status" className="mt-2 text-sm text-on-surface">{t("radio.multiArtistFailed")}{" "}
+      {error && <p role="status" className="mt-2 text-sm text-on-surface">{getString('settings_radio_multiArtistFailed')}{" "}
         <button type="button" className="rounded-lg border border-outline-variant px-3 py-1"
-          onClick={() => setLibraryAttempt((attempt) => attempt + 1)}>{t("radio.retry")}</button></p>}
-      <button type="button" disabled={!selected.length || starting} data-tooltip={t("radio.multiArtistStart")}
+          onClick={() => setLibraryAttempt((attempt) => attempt + 1)}>{getString('settings_radio_retry')}</button></p>}
+      <button type="button" disabled={!selected.length || starting} data-tooltip={getString('settings_radio_multiArtistStart')}
         onClick={() => void start()}
         className="mt-3 rounded-full border border-outline-variant px-4 py-2 disabled:opacity-50">
-        {starting ? t("radio.multiArtistStarting") : t("radio.multiArtistStart")}
+        {starting ? getString('settings_radio_multiArtistStarting') : getString('settings_radio_multiArtistStart')}
       </button>
     </>}
   </section>;

@@ -2,6 +2,9 @@ import { videoAnalyser } from "../../lib/audio/videoAnalyser";
 import { toggleMusicFullscreen } from "../../lib/musicPresentation";
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+// visualizer.* / sensory.player.unmute / sensory.player.queue / sensory.controls
+// have no equivalent in strings.json yet; this file keeps the settings namespace for those keys.
+import { getString } from '../../lib/i18n/index';
 import { AudioLines, X, Maximize2, Brain, ListMusic, SlidersHorizontal, GripHorizontal, RotateCcw } from 'lucide-react';
 import { useVisualizerConfig, useVisualizerUi, openVisualizer, openVisualizerCustomizer, closeVisualizer } from '../../lib/useVisualizer';
 import { useBoolPref } from '../../lib/usePreference';
@@ -103,18 +106,18 @@ export function Visualizers() {
       <div className="min-h-0 flex-1 p-2"><VisualizerCanvas config={config} /></div>
       <div className={config.mode === 'fullscreen' ? 'mt-3 flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-outline-variant bg-surface-container p-2' : 'flex shrink-0 flex-wrap items-center gap-2 border-t border-outline-variant bg-surface-container p-2'}>
         {config.mode !== 'fullscreen' && <>
-          <button type="button" aria-label={t('surface.drag')} title={t('surface.drag')} onPointerDown={miniSurface.beginMove} onKeyDown={miniSurface.keyboardMove} className="grid h-8 w-8 touch-none place-items-center rounded-full"><GripHorizontal size={18} /></button>
-          <button type="button" aria-label={t('surface.reset')} title={t('surface.reset')} onClick={miniSurface.reset} className="grid h-8 w-8 place-items-center rounded-full"><RotateCcw size={17} /></button>
+          <button type="button" aria-label={getString('surface_drag')} title={getString('surface_drag')} onPointerDown={miniSurface.beginMove} onKeyDown={miniSurface.keyboardMove} className="grid h-8 w-8 touch-none place-items-center rounded-full"><GripHorizontal size={18} /></button>
+          <button type="button" aria-label={getString('surface_reset')} title={getString('surface_reset')} onClick={miniSurface.reset} className="grid h-8 w-8 place-items-center rounded-full"><RotateCcw size={17} /></button>
         </>}
         <PlayerTransportControls
           isPlaying={activePlaying}
           onPrevious={() => surface === 'music' ? useMusicPlayerStore.getState().previous() : usePlayerStore.getState().playPrevious()}
           onTogglePlay={() => surface === 'music' ? useMusicPlayerStore.getState().togglePlay() : usePlayerStore.getState().setIsPlaying(!usePlayerStore.getState().isPlaying)}
           onNext={() => surface === 'music' ? useMusicPlayerStore.getState().next() : usePlayerStore.getState().playNext(true)}
-          labels={{ previous: t('sensory.player.previous'), play: t('sensory.player.play'), pause: t('sensory.player.pause'), next: t('sensory.player.next') }}
+          labels={{ previous: getString('sensory_player_previous'), play: getString('sensory_player_play'), pause: getString('sensory_player_pause'), next: getString('sensory_player_next') }}
         />
         <div className="w-24" data-player-control="seek">
-          <Slider aria-label={t('sensory.player.seek')} min={0} max={Math.max(1, activeDuration)} step={1} value={Math.min(activeProgress, Math.max(1, activeDuration))} onChange={seek} />
+          <Slider aria-label={getString('sensory_player_seek')} min={0} max={Math.max(1, activeDuration)} step={1} value={Math.min(activeProgress, Math.max(1, activeDuration))} onChange={seek} />
         </div>
         <PlayerVolumeControl
           volume={activeVolume}
@@ -131,7 +134,7 @@ export function Visualizers() {
               player.setMuted(value === 0);
             }
           }}
-          labels={{ mute: t('sensory.player.mute'), unmute: t('sensory.player.unmute'), volume: t('sensory.player.volume') }}
+          labels={{ mute: getString('sensory_player_mute'), unmute: t('sensory.player.unmute'), volume: getString('sensory_player_volume') }}
         />
         <button type="button" data-player-control="queue" aria-label={t('sensory.player.queue')} className="grid h-8 w-8 place-items-center rounded-full" onClick={openQueue}><ListMusic size={18} /></button>
         <button type="button" data-player-control="fullscreen" aria-label={t('visualizer.fullscreen')} aria-pressed={surface === 'music' ? musicFullscreen : videoFullscreen} className="grid h-8 w-8 place-items-center rounded-full" onClick={() => { if (surface === 'music') void toggleMusicFullscreen(); else usePlayerStore.getState().setIsVideoFullscreen(!usePlayerStore.getState().isVideoFullscreen); }}><Maximize2 size={18} /></button>
@@ -139,7 +142,7 @@ export function Visualizers() {
         <button type="button" data-player-control="visualizer" aria-label={t('visualizer.customize')} aria-haspopup="dialog" className="grid h-8 w-8 place-items-center rounded-full" onClick={openVisualizerCustomizer}><SlidersHorizontal size={18} /></button>
         <button type="button" aria-label={t('visualizer.close')} onClick={() => update({ ...config, enabled: false })}><X size={18} /></button>
       </div>
-      {config.mode !== 'fullscreen' && <div role="separator" tabIndex={0} aria-label={t('surface.resize')} onPointerDown={miniSurface.beginResize} onKeyDown={miniSurface.keyboardResize} className="absolute bottom-0 end-0 z-20 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
+      {config.mode !== 'fullscreen' && <div role="separator" tabIndex={0} aria-label={getString('surface_resize')} onPointerDown={miniSurface.beginResize} onKeyDown={miniSurface.keyboardResize} className="absolute bottom-0 end-0 z-20 h-5 w-5 cursor-nwse-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />}
     </section>}
     {open && <Suspense fallback={<p role="status" className="fixed end-4 top-4 z-[620] rounded-lg bg-surface-container p-3 text-on-surface">{t('visualizer.loading')}</p>}>
       <VisualizerCustomizerPanel config={config} openerRef={opener} onChange={saveConfig} onClose={close} />

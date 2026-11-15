@@ -1,6 +1,7 @@
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { CurrentStationSave } from "./SavedStations";
 import { useTranslation } from "react-i18next";
+import { getString } from "../../lib/i18n/index";
 import { useBoolPref } from "../../lib/usePreference";
 import { SETTINGS } from "../../lib/settings/schema";
 import { setSettingValue } from "../../store/useAppSettingsStore";
@@ -10,6 +11,8 @@ import { DiscoveryControl } from "./DiscoveryControl";
 
 export function GeniusControls({ surface }: { surface: 'music' | 'video' | 'settings' }) {
   const { t } = useTranslation('settings');
+  // radio.genius / radio.geniusDescription / radio.exhausted have no equivalent in
+  // strings.json yet, so this file keeps the settings namespace for those keys.
   const [enabled, setEnabled] = useBoolPref(SETTINGS.GENIUS_DJ_ENABLED);
   const error = useMusicPlayerStore((s) => s.radioError);
   const videoError = usePlayerStore((s) => s.autoplayError);
@@ -33,6 +36,6 @@ export function GeniusControls({ surface }: { surface: 'music' | 'video' | 'sett
       <button type="button" className="mt-2 rounded-lg border border-outline-variant px-3 py-2" onClick={() => {
         if (surface === 'video') void usePlayerStore.getState().refillAutoplay();
         else void useMusicPlayerStore.getState()._ensureRadio().then(() => useMusicPlayerStore.getState().next());
-      }}>{t('radio.retry')}</button></div>}
+      }}>{getString('settings_radio_retry')}</button></div>}
   </div>;
 }
