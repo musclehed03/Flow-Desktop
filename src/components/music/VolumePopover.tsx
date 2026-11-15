@@ -39,13 +39,18 @@ function VolumePanel({ onClose, triggerRef }: { onClose?: () => void; triggerRef
   const toggleMute = useMusicPlayerStore((s) => s.toggleMute);
   const [hovered, setHovered] = useState(false);
   const [keyboardFocus, setKeyboardFocus] = useState(false);
+  // While the thumb is held the panel must not close under the pointer: unmounting a native
+  // range input mid-drag leaves the drag engaged, so the volume keeps following the cursor
+  // after the menu is gone (fix #21). The dismiss hook and the idle timer both stand down.
+  const [sliderDragging, setSliderDragging] = useState(false);
 
   const wheelRef = useMusicWheelVolume();
 
   const shown = isMuted ? 0 : volume;
   const popoverRef = useDismissOnOutsideInteraction<HTMLDivElement>({
-    // The panel only mounts while the popover is open.
-    open: true,
+    // The panel only mounts while the popover is open; while the slider is dragged the
+    // outside-dismiss listeners detach entirely, so a stray pointerdown can't close it.
+    open: !sliderDragging,
     onDismiss: onClose ?? (() => {}),
     additionalRefs: triggerRef ? [triggerRef] : [],
     restoreFocusRef: triggerRef,
@@ -70,7 +75,7 @@ function VolumePanel({ onClose, triggerRef }: { onClose?: () => void; triggerRef
         if (!event.currentTarget.contains(event.relatedTarget)) setKeyboardFocus(false);
       }}
     >
-      {onClose && <IdleClose key={`${volume}:${isMuted}`} paused={hovered || keyboardFocus} onExpire={onClose} />}
+      {onClose && <IdleClose key={`${volume}:${isMuted}`} paused={hovered || keyboardFocus || sliderDragging} onExpire={onClose} />}
       <button
         type="button"
         onClick={toggleMute}
@@ -85,6 +90,7 @@ function VolumePanel({ onClose, triggerRef }: { onClose?: () => void; triggerRef
         step={0.01}
         value={shown}
         onChange={setVolume}
+        onDragChange={setSliderDragging}
         aria-label={getString("music_volume")}
         className="flex-1"
       />

@@ -13,6 +13,8 @@ export interface SliderProps {
   disabled?: boolean;
   className?: string;
   orientation?: 'horizontal' | 'vertical';
+  /** Fires when a drag starts and ends, so a host can hold itself open while the thumb is held. */
+  onDragChange?: (dragging: boolean) => void;
 }
 
 /**
@@ -30,6 +32,7 @@ export function Slider({
   orientation = 'horizontal',
   'aria-label': ariaLabel,
   'aria-describedby': ariaDescribedBy,
+  onDragChange,
 }: SliderProps) {
   const [pressed, setPressed] = useState(false);
   const expressive = useExpressiveSliders();
@@ -50,10 +53,10 @@ export function Slider({
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
       onChange={(event) => onChange(Number(event.target.value))}
-      onPointerDown={() => setPressed(true)}
-      onPointerUp={() => setPressed(false)}
-      onPointerCancel={() => setPressed(false)}
-      onBlur={() => setPressed(false)}
+      onPointerDown={() => { setPressed(true); onDragChange?.(true); }}
+      onPointerUp={() => { setPressed(false); onDragChange?.(false); }}
+      onPointerCancel={() => { setPressed(false); onDragChange?.(false); }}
+      onBlur={() => { setPressed(false); onDragChange?.(false); }}
     />
   );
 
