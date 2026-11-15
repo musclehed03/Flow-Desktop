@@ -55,7 +55,7 @@ function VolumePanel({ onClose, triggerRef }: { onClose?: () => void; triggerRef
     <motion.div
       ref={(node) => {
         popoverRef.current = node;
-        wheelRef(node);
+        return wheelRef(node);
       }}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1, transition: MENU_ENTER_TRANSITION }}

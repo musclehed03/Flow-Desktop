@@ -296,8 +296,8 @@ export function MusicOverlay() {
             <GroupItem id="volume">
               <HapticButton
                 ref={(el) => {
-                  volumeWheelRef(el);
                   volumeTriggerRef.current = el;
+                  return volumeWheelRef(el);
                 }}
                 onClick={() => setVolumeOpen((v) => !v)}
                 aria-label={getString("music_volume")}
