@@ -86,6 +86,23 @@ describe("VolumePopover wheel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     cleanup();
   });
+
+  it("does not close on an outside pointerdown while the slider is dragged (fix #21)", async () => {
+    // Unmounting a native range input mid-drag leaves the drag engaged, so the
+    // panel must not close under a held thumb: the outside-dismiss listeners
+    // stand down until the pointer comes up, then dismiss works again.
+    useMusicPlayerStore.setState({ setVolume: vi.fn(), toggleMute: vi.fn(), volume: 0.5, isMuted: false });
+    const onClose = vi.fn();
+    const { library, cleanup } = await renderOpen(onClose);
+    const slider = host.querySelector('input[type="range"]')!;
+    await act(async () => { slider.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    await act(async () => { library.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { slider.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })); });
+    await act(async () => { library.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
 });
 
 describe("VolumePopover closing by itself", () => {
@@ -147,6 +164,22 @@ describe("VolumePopover closing by itself", () => {
     wait(2000);
     expect(onClose).not.toHaveBeenCalled();
     wait(800);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not idle-close while the slider is dragged (fix #21)", () => {
+    const onClose = vi.fn();
+    const popover = openWith(onClose);
+    const slider = popover.querySelector('input[type="range"]')!;
+
+    act(() => slider.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    wait(10_000);
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => slider.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })));
+    wait(2799);
+    expect(onClose).not.toHaveBeenCalled();
+    wait(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

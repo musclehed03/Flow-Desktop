@@ -274,8 +274,8 @@ export function GlobalMusicDock() {
                 {!away && (
                     <HapticButton
                       ref={(el) => {
-                        volumeWheelRef(el);
                         volumeTriggerRef.current = el;
+                        return volumeWheelRef(el);
                       }}
                       data-sheet-drag-ignore
                       onClick={() => setPopover((p) => (p === "vol" ? null : "vol"))}

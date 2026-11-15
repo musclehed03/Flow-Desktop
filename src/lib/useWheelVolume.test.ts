@@ -95,4 +95,58 @@ describe("useWheelVolume", () => {
 
     expect(onFeedback).toHaveBeenCalledWith(0.5, false);
   });
+
+  it("does not stack listeners when the caller composes the ref inline (fix #21)", () => {
+    // The dock, the overlay and the popover all wrap this ref in an inline callback
+    // that drops the returned cleanup, so React detaches (null) and re-attaches on
+    // every render. Before the fix each re-attach added another wheel listener and
+    // one notch stepped the volume once per render; the always-mounted volume
+    // button's listeners never died at all, so the volume kept moving after the
+    // popover closed. One notch must step exactly once, however often the host
+    // re-rendered.
+    const onVolumeChange = vi.fn();
+    const ComposedBox = ({ volume }: { volume: number }) => {
+      const wheelRef = useWheelVolume({ volume, muted: false, onVolumeChange });
+      return createElement("div", {
+        ref: (node: HTMLDivElement | null) => {
+          wheelRef(node);
+        },
+        "data-testid": "box",
+      });
+    };
+    act(() => root.render(createElement(ComposedBox, { volume: 0.5 })));
+    act(() => root.render(createElement(ComposedBox, { volume: 0.5 })));
+    act(() => root.render(createElement(ComposedBox, { volume: 0.5 })));
+
+    wheel(-100);
+
+    expect(onVolumeChange).toHaveBeenCalledTimes(1);
+    expect(onVolumeChange).toHaveBeenCalledWith(0.55);
+  });
+
+  it("removes the listener when a composed ref detaches", () => {
+    // Same composed shape as the stacking test, but unmounting: the inline
+    // callback drops the cleanup, so the old code never removed the listener
+    // when the popover closed. Dispatching on the (jsdom-detached) node must
+    // reach nothing after detach.
+    const onVolumeChange = vi.fn();
+    const ComposedBox = ({ shown = true }: { shown?: boolean }) => {
+      const wheelRef = useWheelVolume({ volume: 0.5, muted: false, onVolumeChange });
+      return shown
+        ? createElement("div", {
+            ref: (node: HTMLDivElement | null) => {
+              wheelRef(node);
+            },
+            "data-testid": "box",
+          })
+        : null;
+    };
+    act(() => root.render(createElement(ComposedBox, { shown: true })));
+    const node = document.querySelector('[data-testid="box"]')!;
+    act(() => root.render(createElement(ComposedBox, { shown: false })));
+
+    node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 }));
+
+    expect(onVolumeChange).not.toHaveBeenCalled();
+  });
 });
