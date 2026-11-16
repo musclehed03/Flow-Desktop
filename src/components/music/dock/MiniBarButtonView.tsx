@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type Ref } from "react";
+import { useEffect, type CSSProperties, type Ref, type RefObject } from "react";
 import {
   Heart,
   ListMusic,
@@ -47,6 +47,8 @@ export interface MiniBarButtonContext {
   setPopover: (update: (current: null | "eq" | "vol") => null | "eq" | "vol") => void;
   accentActive: CSSProperties;
   volumeRef: Ref<HTMLButtonElement>;
+  volumeTriggerRef: RefObject<HTMLElement | null>;
+  eqTriggerRef: RefObject<HTMLElement | null>;
 }
 
 function LikeButton({ track }: { track: SongItem }) {
@@ -99,7 +101,7 @@ export function MiniBarButtonView({ button, ctx }: { button: MiniBarButton; ctx:
         <HapticButton
           onClick={() => store().togglePlay()}
           aria-label={getString(ctx.playing ? "music_pause" : "music_play")}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105 active:scale-90"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:scale-105"
         >
           {ctx.busy ? (
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -163,7 +165,11 @@ export function MiniBarButtonView({ button, ctx }: { button: MiniBarButton; ctx:
     case "volume":
       return (
         <HapticButton
-          ref={ctx.volumeRef}
+          ref={(el) => {
+            ctx.volumeTriggerRef.current = el;
+            if (typeof ctx.volumeRef === "function") return ctx.volumeRef(el);
+            if (ctx.volumeRef) ctx.volumeRef.current = el;
+          }}
           data-sheet-drag-ignore
           onClick={() => ctx.setPopover((p) => (p === "vol" ? null : "vol"))}
           aria-label={getString("music_volume")}
@@ -177,6 +183,9 @@ export function MiniBarButtonView({ button, ctx }: { button: MiniBarButton; ctx:
       const on = ctx.popover === "eq" || ctx.eqActive;
       return (
         <HapticButton
+          ref={(el) => {
+            ctx.eqTriggerRef.current = el;
+          }}
           onClick={() => ctx.setPopover((p) => (p === "eq" ? null : "eq"))}
           aria-label={getString("music_equalizer")}
           aria-pressed={ctx.popover === "eq"}

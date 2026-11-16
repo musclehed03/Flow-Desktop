@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { X } from "lucide-react";
 
 import { useMusicPlayerStore } from "../../../store/useMusicPlayerStore";
@@ -53,6 +53,10 @@ export function useMiniPlayer() {
   const error = useMusicPlayerError();
   const [popover, setPopover] = useState<null | "eq" | "vol">(null);
   const [hovered, setHovered] = useState(false);
+  // The popovers live in MiniChrome, their triggers in the dock bodies: the refs
+  // bridge them so a click outside the trigger still counts and focus returns.
+  const volumeTriggerRef = useRef<HTMLElement | null>(null);
+  const eqTriggerRef = useRef<HTMLElement | null>(null);
   const menu = useMusicContextMenu(Boolean(currentTrack));
   const menuActions = useNowPlayingMenuActions(currentTrack);
 
@@ -84,6 +88,8 @@ export function useMiniPlayer() {
     setPopover,
     accentActive,
     volumeRef: volumeWheelRef,
+    volumeTriggerRef,
+    eqTriggerRef,
     menu,
     menuActions,
     buttons: look.buttons,
@@ -105,6 +111,8 @@ export function useMiniPlayer() {
     error,
     popover,
     setPopover,
+    volumeTriggerRef,
+    eqTriggerRef,
     volumeFeedback,
     hovered,
     setHovered,
@@ -158,7 +166,7 @@ export function MiniBar({ mini }: { mini: MiniPlayer }) {
 /** What floats around the resting bar outside the card's clip: Dismiss, a playback failure and the popovers. */
 export function MiniChrome({ mini }: { mini: MiniPlayer }) {
   const dismiss = useMusicPlayerStore((s) => s.dismiss);
-  const { away, pill, look, error, popover, setPopover, volumeFeedback, hovered } = mini;
+  const { away, pill, look, error, popover, setPopover, volumeFeedback, hovered, volumeTriggerRef, eqTriggerRef } = mini;
   return (
     <>
       {/* Dismiss: appears on hover at the corner, unless the Pill already shows Close. */}
@@ -190,11 +198,11 @@ export function MiniChrome({ mini }: { mini: MiniPlayer }) {
       )}
 
       <div className="pointer-events-auto absolute bottom-full end-2 mb-3">
-        <EqPanel open={popover === "eq"} onClose={() => setPopover(() => null)} placement="top" />
+        <EqPanel open={popover === "eq"} onClose={() => setPopover(() => null)} placement="top" triggerRef={eqTriggerRef} />
       </div>
       <div className="pointer-events-auto absolute bottom-full end-2 mb-3">
         {volumeFeedback && popover !== "vol" && <VolumeFeedbackPill feedback={volumeFeedback} tone="surface" />}
-        <VolumePopover open={popover === "vol"} onClose={() => setPopover((p) => (p === "vol" ? null : p))} />
+        <VolumePopover open={popover === "vol"} onClose={() => setPopover((p) => (p === "vol" ? null : p))} triggerRef={volumeTriggerRef} />
       </div>
     </>
   );

@@ -6,13 +6,14 @@ import { PlayOnButton } from "../../playon/PlayOnButton";
 import { RemoteProgress } from "../../playon/RemoteProgress";
 import { HapticButton } from "../HapticButton";
 import { MusicScrubber } from "../MusicScrubber";
+import { VisualizerToggle } from "../../visualizer/Visualizers";
 import { DockTrackInfo } from "./DockTrackInfo";
 import type { DockModel } from "./dockModel";
 import { GHOST, GHOST_IDLE } from "./dockStyles";
 
 /** Classic: the wide bar Flow Desktop always had, with its fixed transport, actions and edge progress. */
 export function ClassicDockBody({ model }: { model: DockModel }) {
-  const { away, playing, busy, muted, eqActive, popover, setPopover, accentActive, volumeRef } = model;
+  const { away, playing, busy, muted, eqActive, popover, setPopover, accentActive, volumeRef, volumeTriggerRef, eqTriggerRef } = model;
   const isShuffle = useMusicPlayerStore((s) => s.isShuffle);
   const repeatMode = useMusicPlayerStore((s) => s.repeatMode);
   const { togglePlay, next, previous, toggleShuffle, cycleRepeat, openOverlay } = useMusicPlayerStore.getState();
@@ -48,7 +49,7 @@ export function ClassicDockBody({ model }: { model: DockModel }) {
         <HapticButton
           onClick={togglePlay}
           aria-label={getString(playing ? "music_pause" : "music_play")}
-          className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] transition-transform duration-200 ease-out hover:scale-105 active:scale-90"
+          className="grid h-11 w-11 place-items-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:scale-105"
         >
           {busy ? (
             <Loader2 className="h-7 w-7 animate-spin" />
@@ -80,11 +81,17 @@ export function ClassicDockBody({ model }: { model: DockModel }) {
         )}
       </div>
 
+      <VisualizerToggle surface="music" />
+
       {/* RIGHT — secondary actions; the device controlled has its own. */}
       <div className="flex w-1/3 items-center justify-end gap-4">
         {!away && (
           <HapticButton
-            ref={volumeRef}
+            ref={(el) => {
+              volumeTriggerRef.current = el;
+              if (typeof volumeRef === "function") return volumeRef(el);
+              if (volumeRef) volumeRef.current = el;
+            }}
             data-sheet-drag-ignore
             onClick={() => setPopover((p) => (p === "vol" ? null : "vol"))}
             aria-label={getString("music_volume")}
@@ -108,6 +115,9 @@ export function ClassicDockBody({ model }: { model: DockModel }) {
             </HapticButton>
 
             <HapticButton
+              ref={(el) => {
+                eqTriggerRef.current = el;
+              }}
               onClick={() => setPopover((p) => (p === "eq" ? null : "eq"))}
               aria-label={getString("music_equalizer")}
               aria-pressed={popover === "eq"}

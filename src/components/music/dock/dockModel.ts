@@ -1,4 +1,4 @@
-import type { CSSProperties, Ref } from "react";
+import type { CSSProperties, Ref, RefObject } from "react";
 
 import type { ControlledDevice } from "../../../lib/live/usePlayOn";
 import type { MiniBarButton, MiniPlayerLook } from "../../../lib/music/miniPlayerLook";
@@ -19,6 +19,10 @@ export interface DockModel {
   setPopover: (update: (current: null | "eq" | "vol") => null | "eq" | "vol") => void;
   accentActive: CSSProperties;
   volumeRef: Ref<HTMLButtonElement>;
+  /** Where the volume popover returns focus; the trigger lives in the dock body. */
+  volumeTriggerRef: RefObject<HTMLElement | null>;
+  /** Where the EQ popover returns focus; the trigger lives in the dock body. */
+  eqTriggerRef: RefObject<HTMLElement | null>;
   menu: ReturnType<typeof useMusicContextMenu>;
   menuActions: MusicMenuAction[];
   buttons: MiniBarButton[];
