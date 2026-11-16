@@ -4,9 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getWatchHistory = vi.fn();
+const setSetting = vi.fn();
 vi.mock("./api/db", async (original) => ({
   ...(await original<object>()),
   getWatchHistory: (...args: unknown[]) => getWatchHistory(...args),
+  setSetting: (...args: unknown[]) => setSetting(...args),
 }));
 vi.mock("./deepFlow", async (original) => ({ ...(await original<object>()), isDeepFlowCurrentlyActive: () => false }));
 
@@ -41,11 +43,16 @@ const render = () => act(async () => root.render(createElement(Probe)));
 beforeEach(() => {
   window.localStorage.clear();
   getWatchHistory.mockReset();
+  setSetting.mockReset();
   usePlayerStore.setState({ currentVideo: null });
   useMusicPlayerStore.setState({ currentTrack: null });
   useAppSettingsStore.setState((s) => ({
     loaded: true,
-    values: { ...s.values, [SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_ENABLED]: "true" },
+    values: {
+      ...s.values,
+      [SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_ENABLED]: "true",
+      [SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED]: "false",
+    },
   }));
   root = createRoot(document.createElement("div"));
 });
@@ -105,6 +112,35 @@ describe("useContinueWatchingOnLaunch", () => {
     root = createRoot(document.createElement("div"));
     await render();
     expect(hook.video).toBeNull();
+  });
+
+  it("persists the dismissal to settings", async () => {
+    getWatchHistory.mockResolvedValue([record("half")]);
+    await render();
+    expect(hook.video?.id).toBe("half");
+    await act(async () => hook.dismiss());
+    expect(setSetting).toHaveBeenCalledWith(SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED, "true");
+    expect(useAppSettingsStore.getState().values[SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED]).toBe("true");
+  });
+
+  it("stays hidden after dismiss, even for a new unfinished video", async () => {
+    getWatchHistory.mockResolvedValue([record("half")]);
+    await render();
+    expect(hook.video?.id).toBe("half");
+    await act(async () => hook.dismiss());
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    getWatchHistory.mockResolvedValue([record("other")]);
+    await render();
+    expect(hook.video).toBeNull();
+    expect(getWatchHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("still appears when never dismissed", async () => {
+    expect(useAppSettingsStore.getState().values[SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED]).not.toBe("true");
+    getWatchHistory.mockResolvedValue([record("half")]);
+    await render();
+    expect(hook.video?.id).toBe("half");
   });
 
   it("shows nothing when history can't be read", async () => {

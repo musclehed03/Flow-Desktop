@@ -4,7 +4,7 @@ import { getHiddenContinueWatchingIds, hideContinueWatchingVideo } from "./conti
 import { isDeepFlowCurrentlyActive } from "./deepFlow";
 import { SETTINGS } from "./settings/schema";
 import { buildContinueWatching } from "./useContinueWatching";
-import { useAppSettingsStore } from "../store/useAppSettingsStore";
+import { setSettingValue, useAppSettingsStore } from "../store/useAppSettingsStore";
 import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 import { usePlayerStore } from "../store/usePlayerStore";
 import type { VideoSummary } from "../types/video";
@@ -19,6 +19,7 @@ const HISTORY_SCAN = 50;
 export function useContinueWatchingOnLaunch() {
   const settingsLoaded = useAppSettingsStore((s) => s.loaded);
   const enabled = useAppSettingsStore((s) => s.values[SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_ENABLED] !== "false");
+  const dismissed = useAppSettingsStore((s) => s.values[SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED] === "true");
   const somethingPlaying = usePlayerStore((s) => s.currentVideo !== null);
   const musicLoaded = useMusicPlayerStore((s) => s.currentTrack !== null);
   const [video, setVideo] = useState<VideoSummary | null>(null);
@@ -35,16 +36,17 @@ export function useContinueWatchingOnLaunch() {
   useEffect(() => {
     if (!settingsLoaded || checkedRef.current) return;
     checkedRef.current = true;
-    if (!enabled || isDeepFlowCurrentlyActive()) return;
+    if (!enabled || dismissed || isDeepFlowCurrentlyActive()) return;
     getWatchHistory(HISTORY_SCAN, 0)
       .then((history) => {
         if (!spentRef.current) setVideo(buildContinueWatching(history, getHiddenContinueWatchingIds())[0] ?? null);
       })
       .catch((error) => console.warn("Failed to read the last watched video", error));
-  }, [enabled, settingsLoaded]);
+  }, [enabled, dismissed, settingsLoaded]);
 
   const dismiss = useCallback(() => {
     if (video) hideContinueWatchingVideo(video.id);
+    void setSettingValue(SETTINGS.MINI_PLAYER_CONTINUE_WATCHING_DISMISSED, "true");
     setVideo(null);
   }, [video]);
 
