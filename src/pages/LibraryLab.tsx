@@ -23,7 +23,38 @@ export default function LibraryLab() {
       <div className="rounded-2xl border-2 border-outline-variant p-5"><p className="text-3xl font-bold">{Math.round((stats?.listeningSeconds ?? 0) / 3600)}</p><p>{getString("local_stats_hours")}</p></div>
       <div className="rounded-2xl border-2 border-outline-variant p-5"><p className="text-3xl font-bold">{stats?.skips ?? 0}</p><p>{getString("local_stats_skips")}</p></div>
     </section>
-    <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="flex items-center gap-2 text-xl font-semibold"><Stethoscope aria-hidden="true" />{getString("library_doctor_title")}</h2><p className="text-sm text-on-surface-variant">{getString("library_doctor_report_only")}</p><dl className="mt-4 grid gap-3 sm:grid-cols-3"><div><dt>{getString("library_doctor_exact")}</dt><dd className="text-2xl font-bold">{diagnosis?.exactDuplicates.length ?? 0}</dd></div><div><dt>{getString("library_doctor_near")}</dt><dd className="text-2xl font-bold">{diagnosis?.nearDuplicates.length ?? 0}</dd></div><div><dt>{getString("library_doctor_broken")}</dt><dd className="text-2xl font-bold">{diagnosis?.emptyEntries.length ?? 0}</dd></div></dl></section>
+    <section className="rounded-2xl border-2 border-outline-variant p-5">
+      <h2 className="flex items-center gap-2 text-xl font-semibold"><Stethoscope aria-hidden="true" />{getString("library_doctor_title")}</h2>
+      <p className="text-sm text-on-surface-variant">{getString("library_doctor_report_only")}</p>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-4">
+        <div><dt>{getString("library_doctor_exact")}</dt><dd className="text-2xl font-bold">{diagnosis?.exactDuplicates.length ?? 0}</dd></div>
+        <div><dt>{getString("library_doctor_near")}</dt><dd className="text-2xl font-bold">{diagnosis?.nearDuplicates.length ?? 0}</dd></div>
+        <div><dt>{getString("library_doctor_broken")}</dt><dd className="text-2xl font-bold">{diagnosis?.emptyEntries.length ?? 0}</dd></div>
+        <div><dt>{getString("library_doctor_dead")}</dt><dd className="text-2xl font-bold">{diagnosis?.deadTracks.length ?? 0}</dd></div>
+      </dl>
+      {diagnosis?.deadTracks && diagnosis.deadTracks.length > 0 ? (
+        <div className="mt-5 space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-on-surface-variant">{getString("library_doctor_diagnosed_issues")}</h3>
+          <ul className="divide-y divide-outline-variant rounded-xl border border-outline-variant">
+            {diagnosis.deadTracks.map((issue, idx) => (
+              <li key={`${issue.playlist}-${issue.index}-${idx}`} className="flex flex-col gap-1 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="font-medium text-error">{issue.track.title || "Incomplete Track"}</span>
+                  <span className="ms-2 text-xs text-on-surface-variant">({issue.playlist} · #{issue.index + 1} · {issue.reason})</span>
+                </div>
+                {issue.suggestedReplacement ? (
+                  <div className="text-xs text-primary">
+                    <span className="font-semibold">{getString("library_doctor_suggested_replacement")}:</span> {issue.suggestedReplacement.title} ({issue.suggestedReplacement.channelName})
+                  </div>
+                ) : (
+                  <span className="text-xs text-on-surface-variant">{getString("library_doctor_no_replacement")}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
     {coverage ? <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="text-xl font-semibold">{getString("metadata_coverage_title")}</h2><p className="text-sm text-on-surface-variant">{getString(coverage.status === "complete" ? "metadata_coverage_complete" : "metadata_coverage_running")}</p><div className="mt-4 overflow-x-auto"><table className="w-full text-start text-sm"><thead><tr><th>{getString("metadata_field")}</th><th>{getString("metadata_before")}</th><th>{getString("metadata_after")}</th></tr></thead><tbody>{(["genre", "artist", "year", "playCount", "lastPlayed", "likes"] as const).map((field) => <tr key={field} className="border-t border-outline-variant"><th className="py-2">{getString(`metadata_${field}`)}</th><td>{coverage.before[field]} / {coverage.before.total}</td><td>{coverage.after[field]} / {coverage.after.total}</td></tr>)}</tbody></table></div></section> : null}
     <section className="rounded-2xl border-2 border-outline-variant p-5"><h2 className="text-xl font-semibold">{getString("local_stats_top_tracks")}</h2><ol className="mt-3 space-y-2">{stats?.topTracks.map((track) => <li key={track.id} className="flex justify-between gap-4"><span className="truncate">{track.title}</span><span>{track.plays}</span></li>)}</ol></section>
     <SmartPlaylistEditor />
