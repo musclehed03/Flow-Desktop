@@ -37,9 +37,9 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/Flow-Tube/Flow-Desktop/releases/latest/download/latest.json"
+        "https://github.com/musclehed03/Flow-Desktop/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3NjQyOEVCREQxMjY5MjkKUldRcGFSTGQ2eWhrMThHMzB3Y29Tc3JsTFhpOGJqR1lGY0M0Z01DaVlzL01zNXhLTWUzUDdxcFIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdFMEI2MTU0NUE2OTAwQUYKUldTdkFHbGFWR0VMZmlYcy82S25iSUtXaG5pYUpyaUgrTmJVQ0J2bmZsL0JZWkRQQzhGRGh5M2gK",
       "windows": {
         "installMode": "passive"
       }
