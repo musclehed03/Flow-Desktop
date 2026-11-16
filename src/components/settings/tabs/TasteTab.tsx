@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Ban, ChartNoAxesColumn, Heart, Loader2, RotateCw, UserSearch } from "lucide-react";
+import { Ban, ChartNoAxesColumn, Heart, ListMusic, Loader2, RotateCw, UserSearch } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { TOPIC_CATEGORIES } from "../../onboarding/constants";
 import { getString } from "../../../lib/i18n/index";
+import { useMusicEnabled } from "../../../lib/useMusicContent";
 import { useTastePreferences } from "../../../lib/useTastePreferences";
 import { evidenceLabel, useTasteOverview } from "../../../lib/useTasteOverview";
 import { useFeedActionsStore } from "../../../store/useFeedActionsStore";
@@ -35,6 +36,7 @@ const BLOCKED_SUGGESTIONS = [
 
 export function TasteTab() {
   const navigate = useNavigate();
+  const musicEnabled = useMusicEnabled();
   const [view, setView] = useState<TasteView>("interests");
   const [interestInput, setInterestInput] = useState("");
   const [blockedInput, setBlockedInput] = useState("");
@@ -157,6 +159,17 @@ export function TasteTab() {
               {getString("settings_open")}
             </Button>
           </SettingItem>
+          {musicEnabled && (
+            <SettingItem
+              title={getString("music_stats_title")}
+              description={getString("music_stats_settings_summary")}
+              icon={<ListMusic className="h-5 w-5" />}
+            >
+              <Button variant="secondary" size="sm" onClick={() => navigate("/music/stats")}>
+                {getString("settings_open")}
+              </Button>
+            </SettingItem>
+          )}
         </SettingsGroup>
       </div>
 

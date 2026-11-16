@@ -111,6 +111,8 @@ export interface MusicRecap {
   topTracks: RankedItem[];
   discoveredArtists: RankedItem[];
   skippedTracks: RankedItem[];
+  /** Every skipped listen in the period, whether its track made the ranked list or not. */
+  skips: number;
   dislikedArtists: RankedItem[];
   blockedArtists: RankedItem[];
 }

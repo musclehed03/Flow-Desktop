@@ -45,6 +45,7 @@ import MusicMixPage from "./pages/music/MusicMixPage";
 import ArtistPage from "./pages/music/ArtistPage";
 import ArtistItemsPage from "./pages/music/ArtistItemsPage";
 import MusicCollectionPage from "./pages/music/MusicCollectionPage";
+import MusicStatsPage from "./pages/music/MusicStatsPage";
 import Search from "./pages/Search";
 import ExploreCategories from "./pages/ExploreCategories";
 import Subscriptions from "./pages/Subscriptions";
@@ -261,6 +262,7 @@ function App() {
             } />
             <Route path="player" element={<PlayerHub />} />
             <Route path="music/moods" element={<MusicMoodsPage />} />
+            <Route path="music/stats" element={<MusicStatsPage />} />
             <Route path="music/browse" element={<MusicBrowsePage />} />
             <Route path="music/mix/:id" element={<MusicMixPage />} />
             <Route path="music/artist/:artistId" element={

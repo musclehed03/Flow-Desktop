@@ -65,6 +65,7 @@ function summary(overrides: { videoMs?: number; musicMs?: number; estimated?: bo
       topTracks: [],
       discoveredArtists: [],
       skippedTracks: [],
+      skips: 0,
       dislikedArtists: [],
       blockedArtists: [],
     },

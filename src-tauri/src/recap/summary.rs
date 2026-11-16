@@ -198,6 +198,8 @@ pub struct MusicRecap {
     pub top_tracks: Vec<RankedItem>,
     pub discovered_artists: Vec<RankedItem>,
     pub skipped_tracks: Vec<RankedItem>,
+    /// Every skipped listen in the period, whether its track made the ranked list or not.
+    pub skips: i64,
     pub disliked_artists: Vec<RankedItem>,
     pub blocked_artists: Vec<RankedItem>,
 }
@@ -571,6 +573,7 @@ fn music_recap(months: &[(i32, u32, &MusicMonth, bool)]) -> MusicRecap {
         top_tracks: ranked(&track_plays, TOP_COUNT, track_item),
         discovered_artists: ranked(&discovered_counts, TOP_COUNT * 3, artist_item),
         skipped_tracks: ranked(&track_skips, TOP_COUNT, track_item),
+        skips: track_skips.values().sum(),
         disliked_artists: dated(&disliked),
         blocked_artists: dated(&blocked),
     }
@@ -937,5 +940,26 @@ mod tests {
         assert_eq!(item.detail, "Channel");
         assert!(item.image_url.contains("abc"));
         assert_eq!(item.kind, RankedKind::Video);
+    }
+
+    #[test]
+    fn skips_total_counts_every_skipped_listen() {
+        let earlier = MusicMonth {
+            track_skips: BTreeMap::from([("a".to_string(), 2), ("b".to_string(), 1)]),
+            ..Default::default()
+        };
+        let later = MusicMonth {
+            plays: 4,
+            track_skips: BTreeMap::from([("a".to_string(), 3)]),
+            ..Default::default()
+        };
+        let out = summarize(
+            &RecapPeriod::AllTime,
+            RecapSource::All,
+            &[],
+            &[row("2026-08", earlier), row("2026-09", later)],
+        );
+        assert_eq!(out.music.plays, 4);
+        assert_eq!(out.music.skips, 6);
     }
 }
