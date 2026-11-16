@@ -12,7 +12,7 @@ const REGENERATE = "run node scripts/generate-notices.mjs";
 function cargoDependencies(toml: string): string[] {
   const names: string[] = [];
   let inDependencies = false;
-  for (const line of toml.split("\n")) {
+  for (const line of toml.replace(/\r/g, "").split("\n")) {
     const table = line.match(/^\[(.+)\]$/)?.[1];
     if (table) inDependencies = table.endsWith("dependencies") && !table.includes("dev-") && !table.includes("build-");
     else if (inDependencies) {

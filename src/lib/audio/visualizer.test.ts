@@ -50,6 +50,44 @@ describe("visualizer configuration and performance guard", () => {
     expect(animatedVisualizerStops(resolveVisualizerColors(unsafe), 1, false)).not.toEqual(resolveVisualizerColors(unsafe).stops);
   });
 
+  it("constrains all strobing and flashing parameters under Reduced Flash enforcement", () => {
+    // 1. Safe parameters within acceptable bounds are preserved
+    const alreadySafe = {
+      ...VISUALIZER_DEFAULT,
+      family: "spectrum" as const,
+      mirror: "horizontal" as const,
+      fps: 15 as const,
+      sensitivity: 1.0,
+      smoothing: 0.85,
+      falloff: 0.80,
+      beat: 0.2,
+      colors: { ...VISUALIZER_DEFAULT.colors, cycleMode: "off" as const, cycleSeconds: 12 },
+    };
+    const preserved = enforceReducedFlash(alreadySafe);
+    expect(preserved.family).toBe("spectrum");
+    expect(preserved.mirror).toBe("horizontal");
+    expect(preserved.fps).toBe(15);
+    expect(preserved.sensitivity).toBe(1.0);
+    expect(preserved.smoothing).toBe(0.85);
+    expect(preserved.falloff).toBe(0.80);
+    expect(preserved.beat).toBe(0.2);
+
+    // 2. All built-in presets marked with flashRisk are fail-safe constrained
+    const flashRiskPresets = VISUALIZER_DEFAULTS.filter((preset) => preset.flashRisk);
+    expect(flashRiskPresets.length).toBeGreaterThan(0);
+    for (const preset of flashRiskPresets) {
+      const enforced = enforceReducedFlash(preset.config);
+      expect(enforced.family).not.toBe("feedback");
+      expect(enforced.mirror).not.toBe("kaleidoscope");
+      expect(enforced.fps).toBeLessThanOrEqual(30);
+      expect(enforced.sensitivity).toBeLessThanOrEqual(1.4);
+      expect(enforced.smoothing).toBeGreaterThanOrEqual(0.82);
+      expect(enforced.falloff).toBeGreaterThanOrEqual(0.78);
+      expect(enforced.beat).toBeLessThanOrEqual(0.35);
+      expect(resolveVisualizerColors(enforced).cycleMode).toBe("off");
+    }
+  });
+
   it("reduces frame rate and density under sustained drawing pressure", () => {
     expect(degradeVisualizer(60, 160, 20)).toEqual({ fps: 30, density: 120 });
     expect(degradeVisualizer(30, 64, 30)).toEqual({ fps: 15, density: 48 });
