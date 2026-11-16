@@ -22,6 +22,7 @@ import { THEME_FILE_ID } from "./themeFile";
 import { useSystemDarkMode } from "./useSystemDarkMode";
 import { useThemeFileSync } from "./useThemeFile";
 import { saveBootTheme } from "./profiles/bootTheme";
+import { useAppFont } from "./appFont";
 
 export function useTheme() {
   const pickedThemeId = useAppSettingsStore((state) => state.values[SETTINGS.THEME_ID] ?? "default");
@@ -75,7 +76,6 @@ export function useTheme() {
 
 export function ThemeController() {
   const { theme, themeId, variant, followSystem } = useTheme();
-  const appFont = useAppSettingsStore((state) => state.values[SETTINGS.APP_FONT] ?? "inter");
   const colorBlindEnabled = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_ENABLED] === "true");
   const paletteValue = useAppSettingsStore((state) => state.values[SETTINGS.COLOR_BLIND_PALETTE] ?? "deuteranomaly");
   const settingsLoaded = useAppSettingsStore((state) => state.loaded);
@@ -147,9 +147,7 @@ export function ThemeController() {
     };
   }, [colorBlindEnabled, followSystem, paletteValue, theme, variant]);
 
-  useEffect(() => {
-    document.documentElement.dataset.appFont = appFont;
-  }, [appFont]);
+  useAppFont();
 
   return createElement("div", { className: "theme-ambient-layer", "aria-hidden": "true" });
 }

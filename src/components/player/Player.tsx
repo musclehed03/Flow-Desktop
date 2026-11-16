@@ -73,6 +73,10 @@ import { videoPlayerKeyAction } from "../../lib/videoPlayerKeys";
 import { IS_MAIN_WINDOW } from "../../lib/appWindow";
 import { useAmbientSettings } from "../../lib/ambient/useAmbientSettings";
 import { AmbientGlow } from "./AmbientGlow";
+import { useUiStore } from "../../store/useUiStore";
+import { SphericalView, type LookAround } from "./SphericalView";
+import type { Projection } from "../../lib/spherical/view";
+import { useLookSpeed } from "../../lib/spherical/useLookSpeed";
 import {
   AUDIO_DRIFT_TOLERANCE_SECONDS,
   AUDIO_RESYNC_MIN_INTERVAL_MS,
@@ -153,6 +157,8 @@ type PlayerProps = {
   chapters?: VideoChapter[];
   heatmap?: HeatmapMarker[];
   storyboard?: StoryboardLevel[];
+  /** How a 360 video maps onto its sphere; null for a flat one. */
+  projection?: Projection | null;
   /** How many dB louder than the site's target the video plays. */
   loudnessDb?: number | null;
 };
@@ -328,6 +334,7 @@ export const Player: React.FC<PlayerProps> = ({
   chapters = [],
   heatmap,
   storyboard,
+  projection = null,
   loudnessDb,
 }) => {
   const [activeQualityLabel, setActiveQualityLabel] = useState<string | null>(null);
@@ -600,6 +607,31 @@ export const Player: React.FC<PlayerProps> = ({
   const videoAspect = usePlayerStore((state) => state.videoAspect);
 
   const isPipMode = videoPlayerMode === "pip";
+  // The viewer's own 360 view choice for this video, or null to follow the stream (Android #1967).
+  const [sphericalChoice, setSphericalChoice] = useState<{ videoId: string | undefined; shown: boolean } | null>(null);
+  const [sphericalUnavailable, setSphericalUnavailable] = useState(false);
+  const sphericalPicked = sphericalChoice && sphericalChoice.videoId === currentVideoId ? sphericalChoice.shown : null;
+  // The small player shows the flat picture, as on Android.
+  const showsSpherical = !isPipMode && !sphericalUnavailable && (sphericalPicked ?? projection !== null);
+  const lookAround = useRef<LookAround | null>(null);
+  const [lookSpeed] = useLookSpeed();
+  const onSphericalUnavailable = useCallback(() => {
+    setSphericalUnavailable(true);
+    useUiStore.getState().showToast({ message: getString("player_spherical_unavailable") });
+  }, []);
+  const sphericalMenu = useMemo(
+    () =>
+      isPipMode
+        ? null
+        : {
+            shown: showsSpherical,
+            onToggle: (shown: boolean) => {
+              setSphericalUnavailable(false);
+              setSphericalChoice({ videoId: currentVideoId, shown });
+            },
+          },
+    [isPipMode, showsSpherical, currentVideoId],
+  );
   const isTheaterSurface = isTheaterMode && !isPipMode;
   const shouldShowControls = controlsVisible || !isPlaying || settingsOpen || isScrubbing;
   // Never on Linux: WebKitGTK repaints large filtered layers on the CPU, and the
@@ -618,7 +650,7 @@ export const Player: React.FC<PlayerProps> = ({
       glow: ambient.glow,
       theater: isTheaterSurface,
       videoFit,
-      blocked: !IS_MAIN_WINDOW || isPipMode || isFullscreen || Boolean(error),
+      blocked: !IS_MAIN_WINDOW || isPipMode || isFullscreen || Boolean(error) || showsSpherical,
     });
   const ambientSpreadShown = showAmbient && ambient.glow;
   const setIsAmbientSpreadShown = usePlayerStore((state) => state.setIsAmbientSpreadShown);
@@ -1181,6 +1213,23 @@ export const Player: React.FC<PlayerProps> = ({
     revealControls();
   }, [revealControls]);
 
+  // Stats and Recap count a segment once per video, however often a rewind brings it back.
+  const recordSponsorSkip = useCallback((segment: SponsorBlockSegment) => {
+    if (!sbTrackerRef.current.countsOnce(segment.UUID)) return;
+    const [start, end] = segment.segment;
+    void incrementStats(segment.category as SponsorBlockCategory, Math.max(0, end - start));
+    recapSponsorSkip(usePlayerStore.getState().currentVideo ?? {}, segment.category, Math.max(0, end - start) * 1000);
+  }, [incrementStats]);
+
+  // A seek let go of inside a segment that skips automatically lands at its end, as on Android.
+  const sponsorSkipTarget = useCallback((time: number): number | null => {
+    if (!sponsorBlockEnabled || isLive || isScrubbing) return null;
+    const segment = sbTrackerRef.current.skipForSeek(time, sponsorBlockSegments, sponsorBlockActions);
+    if (!segment) return null;
+    recordSponsorSkip(segment);
+    return segment.segment[1];
+  }, [sponsorBlockEnabled, isLive, isScrubbing, sponsorBlockSegments, sponsorBlockActions, recordSponsorSkip]);
+
   const seekTo = useCallback((time: number) => {
     const video = videoRef.current;
     const audio = audioRef.current;
@@ -1193,6 +1242,7 @@ export const Player: React.FC<PlayerProps> = ({
     } else {
       const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration || 0;
       nextTime = dur > 0 ? Math.min(Math.max(time, 0), dur) : Math.max(time, 0);
+      nextTime = sponsorSkipTarget(nextTime) ?? nextTime;
     }
     video.currentTime = nextTime;
     if (audio) {
@@ -1204,7 +1254,19 @@ export const Player: React.FC<PlayerProps> = ({
       }
     }
     setCurrentTime(nextTime);
-  }, [duration, isLive, setCurrentTime]);
+  }, [duration, isLive, setCurrentTime, sponsorSkipTarget]);
+
+  // Letting go of the seek bar inside such a segment skips it too.
+  const wasScrubbingRef = useRef(false);
+  useEffect(() => {
+    const released = wasScrubbingRef.current && !isScrubbing;
+    wasScrubbingRef.current = isScrubbing;
+    const video = videoRef.current;
+    if (released && video) {
+      const target = sponsorSkipTarget(video.currentTime);
+      if (target !== null) seekTo(target);
+    }
+  }, [isScrubbing, sponsorSkipTarget, seekTo]);
 
   const seekBy = useCallback((delta: number) => {
     const video = videoRef.current;
@@ -2282,6 +2344,9 @@ export const Player: React.FC<PlayerProps> = ({
         case "seek-to-fraction":
           if (!isLive && duration > 0) seekTo(duration * action.fraction);
           break;
+        case "look":
+          lookAround.current?.key(action.key);
+          break;
       }
       revealControls();
     };
@@ -2437,17 +2502,11 @@ export const Player: React.FC<PlayerProps> = ({
     if (sponsorBlockEnabled) {
       const sb = sbTrackerRef.current.tick(nextTime, sponsorBlockSegments, sponsorBlockActions, !!video?.ended);
       if (sb.skip) {
-        const [start, end] = sb.skip.segment;
-        seekTo(end);
-        void incrementStats(sb.skip.category as SponsorBlockCategory, Math.max(0, end - start));
-        recapSponsorSkip(usePlayerStore.getState().currentVideo ?? {}, sb.skip.category, Math.max(0, end - start) * 1000);
+        seekTo(sb.skip.segment[1]);
+        recordSponsorSkip(sb.skip);
         return;
       }
-      if (sb.muteStarted) {
-        const [start, end] = sb.muteStarted.segment;
-        void incrementStats(sb.muteStarted.category as SponsorBlockCategory, Math.max(0, end - start));
-        recapSponsorSkip(usePlayerStore.getState().currentVideo ?? {}, sb.muteStarted.category, Math.max(0, end - start) * 1000);
-      }
+      if (sb.muteStarted) recordSponsorSkip(sb.muteStarted);
       if (sb.mute) {
         inMuteSegment = true;
         muteSegmentCategoryName = sb.mute.category;
@@ -2590,8 +2649,17 @@ export const Player: React.FC<PlayerProps> = ({
             setPlaybackDesired(false);
           }
         }}
-        className={cx("relative z-10 h-full w-full", VIDEO_FIT_CLASS[isPipMode ? "fit" : videoFit])}
+        className={cx("relative z-10 h-full w-full", VIDEO_FIT_CLASS[isPipMode ? "fit" : videoFit], showsSpherical && "opacity-0")}
       />
+      {showsSpherical && (
+        <SphericalView
+          videoRef={videoRef}
+          projection={projection ?? "equirectangular"}
+          speed={lookSpeed}
+          lookAround={lookAround}
+          onUnavailable={onSphericalUnavailable}
+        />
+      )}
 
       {usesExternalAudio && selectedAudioTrack?.localUrl && (
         <audio
@@ -2635,6 +2703,7 @@ export const Player: React.FC<PlayerProps> = ({
         canDragFrame={isPipMode && !isPopOut && !isFullscreen}
         settingsOpen={settingsOpen}
         onCloseSettings={closeSettings}
+        lookAround={showsSpherical ? lookAround : null}
       />
 
       {pendingQualitySwitch && (
@@ -2808,6 +2877,7 @@ export const Player: React.FC<PlayerProps> = ({
         speedOptions={configuredSpeedOptions}
         speedSliderEnabled={speedSliderEnabled}
         onSelectPlaybackRate={selectPlaybackRate}
+        spherical={sphericalMenu}
         settingsOpen={settingsOpen}
         setSettingsOpen={setSettingsOpen}
         isScrubbing={isScrubbing}

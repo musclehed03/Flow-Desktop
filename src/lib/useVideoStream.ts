@@ -1,5 +1,6 @@
 import { isKnownMusicVideo } from "./musicVideoProvenance";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Projection } from "./spherical/view";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { invalidateStreamInfo, resolveStreamInfo } from "./streamResolution";
 import { classifyPlayerError } from "./playerError";
@@ -188,6 +189,8 @@ export interface VideoStream {
   audioTracks: AudioTrack[];
   /** Seek-bar preview sheets. */
   storyboard: StoryboardLevel[];
+  /** How the current 360 video maps onto its sphere, or null for a flat one. */
+  projection: Projection | null;
   /** How many dB louder than the site's target the video plays. */
   loudnessDb: number | null;
   dashManifestUrl: string | null;
@@ -228,6 +231,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
   const [captions, setCaptions] = useState<CaptionTrack[]>([]);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
   const [storyboard, setStoryboard] = useState<StoryboardLevel[]>([]);
+  const [projection, setProjection] = useState<Projection | null>(null);
   const [loudnessDb, setLoudnessDb] = useState<number | null>(null);
   const [dashManifestUrl, setDashManifestUrl] = useState<string | null>(null);
   const [hlsManifestUrl, setHlsManifestUrl] = useState<string | null>(null);
@@ -330,6 +334,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
       setHlsManifestUrl(null);
       setAudioTracks([]);
       setStoryboard([]);
+      setProjection(null);
       setLoudnessDb(null);
       setStreamVariants([]);
       publishCaptions([]);
@@ -398,6 +403,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
         publishCaptions(info.captions || []);
         setAudioTracks(info.audioTracks || []);
         setStoryboard(info.storyboard ?? []);
+        setProjection(info.projection ?? null);
         setLoudnessDb(info.loudnessDb ?? null);
         setIsLive(!!info.isLive);
 
@@ -471,6 +477,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
         publishCaptions([]);
         setAudioTracks([]);
         setStoryboard([]);
+        setProjection(null);
         setLoudnessDb(null);
         setDashManifestUrl(null);
         setHlsManifestUrl(null);
@@ -620,6 +627,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
     publishCaptions([]);
     setAudioTracks([]);
     setStoryboard([]);
+    setProjection(null);
     setLoudnessDb(null);
     setSelectedQualityId("auto");
     setStreamError(null);
@@ -653,6 +661,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
         publishCaptions(info.captions || []);
         setAudioTracks(info.audioTracks || []);
         setStoryboard(info.storyboard ?? []);
+        setProjection(info.projection ?? null);
         setLoudnessDb(info.loudnessDb ?? null);
         setIsLive(!!info.isLive);
         const canUseAdaptive = (info.audioTracks || []).some((track) => !!track.localUrl);
@@ -719,6 +728,7 @@ export function useVideoStream(videoId: string | undefined): VideoStream {
     captions: isLocalMediaId(videoId) ? captionsInStore : captions,
     audioTracks,
     storyboard,
+    projection,
     loudnessDb,
     dashManifestUrl,
     hlsManifestUrl,
