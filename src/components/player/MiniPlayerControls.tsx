@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef } from "react";
 import { Brain, FastForward, ListVideo, Maximize2, Minimize2, Rewind } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
@@ -40,8 +39,6 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
   isFullscreen,
   toggleFullscreen,
 }) => {
-  const { t: sensoryText } = useTranslation("settings");
-  // sensory.controls has no equivalent in strings.json yet; this hook stays for it.
   const playNext = usePlayerStore((s) => s.playNext);
   const playPrevious = usePlayerStore((s) => s.playPrevious);
   const volume = usePlayerStore((s) => s.volume);
@@ -224,7 +221,7 @@ export const MiniPlayerControls: React.FC<MiniPlayerControlsProps> = ({
           <button
             type="button"
             data-player-control="deviant-controls"
-            aria-label={sensoryText("sensory.controls")}
+            aria-label={getString('sensory_controls')}
             aria-haspopup="dialog"
             onClick={openDeviantControls}
             className={sideBtn}

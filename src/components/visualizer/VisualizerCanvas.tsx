@@ -1,5 +1,5 @@
+import { getString } from "../../lib/i18n/index";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { customizeMilkdropPreset, resolveMilkdropRenderer } from "../../lib/audio/milkdrop";
 import { musicAudioEngine } from "../../lib/audio/musicAudioEngine";
 import {
@@ -23,7 +23,6 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 type VisualizerStatus = "waiting" | "active" | "idle" | "fallback";
 
 export function VisualizerCanvas({ config, surface: override }: { config: VisualizerConfig; surface?: "music" | "video" }) {
-  const { t } = useTranslation("settings");
   const canvas = useRef<HTMLCanvasElement>(null);
   const selected = useVisualizerUi((state) => state.surface);
   const surface = override ?? selected;
@@ -250,7 +249,7 @@ export function VisualizerCanvas({ config, surface: override }: { config: Visual
   return <figure className="relative h-full w-full overflow-hidden rounded-2xl bg-[var(--dd-near-black)]">
     <canvas key={`${effectiveConfig.family}:${safe}:${webglFailed}`} ref={canvas} aria-hidden="true" className="h-full w-full" />
     <figcaption className="absolute bottom-1 start-2 text-xs text-[var(--dd-light-text)]">
-      {t(!consented ? "visualizer.review" : safe ? "visualizer.safeFrame" : status === "waiting" ? "visualizer.waiting" : status === "idle" ? "visualizer.idle" : status === "fallback" ? "visualizer.fallback" : "visualizer.active")}
+      {getString(!consented ? 'visualizer_review' : safe ? 'visualizer_safeFrame' : status === "waiting" ? 'visualizer_waiting' : status === "idle" ? 'visualizer_idle' : status === "fallback" ? 'visualizer_fallback' : 'visualizer_active')}
     </figcaption>
   </figure>;
 }

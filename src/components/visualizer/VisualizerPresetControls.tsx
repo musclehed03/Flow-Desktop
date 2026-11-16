@@ -1,6 +1,6 @@
+import { getString, type StringKey } from "../../lib/i18n/index";
 import { Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import {
   VISUALIZER_DEFAULTS,
   enforceReducedFlash,
@@ -20,7 +20,6 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
   savePresets: (value: string) => void;
   reducedFlash: boolean;
 }) {
-  const { t } = useTranslation("settings");
   const fileInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [flashRisk, setFlashRisk] = useState(false);
@@ -41,31 +40,31 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
 
   return <section className="space-y-4 border-t border-outline-variant pt-4">
     <div>
-      <h3 className="text-sm font-semibold text-on-surface">{t("visualizer.presetLibrary")}</h3>
-      <p className="mt-1 text-xs leading-5 text-on-surface-variant">{t("visualizer.presetLibraryDesc")}</p>
+      <h3 className="text-sm font-semibold text-on-surface">{getString('visualizer_presetLibrary')}</h3>
+      <p className="mt-1 text-xs leading-5 text-on-surface-variant">{getString('visualizer_presetLibraryDesc')}</p>
     </div>
-    {pending && <div role="alert" className="rounded-xl border-2 border-error p-3 text-sm" data-tooltip-detail={t("visualizer.flashWarningDesc")}>
-      <p className="font-semibold">{t("visualizer.flashWarning", { name: pending.name })}</p>
-      <p className="mt-1 text-xs text-on-surface-variant">{reducedFlash ? t("visualizer.flashWarningReduced") : t("visualizer.flashWarningDesc")}</p>
+    {pending && <div role="alert" className="rounded-xl border-2 border-error p-3 text-sm" data-tooltip-detail={getString('visualizer_flashWarningDesc')}>
+      <p className="font-semibold">{getString('visualizer_flashWarning', pending.name)}</p>
+      <p className="mt-1 text-xs text-on-surface-variant">{reducedFlash ? getString('visualizer_flashWarningReduced') : getString('visualizer_flashWarningDesc')}</p>
       <div className="mt-3 flex gap-2">
-        <button type="button" onClick={confirmPending} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.applyPreset")}</button>
-        <button type="button" onClick={() => setPending(null)} className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.cancelPreset")}</button>
+        <button type="button" onClick={confirmPending} className="rounded-full border-2 border-outline-variant px-3 py-2">{getString('visualizer_applyPreset')}</button>
+        <button type="button" onClick={() => setPending(null)} className="rounded-full border-2 border-outline-variant px-3 py-2">{getString('visualizer_cancelPreset')}</button>
       </div>
     </div>}
     {categories.map((category) => <div key={category}>
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">{t(`visualizer.category_${category}`)}</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">{getString(`visualizer_category_${category}` as StringKey)}</h4>
       <div className="mt-2 flex flex-wrap gap-2">
         {VISUALIZER_DEFAULTS.filter((preset) => preset.category === category).map((preset) => {
-          const presetName = t(`visualizer.preset_${preset.key}`);
+          const presetName = getString(`visualizer_preset_${preset.key}` as StringKey);
           return <button type="button" key={preset.key} onClick={() => load(presetName, preset.config, preset.flashRisk)}
-            data-tooltip-detail={t(`visualizer.category_${category}_desc`)} className="rounded-full border-2 border-outline-variant px-3 py-2 text-sm">
-            {presetName}{preset.flashRisk && <span className="ms-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
+            data-tooltip-detail={getString(`visualizer_category_${category}_desc` as StringKey)} className="rounded-full border-2 border-outline-variant px-3 py-2 text-sm">
+            {presetName}{preset.flashRisk && <span className="ms-2 font-semibold">· {getString('visualizer_flashBadge')}</span>}
           </button>;
         })}
       </div>
-      <p className="mt-1 text-xs text-on-surface-variant">{t(`visualizer.category_${category}_desc`)}</p>
+      <p className="mt-1 text-xs text-on-surface-variant">{getString(`visualizer_category_${category}_desc` as StringKey)}</p>
     </div>)}
-    <VisualizerControl label={t("visualizer.savePreset")} description={t("visualizer.savePresetDesc")}>
+    <VisualizerControl label={getString('visualizer_savePreset')} description={getString('visualizer_savePresetDesc')}>
       <form className="space-y-2" onSubmit={(event) => {
         event.preventDefault();
         if (!name.trim()) return;
@@ -73,30 +72,30 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
         setName(""); setFlashRisk(false);
       }}>
         <div className="flex flex-wrap gap-2">
-          <input value={name} onChange={(event) => setName(event.target.value)} aria-label={t("visualizer.presetName")} placeholder={t("visualizer.presetName")} className={`min-w-0 flex-1 ${visualizerInputClass}`} />
-          <button type="submit" className="rounded-full border-2 border-outline-variant px-3 py-2">{t("visualizer.savePreset")}</button>
+          <input value={name} onChange={(event) => setName(event.target.value)} aria-label={getString('visualizer_presetName')} placeholder={getString('visualizer_presetName')} className={`min-w-0 flex-1 ${visualizerInputClass}`} />
+          <button type="submit" className="rounded-full border-2 border-outline-variant px-3 py-2">{getString('visualizer_savePreset')}</button>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={flashRisk} onChange={(event) => setFlashRisk(event.target.checked)} />
-          {t("visualizer.markFlashRisk")}
+          {getString('visualizer_markFlashRisk')}
         </label>
       </form>
     </VisualizerControl>
     {presets.length > 0 && <div>
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">{t("visualizer.category_custom")}</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">{getString('visualizer_category_custom')}</h4>
       <div className="mt-2 flex flex-wrap gap-2">{presets.map((preset, index) => <button type="button" key={`${preset.name}-${index}`}
         onClick={() => load(preset.name, preset.config, preset.flashRisk)} className="rounded-full border-2 border-outline-variant px-3 py-2 text-sm">
-        {preset.name}{preset.flashRisk && <span className="ms-2 font-semibold">· {t("visualizer.flashBadge")}</span>}
+        {preset.name}{preset.flashRisk && <span className="ms-2 font-semibold">· {getString('visualizer_flashBadge')}</span>}
       </button>)}</div>
-      <p className="mt-1 text-xs text-on-surface-variant">{t("visualizer.category_custom_desc")}</p>
+      <p className="mt-1 text-xs text-on-surface-variant">{getString('visualizer_category_custom_desc')}</p>
     </div>}
-    <VisualizerControl label={t("visualizer.portablePresets")} description={t("visualizer.portablePresetsDesc")}>
+    <VisualizerControl label={getString('visualizer_portablePresets')} description={getString('visualizer_portablePresetsDesc')}>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => fileInput.current?.click()} className="inline-flex items-center gap-2 rounded-full border-2 border-outline-variant px-3 py-2">
-          <Upload size={16} />{t("visualizer.importDdviz")}
+          <Upload size={16} />{getString('visualizer_importDdviz')}
         </button>
         <button type="button" disabled={!presets.length} onClick={() => downloadDdviz(presets)} className="inline-flex items-center gap-2 rounded-full border-2 border-outline-variant px-3 py-2 disabled:opacity-40">
-          <Download size={16} />{t("visualizer.exportDdviz")}
+          <Download size={16} />{getString('visualizer_exportDdviz')}
         </button>
         <input ref={fileInput} type="file" accept=".ddviz,application/json" className="hidden" onChange={async (event) => {
           const file = event.target.files?.[0]; event.target.value = "";
@@ -104,8 +103,8 @@ export function VisualizerPresetControls({ value, apply, presets, savePresets, r
           try {
             const imported = await readDdvizFile(file);
             save(mergeVisualizerPresets(presets, imported));
-            setImportStatus(t("visualizer.importSuccess", { count: imported.length }));
-          } catch { setImportStatus(t("visualizer.importFailed")); }
+            setImportStatus(getString('visualizer_importSuccess', imported.length));
+          } catch { setImportStatus(getString('visualizer_importFailed')); }
         }} />
       </div>
       {importStatus && <p role="status" className="mt-2 text-xs text-on-surface-variant">{importStatus}</p>}
