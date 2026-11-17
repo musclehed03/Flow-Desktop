@@ -6,6 +6,7 @@ import { MusicNowPlayingSettings } from '../music/MusicNowPlayingSettings';
 import { MusicMiniPlayerSettings } from '../music/MusicMiniPlayerSettings';
 import { MusicPlaybackSettings } from '../music/MusicPlaybackSettings';
 import { ScrobblingSection } from '../../scrobbling/ScrobblingSection';
+import { LastfmSection } from '../../scrobbling/LastfmSection';
 import { getString } from '../../../lib/i18n/index';
 
 /** Every music setting in one place, grouped the way Flow for Android groups them. */
@@ -21,6 +22,7 @@ export function MusicTab() {
         <MusicTraySetting />
       </SettingsGroup>
       <ScrobblingSection />
+      <LastfmSection />
     </div>
   );
 }

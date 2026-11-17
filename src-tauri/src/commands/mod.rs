@@ -11,6 +11,7 @@ pub mod downloads;
 pub mod external;
 pub mod files;
 pub mod home_feed;
+pub mod lastfm_embedded;
 pub mod linked;
 pub mod live;
 pub mod local_media;

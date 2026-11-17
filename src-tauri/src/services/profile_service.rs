@@ -33,7 +33,7 @@ const RECOMMENDATION_KEYS: [&str; 6] = [
 
 /// Never copied as a setting: library data (history, likes and playlists are never copied),
 /// engine and sync state, and the profile's in-progress state.
-const NEVER_COPIED_AS_SETTINGS: [&str; 14] = [
+const NEVER_COPIED_AS_SETTINGS: [&str; 17] = [
     "liked_items",
     "user_playlists",
     "saved_albums",
@@ -48,6 +48,9 @@ const NEVER_COPIED_AS_SETTINGS: [&str; 14] = [
     "sponsorblock_saved_seconds",
     "sponsorblock_skipped_segments",
     "blocked_reveal_pin",
+    "lastfm_api_key",
+    "lastfm_secret",
+    "lastfm_session_key",
 ];
 
 #[derive(Debug, Clone, Default, Deserialize)]

@@ -173,6 +173,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
     { title: "settings_music_tray" },
     ...MUSIC_HOME_SHELVES.map((shelf) => ({ title: shelf.title, keywords: ["music home", "shelf", "section"] })),
     { title: "scrobbling_import", summary: "scrobbling_import_summary", keywords: ["last.fm", "libre.fm", "listenbrainz"] },
+    { title: "lastfm_title", summary: "lastfm_summary", keywords: ["last.fm", "scrobble", "api key", "session"] },
   ]),
   ...rows("lyrics", [
     { title: "lyrics_alignment" },

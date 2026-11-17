@@ -1067,7 +1067,8 @@ pub fn run() {
             scrobble_listened,
             scrobble_love,
             scrobble_flush,
-            scrobble_retry_keychain
+            scrobble_retry_keychain,
+            commands::lastfm_embedded::lastfm_embedded_post
         ])
         .build(context)
         .expect("error while building Flow Desktop")

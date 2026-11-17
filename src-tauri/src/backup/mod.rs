@@ -22,8 +22,11 @@ pub mod reader;
 
 /// Settings the schema marks `private`. They never enter a backup file, even if a caller asks for
 /// them; `src/lib/settings/backupPrivacy.test.ts` keeps this list equal to the schema.
-pub const NEVER_BACKED_UP: [&str; 4] = [
+pub const NEVER_BACKED_UP: [&str; 7] = [
     "blocked_reveal_pin",
+    "lastfm_api_key",
+    "lastfm_secret",
+    "lastfm_session_key",
     "proxy_username",
     "proxy_password",
     "sponsorblock_user_id",

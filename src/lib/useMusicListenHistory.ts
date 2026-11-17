@@ -6,11 +6,13 @@ import { useMusicPlayerStore } from "../store/useMusicPlayerStore";
 import { shouldRecordWatchHistory } from "./deepFlow";
 import { isLocalMediaId } from "./localMediaId";
 import { MusicListenTracker } from "./musicListenTracker";
+import { LastfmSession } from "./lastfm/session";
 import { recordSongHistory } from "./musicHistory";
 import { rememberResumePosition } from "./musicResume";
 import { RecapMusicSession } from "./recap/musicSession";
 
 const recapListening = new RecapMusicSession();
+const lastfmListening = new LastfmSession();
 
 /** The one tracker the audio element's events feed. */
 export const musicListens = new MusicListenTracker({
@@ -20,6 +22,8 @@ export const musicListens = new MusicListenTracker({
     if (isLocalMediaId(track.videoId ?? track.id)) return;
     void recordSongHistory(track, listenedSeconds, durationSeconds);
     recapListening.note(track, listenedSeconds, durationSeconds);
+    // The embedded Last.fm scrobbler reads the same totals, never its own tracker.
+    lastfmListening.note(track, listenedSeconds, durationSeconds);
   },
   recordPosition: (track, positionSeconds, durationSeconds) => {
     const id = track.videoId ?? track.id;

@@ -56,7 +56,7 @@ describe("setting export scope", () => {
 
   it("never exports secrets, whatever else travels", () => {
     const exported = new Set(SETTING_EXPORT_KEYS);
-    for (const key of [SETTINGS.BLOCKED_REVEAL_PIN, SETTINGS.PROXY_USERNAME, SETTINGS.PROXY_PASSWORD]) {
+    for (const key of [SETTINGS.BLOCKED_REVEAL_PIN, SETTINGS.PROXY_USERNAME, SETTINGS.PROXY_PASSWORD, SETTINGS.LASTFM_API_KEY, SETTINGS.LASTFM_SECRET, SETTINGS.LASTFM_SESSION_KEY]) {
       expect(exported.has(key)).toBe(false);
     }
   });
