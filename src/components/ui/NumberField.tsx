@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export interface NumberFieldProps {
   value: number;
@@ -20,7 +20,14 @@ export interface NumberFieldProps {
 export function NumberField({ value, decimals, unit, disabled, ariaLabel, ariaDescribedBy, onCommit }: NumberFieldProps) {
   const shown = value.toFixed(decimals);
   const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
+  // Sync the typed draft with the value during render, not in an effect: the
+  // effect version committed a second time when the parent re-rendered, which
+  // broke the player controls' one-commit-on-duration-change invariant.
+  const [prevShown, setPrevShown] = useState(shown);
+  if (shown !== prevShown) {
+    setPrevShown(shown);
+    setDraft(shown);
+  }
 
   const commit = () => {
     const parsed = Number(draft.replace(",", "."));
