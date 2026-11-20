@@ -38,10 +38,8 @@ import {
 } from "../../lib/externalAudioSync";
 import { useSubtitleSettingsSync } from "../../lib/useSubtitleSettingsSync";
 import type { AudioTrack, CaptionTrack, StreamVariant } from "../../types/video";
-import { SubtitleOverlay } from "../player/SubtitleOverlay";
-import { StatsForNerds } from "../player/StatsForNerds";
-import { MediaScrubber } from "../ui/MediaScrubber";
 import { TypedSlider } from "../ui/TypedSlider";
+import { ShortScrubber, ShortStats, ShortSubtitles } from "./ShortTimeViews";
 import { noteShortEnded, noteShortProgress } from "../../lib/shortViews";
 import { listenForShortsKeys } from "../../lib/shortsKeys";
 import { useVideoEq } from "../../lib/audio/useVideoEq";
@@ -151,7 +149,6 @@ export function ShortVideoSurface({
   }, [volume]);
   const [fit, setFit] = useState<"cover" | "contain">("cover");
   const [userPaused, setUserPaused] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPane, setSettingsPane] = useState<SettingsPane>("root");
@@ -292,7 +289,6 @@ export function ShortVideoSurface({
     if (!active) {
       setUserPaused(false);
       userPausedRef.current = false;
-      setProgress(0);
       setDuration(0);
       teardown();
       return teardown;
@@ -440,21 +436,26 @@ export function ShortVideoSurface({
     if (!video.paused && !userPausedRef.current) void audio.play().catch(() => {});
   }, [active, audioUrl, hasSeparateAudio, playbackRate]);
 
+  // Checked from the time tick below instead of from position state, which re-rendered the
+  // whole surface on every tick.
+  const advanceAfterIntervalRef = useRef<(seconds: number) => void>(() => {});
   useEffect(() => {
-    if (!active || playbackMode !== "auto_interval" || autoAdvanceFiredRef.current) return;
-    const intervalSeconds = Math.min(20, Math.max(5, autoScrollSeconds));
-    if (duration > 0 && duration <= intervalSeconds) return;
-    if (progress < intervalSeconds) return;
-    autoAdvanceFiredRef.current = true;
-    onRequestAdvance?.();
-  }, [active, autoScrollSeconds, duration, onRequestAdvance, playbackMode, progress]);
+    advanceAfterIntervalRef.current = (seconds) => {
+      if (!active || playbackMode !== "auto_interval" || autoAdvanceFiredRef.current) return;
+      const intervalSeconds = Math.min(20, Math.max(5, autoScrollSeconds));
+      if (duration > 0 && duration <= intervalSeconds) return;
+      if (seconds < intervalSeconds) return;
+      autoAdvanceFiredRef.current = true;
+      onRequestAdvance?.();
+    };
+  }, [active, autoScrollSeconds, duration, onRequestAdvance, playbackMode]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const syncProgress = () => {
-      setProgress(video.currentTime || 0);
+      advanceAfterIntervalRef.current(video.currentTime || 0);
       const known = Number.isFinite(video.duration) && video.duration > 0;
       if (known) setDuration(video.duration);
       noteShortProgress(videoId, (video.currentTime || 0) * 1000, known ? video.duration * 1000 : 0);
@@ -602,14 +603,15 @@ export function ShortVideoSurface({
 
   // A Shorts link can't carry a time, so the timed link opens the short as a regular video.
   const getCurrentUrl = useCallback(
-    (includeTime: boolean) => (includeTime ? youtubeWatchUrl(videoId, progress) : youtubeShortsUrl(videoId)),
-    [progress, videoId],
+    (includeTime: boolean) =>
+      includeTime ? youtubeWatchUrl(videoId, videoRef.current?.currentTime ?? 0) : youtubeShortsUrl(videoId),
+    [videoId],
   );
 
   const copyDebugInfo = useCallback(async () => {
     const video = videoRef.current;
     const copied = await copyText(JSON.stringify({
-      currentTime: formatTime(progress),
+      currentTime: formatTime(video?.currentTime ?? 0),
       duration: formatTime(duration),
       playbackRate,
       selectedQualityId,
@@ -619,7 +621,7 @@ export function ShortVideoSurface({
       captions: captions.length,
     }, null, 2));
     showCopied(getString(copied ? "player_debug_info_copied" : "player_debug_info_copy_failed"));
-  }, [captions.length, duration, playbackRate, progress, selectedQualityId, showCopied]);
+  }, [captions.length, duration, playbackRate, selectedQualityId, showCopied]);
 
   const togglePictureInPicture = useCallback(() => {
     const video = videoRef.current;
@@ -643,7 +645,6 @@ export function ShortVideoSurface({
         audio.currentTime = nextTime;
         if (!video.paused && !userPausedRef.current) void audio.play().catch(() => {});
       }
-      setProgress(nextTime);
     },
     [duration, hasSeparateAudio],
   );
@@ -917,10 +918,10 @@ export function ShortVideoSurface({
           )}
         </div>
       )}
-      <SubtitleOverlay
+      <ShortSubtitles
+        videoRef={videoRef}
         captions={captions}
         selectedCaptionId={selectedCaptionId}
-        currentTime={progress}
         shouldShowControls={settingsOpen}
         uprightVideo={fit === "cover"}
       />
@@ -950,8 +951,8 @@ export function ShortVideoSurface({
       )}
       {active && duration > 0 && (
         <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-chrome-black/55 to-transparent px-3 pb-2 pt-6">
-          <MediaScrubber
-            progress={progress}
+          <ShortScrubber
+            videoRef={videoRef}
             duration={duration}
             onSeek={seekTo}
             variant="edge"
@@ -1025,9 +1026,8 @@ export function ShortVideoSurface({
         </div>
       )}
       {statsVisible && (
-        <StatsForNerds
+        <ShortStats
           videoRef={videoRef}
-          currentTime={progress}
           duration={duration}
           playbackRate={playbackRate}
           qualityLabel={selectedQualityLabel}

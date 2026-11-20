@@ -5,7 +5,7 @@ import {
   searchMusicContinuation,
   searchMusicTyped,
 } from './api/music';
-import { getBackendErrorMessage } from './api/errors';
+import { normalizeBackendError, type BackendApiError } from './api/errors';
 import { useDebounce } from './useDebounce';
 import {
   bucketMusicSections,
@@ -37,6 +37,7 @@ export type SearchCategory =
   | 'playlists'
   | 'artists' // "Artists / Channels"
   | 'live'
+  | 'movies'
   | 'podcasts'
   | 'episodes';
 
@@ -52,7 +53,6 @@ export interface AdvancedFilters {
   uploadDate: 'any' | 'hour' | 'today' | 'week' | 'month' | 'year';
   /** short = under 3 min, medium = 3 to 20 min, long = over 20 min. */
   duration: 'any' | 'short' | 'medium' | 'long';
-  contentType: 'any' | 'video' | 'movie';
   /** Every selected feature must hold. */
   features: SearchFeatureFilter[];
   watchState: SearchWatchState;
@@ -81,9 +81,13 @@ export interface UseCombinedSearchReturn {
   exact: boolean;
   searchExactly: () => void;
   isLoading: boolean;
+  /** The query or filters changed and their search hasn't been sent yet. */
+  isSettling: boolean;
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   error: string | null;
+  /** The failure's `AppError` kind ("botCheckRequired", "rateLimited", "network", …). */
+  errorKind: string | null;
   fetchNextPage: () => void;
   refetch: () => void;
 }
@@ -135,6 +139,8 @@ function categoryToMusicFilter(category: SearchCategory): string {
 
 type FetchMode = 'reset' | 'next';
 
+const FILTER_SETTLE_MS = 400;
+
 // --- Hook -----------------------------------------------------------------
 
 export function useCombinedSearch(
@@ -150,7 +156,8 @@ export function useCombinedSearch(
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const [hasNextPage, setHasNextPage] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<BackendApiError | null>(null);
+  const setError = useCallback((reason: unknown) => setFailure(reason === null ? null : normalizeBackendError(reason)), []);
   // The music filters YouTube Music offered, and the query it offered them for.
   const [offered, setOffered] = useState<{ query: string; filters: string[] } | null>(null);
 
@@ -215,6 +222,7 @@ export function useCombinedSearch(
         fetchingRef.current = false;
       } else {
         fetchingRef.current = true;
+        setError(null);
         setIsFetchingNextPage(true);
       }
 
@@ -249,7 +257,7 @@ export function useCombinedSearch(
           );
 
           if (ytRes.status === 'rejected' && (!music || musicRes.status === 'rejected')) {
-            setError(getBackendErrorMessage(ytRes.reason));
+            setError(ytRes.reason);
           }
           return;
         }
@@ -282,7 +290,7 @@ export function useCombinedSearch(
           return;
         }
 
-        if (category === 'videos' || category === 'live') {
+        if (category === 'videos' || category === 'live' || category === 'movies') {
           const isLive = category === 'live';
           const pageToken = mode === 'next' ? ytTokenRef.current : null;
           const adv = filtersRef.current;
@@ -292,24 +300,32 @@ export function useCombinedSearch(
             sortBy: sortRef.current,
             uploadDate: adv.uploadDate,
             duration: adv.duration,
-            contentType: adv.contentType === 'any' ? null : adv.contentType,
+            contentType: category === 'movies' ? 'movie' : null,
             features: isLive ? ['live', ...adv.features] : adv.features,
             exact: exactRef.current,
           });
           if (!alive()) return;
 
-          const page = videoSections(res);
           ytTokenRef.current = res.nextPageToken ?? null;
           setNext(Boolean(res.nextPageToken));
           setResults((prev) => {
             if (mode === 'next') {
               const key = isLive ? 'live' : 'videos';
+              const page = videoSections(res, {
+                lastVideoId: prev[key][prev[key].length - 1]?.id ?? null,
+                videoIds: new Set(prev[key].map((video) => video.id)),
+                shortIds: new Set(prev.shorts.map((short) => short.id)),
+              });
               return {
                 ...prev,
                 [key]: dedupe([...prev[key], ...page.videos], (v) => v.id),
                 shorts: dedupe([...prev.shorts, ...page.shorts], (v) => v.id),
+                shortsShelves: [...prev.shortsShelves, ...page.shortsShelves],
+                shelves: [...prev.shelves, ...page.shelves],
+                postShelves: [...prev.postShelves, ...page.postShelves],
               };
             }
+            const page = videoSections(res);
             return isLive
               ? { ...emptyResults(), live: page.videos, correction: page.correction }
               : { ...emptyResults(), ...page };
@@ -358,7 +374,7 @@ export function useCombinedSearch(
           );
 
           if ((!music || musicR.status === 'rejected') && ytR.status === 'rejected') {
-            setError(getBackendErrorMessage(ytR.reason));
+            setError(ytR.reason);
           }
           return;
         }
@@ -371,7 +387,7 @@ export function useCombinedSearch(
         const b = bucketMusicSections(res.sections);
         setResults(mergeMusicBucket(emptyResults(), category, b));
       } catch (err) {
-        if (alive()) setError(getBackendErrorMessage(err));
+        if (alive()) setError(err);
       } finally {
         if (alive()) {
           setIsLoading(false);
@@ -380,23 +396,32 @@ export function useCombinedSearch(
         }
       }
     },
-    [setNext],
+    [setNext, setError],
   );
 
-  useEffect(() => {
-    void execute('reset');
-  }, [
+  // Filter clicks settle before searching, so picking three features sends one request, not three.
+  const settledFilters = useDebounce(filters, FILTER_SETTLE_MS);
+  const requestKey = JSON.stringify([
     debouncedQuery,
     filterType,
     sortBy,
     filters.uploadDate,
     filters.duration,
-    filters.contentType,
-    filters.features,
+    [...filters.features].sort(),
     exact,
     musicEnabled,
-    execute,
   ]);
+  const lastRequestRef = useRef<string | null>(null);
+  const filtersKey = (f: AdvancedFilters) => JSON.stringify([f.uploadDate, f.duration, [...f.features].sort()]);
+  const isSettling = query.trim() !== debouncedQuery || filtersKey(filters) !== filtersKey(settledFilters);
+  useEffect(() => {
+    // A past search restores its tab and filters together; the settled copy then catches up to
+    // what already ran.
+    if (requestKey === lastRequestRef.current) return;
+    lastRequestRef.current = requestKey;
+    void execute('reset');
+    // `requestKey` is read, not watched, so a filter change waits for `settledFilters`.
+  }, [debouncedQuery, filterType, sortBy, settledFilters, exact, musicEnabled, execute]);
 
   const fetchNextPage = useCallback(() => {
     void execute('next');
@@ -405,6 +430,7 @@ export function useCombinedSearch(
   const refetch = useCallback(() => {
     void execute('reset');
   }, [execute]);
+
 
   const searchExactly = useCallback(() => setExactQuery(queryRef.current), []);
 
@@ -428,9 +454,11 @@ export function useCombinedSearch(
     exact,
     searchExactly,
     isLoading,
+    isSettling,
     isFetchingNextPage,
     hasNextPage,
-    error,
+    error: failure?.message ?? null,
+    errorKind: failure?.kind ?? null,
     fetchNextPage,
     refetch,
   };

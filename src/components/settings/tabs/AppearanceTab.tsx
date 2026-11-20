@@ -123,7 +123,7 @@ export function AppearanceTab() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl pb-28">
+    <div className="pb-8">
       <SensorySettings />
       <div className="mt-6">
         <SettingsGroup title={getString("settings_group_guidance")}>

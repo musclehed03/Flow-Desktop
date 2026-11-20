@@ -131,6 +131,8 @@ describe("the hide paths", () => {
       videos: [video("a", LISTED_ID), video("b", CLEAN_ID)],
       live: [],
       shorts: [],
+      shortsShelves: [],
+      postShelves: [],
       channels: [{ channelId: "UCdddddddddddddddddddddd", name: "s", handle: "@SlopMaker", isVerified: false }],
       shelves: [],
     } as unknown as CombinedSearchResults;

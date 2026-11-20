@@ -3,6 +3,7 @@
 //! sit and what they hold, because Takeout translates their names. Only the few entries that matter
 //! are ever decompressed, so an archive that also holds hundreds of gigabytes of video stays cheap.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -32,7 +33,10 @@ fn segments(name: &str) -> Option<Vec<&str>> {
     let product = *parts.get(1)?;
     let is_youtube = product.eq_ignore_ascii_case("YouTube")
         || (product.len() > 8
-            && product[..8.min(product.len())].eq_ignore_ascii_case("YouTube ")
+            && product
+                .as_bytes()
+                .get(..8)
+                .is_some_and(|head| head.eq_ignore_ascii_case(b"YouTube "))
             && product.to_lowercase().ends_with("youtube music"));
     let valid = parts.len() >= 3
         && parts[0].eq_ignore_ascii_case("Takeout")
@@ -99,7 +103,10 @@ fn read_archive(
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_string();
+        // A name that doesn't decode can't be one of the files we read.
+        let Ok(name) = entry.name().map(Cow::into_owned) else {
+            continue;
+        };
         let english_history = name.to_ascii_lowercase().ends_with(ENGLISH_WATCH_HISTORY);
         let bounded = entry.take(MAX_ACTIVITY_BYTES);
         if english_history || is_history_entry(&name, "html") {
@@ -298,8 +305,9 @@ pub fn read_likes_file(path: &Path) -> Result<Found, ImportError> {
         let mut archive = open_zip(path)?;
         let name = archive
             .file_names()
+            .filter_map(Result::ok)
             .find(|name| is_my_activity_entry(name))
-            .map(str::to_string)
+            .map(Cow::into_owned)
             .ok_or(ImportError::NoLikes)?;
         let entry = archive.by_name(&name)?;
         read_activity_json(entry.take(MAX_ACTIVITY_BYTES), false)
@@ -351,6 +359,29 @@ mod tests {
             "Takeout/Meine Aktivitäten/YouTube/x.json"
         ));
         assert!(!is_my_activity_entry("YouTube/x.json"));
+    }
+
+    #[test]
+    fn product_folders_in_any_script_are_read_without_a_crash() {
+        for product in [
+            "Мои действия",
+            "Мої дії",
+            "Η δραστηριότητά μου",
+            "Etkinliğim",
+            "Hoạt động của tôi",
+            "マイアクティビティ",
+            "我的活动",
+            "내 활동",
+            "نشاطي",
+        ] {
+            assert!(!is_csv_entry(&format!("Takeout/{product}/YouTube/x.csv")));
+            assert!(is_my_activity_entry(&format!(
+                "Takeout/{product}/YouTube/MyActivity.json"
+            )));
+        }
+        assert!(is_csv_entry(
+            "Takeout/YouTube и YouTube Music/playlists/x.csv"
+        ));
     }
 
     #[test]
